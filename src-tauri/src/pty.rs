@@ -1,6 +1,6 @@
 //! PTY session management.
 //!
-//! pty_open spawns $SHELL -l with cwd = project_root and registers the
+//! pty_open spawns $SHELL -l with cwd = active_project.path and registers the
 //! session in AppState.ptys. A blocking reader thread (NOT a tokio task —
 //! portable-pty's reader is sync) pumps bytes into `pty://{id}/data`
 //! events. pty_write/resize/close mutate the session through the map.
@@ -41,7 +41,14 @@ pub fn pty_open(
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
-    cmd.cwd(&state.project_root);
+    let project_path = state
+        .active_project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .map(|p| p.path.clone())
+        .ok_or_else(|| "no active project".to_string())?;
+    cmd.cwd(&project_path);
     // Inherit env so `claude` finds ~/.claude credentials.
     for (k, v) in std::env::vars() {
         cmd.env(k, v);
