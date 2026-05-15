@@ -286,10 +286,6 @@ export const App: React.FC = () => {
           overflow: "hidden",
         }}
       >
-        <Transport
-          playerRef={playerRef}
-          durationInFrames={durationInFrames}
-        />
         <PlayerStage
           inputProps={story}
           durationInFrames={durationInFrames}
@@ -300,6 +296,10 @@ export const App: React.FC = () => {
           {story.beats.length} beats ·{" "}
           {(durationInFrames / FPS).toFixed(1)}s · 1080×1920
         </div>
+        <Transport
+          playerRef={playerRef}
+          durationInFrames={durationInFrames}
+        />
       </div>
 
       {/* TIMELINE: center-bottom */}
