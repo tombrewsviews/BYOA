@@ -28,6 +28,7 @@ import {
 import { Panel } from "./panel";
 import { Timeline } from "./timeline";
 import { Terminal } from "./terminal";
+import { isTauri } from "./runtime";
 
 const FPS = 30;
 
@@ -44,14 +45,25 @@ export const App: React.FC = () => {
 
   // load story.json on mount (served by Vite from the project root)
   useEffect(() => {
-    fetch("/story.json")
-      .then((r) => r.json())
-      .then((raw) => {
+    const load = async () => {
+      try {
+        let raw: unknown;
+        if (isTauri()) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const text = await invoke<string>("load_story");
+          raw = JSON.parse(text);
+        } else {
+          const res = await fetch("/story.json");
+          raw = await res.json();
+        }
         const parsed = storySchema.parse(raw);
         setStory(parsed);
         setSavedJson(JSON.stringify(parsed));
-      })
-      .catch((e) => setError(`Failed to load story.json: ${e.message}`));
+      } catch (e) {
+        setError(`Failed to load story.json: ${(e as Error).message}`);
+      }
+    };
+    void load();
   }, []);
 
   useEffect(() => {
@@ -116,13 +128,19 @@ export const App: React.FC = () => {
 
   const handleSave = useCallback(async () => {
     if (!story) return;
+    const json = JSON.stringify(story, null, 2);
     try {
-      const res = await fetch("/__save-story", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(story, null, 2),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      if (isTauri()) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("save_story", { json });
+      } else {
+        const res = await fetch("/__save-story", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: json,
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }
       setSavedJson(JSON.stringify(story));
     } catch (e) {
       setError(`Save failed: ${(e as Error).message}`);
