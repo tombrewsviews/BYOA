@@ -32,6 +32,7 @@ import { isTauri } from "./runtime";
 import { diffFields, applyFields, fieldLabel, readField, type FieldKey } from "./diff";
 import { getActivePtyId } from "./terminal";
 import { beginColumnDrag, usePersistedColumnWidth } from "./resize";
+import { ProjectsView, type ProjectMeta } from "./ProjectsView";
 
 const FPS = 30;
 
@@ -39,7 +40,10 @@ export type Selection =
   | { kind: "story" }
   | { kind: "beat"; index: number };
 
-export const App: React.FC = () => {
+const EditorView: React.FC<{
+  project: ProjectMeta;
+  onClose: () => void;
+}> = ({ project, onClose }) => {
   const [story, setStory] = useState<Story | null>(null);
   const [savedJson, setSavedJson] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -263,128 +267,159 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "var(--col-terminal, 360px) 1fr var(--col-properties, 320px)",
-        gridTemplateRows: "1fr auto",
-        width: "100vw",
-        height: "100vh",
-        background: "#08080c",
-        color: "#e4e4ee",
-        fontFamily:
-          "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      }}
-    >
-      {/* TERMINAL: left column, full height. */}
+    <div style={{ display: "flex", flexDirection: "column", width: "100vw", height: "100vh" }}>
       <div
         style={{
-          gridColumn: "1",
-          gridRow: "1 / span 2",
-          background: "#0a0a10",
-          borderRight: "1px solid #232330",
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        <div
-          onMouseDown={(e) =>
-            beginColumnDrag(e, {
-              side: "left",
-              storageKey: "studio.col.terminal",
-              cssVar: "--col-terminal",
-              defaultPx: 360,
-              minPx: 200,
-              maxPx: 800,
-            })
-          }
-          style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            right: -2,
-            width: 4,
-            cursor: "col-resize",
-            zIndex: 10,
-          }}
-        />
-        <Terminal />
-      </div>
-
-      {/* PREVIEW: center-top */}
-      <div
-        style={{
-          gridColumn: "2",
-          gridRow: "1",
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-          gap: 12,
-          minWidth: 0,
-          overflow: "hidden",
+          gap: 8,
+          padding: "6px 12px",
+          background: "#0a0a10",
+          borderBottom: "1px solid #232330",
+          fontSize: 12,
+          color: "#8b8b9a",
+          flex: "0 0 auto",
         }}
       >
-        <PlayerStage
-          inputProps={story}
-          durationInFrames={durationInFrames}
-          fps={FPS}
-          playerRef={playerRef}
-        />
-        <div style={{ fontSize: 11, color: "#4b4b5a" }}>
-          {story.beats.length} beats ·{" "}
-          {(durationInFrames / FPS).toFixed(1)}s · 1080×1920
-        </div>
-        <Transport
-          playerRef={playerRef}
-          durationInFrames={durationInFrames}
-        />
-      </div>
-
-      {/* TIMELINE: center-bottom */}
-      <div style={{ gridColumn: "2", gridRow: "2", minWidth: 0 }}>
-        <Timeline
-          story={story}
-          selection={selection}
-          onSelect={setSelection}
-          playerRef={playerRef}
-          durationInFrames={durationInFrames}
-          fps={FPS}
-        />
-      </div>
-
-      {/* PROPERTIES: right column, full height */}
-      <div style={{ gridColumn: "3", gridRow: "1 / span 2", minWidth: 0, position: "relative" }}>
-        <div
-          onMouseDown={(e) =>
-            beginColumnDrag(e, {
-              side: "right",
-              storageKey: "studio.col.properties",
-              cssVar: "--col-properties",
-              defaultPx: 320,
-              minPx: 200,
-              maxPx: 600,
-            })
-          }
+        <button
+          onClick={onClose}
           style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            left: -2,
-            width: 4,
-            cursor: "col-resize",
-            zIndex: 10,
+            background: "transparent",
+            border: "1px solid #2e2e3c",
+            borderRadius: 4,
+            color: "#e4e4ee",
+            fontSize: 11,
+            padding: "3px 8px",
+            cursor: "pointer",
           }}
-        />
-        <Panel
-          story={story}
-          selection={selection}
-          onSelect={setSelection}
-          onChange={setStory}
-          dirty={dirty}
-          onSave={handleSave}
-        />
+        >
+          ← Projects
+        </button>
+        <span style={{ color: "#e4e4ee", fontWeight: 600 }}>{project.name}</span>
+        <span style={{ marginLeft: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.path}</span>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "var(--col-terminal, 360px) 1fr var(--col-properties, 320px)",
+          gridTemplateRows: "1fr auto",
+          flex: 1,
+          minHeight: 0,
+          background: "#08080c",
+          color: "#e4e4ee",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        }}
+      >
+        {/* TERMINAL: left column, full height. */}
+        <div
+          style={{
+            gridColumn: "1",
+            gridRow: "1 / span 2",
+            background: "#0a0a10",
+            borderRight: "1px solid #232330",
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
+          <div
+            onMouseDown={(e) =>
+              beginColumnDrag(e, {
+                side: "left",
+                storageKey: "studio.col.terminal",
+                cssVar: "--col-terminal",
+                defaultPx: 360,
+                minPx: 200,
+                maxPx: 800,
+              })
+            }
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              right: -2,
+              width: 4,
+              cursor: "col-resize",
+              zIndex: 10,
+            }}
+          />
+          <Terminal />
+        </div>
+
+        {/* PREVIEW: center-top */}
+        <div
+          style={{
+            gridColumn: "2",
+            gridRow: "1",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            gap: 12,
+            minWidth: 0,
+            overflow: "hidden",
+          }}
+        >
+          <PlayerStage
+            inputProps={story}
+            durationInFrames={durationInFrames}
+            fps={FPS}
+            playerRef={playerRef}
+          />
+          <div style={{ fontSize: 11, color: "#4b4b5a" }}>
+            {story.beats.length} beats ·{" "}
+            {(durationInFrames / FPS).toFixed(1)}s · 1080×1920
+          </div>
+          <Transport
+            playerRef={playerRef}
+            durationInFrames={durationInFrames}
+          />
+        </div>
+
+        {/* TIMELINE: center-bottom */}
+        <div style={{ gridColumn: "2", gridRow: "2", minWidth: 0 }}>
+          <Timeline
+            story={story}
+            selection={selection}
+            onSelect={setSelection}
+            playerRef={playerRef}
+            durationInFrames={durationInFrames}
+            fps={FPS}
+          />
+        </div>
+
+        {/* PROPERTIES: right column, full height */}
+        <div style={{ gridColumn: "3", gridRow: "1 / span 2", minWidth: 0, position: "relative" }}>
+          <div
+            onMouseDown={(e) =>
+              beginColumnDrag(e, {
+                side: "right",
+                storageKey: "studio.col.properties",
+                cssVar: "--col-properties",
+                defaultPx: 320,
+                minPx: 200,
+                maxPx: 600,
+              })
+            }
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: -2,
+              width: 4,
+              cursor: "col-resize",
+              zIndex: 10,
+            }}
+          />
+          <Panel
+            story={story}
+            selection={selection}
+            onSelect={setSelection}
+            onChange={setStory}
+            dirty={dirty}
+            onSave={handleSave}
+          />
+        </div>
       </div>
     </div>
   );
@@ -394,4 +429,59 @@ const fill: React.CSSProperties = {
   width: "100vw",
   height: "100vh",
   margin: 0,
+};
+
+export const App: React.FC = () => {
+  const [project, setProject] = useState<ProjectMeta | null>(null);
+
+  // Listen for project events emitted by Rust.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let off: undefined | (() => void);
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const unOpened = await listen<ProjectMeta>("project://opened", (e) => {
+        setProject(e.payload);
+      });
+      const unClosed = await listen<null>("project://closed", () => {
+        setProject(null);
+      });
+      off = () => {
+        unOpened();
+        unClosed();
+      };
+    })();
+    return () => {
+      if (off) off();
+    };
+  }, []);
+
+  if (!isTauri()) {
+    // Browser mode keeps a single-project behaviour for fast UI iteration.
+    return (
+      <EditorView
+        project={{
+          name: "Browser dev",
+          path: "(browser mode)",
+          beats: 0,
+          lastOpened: new Date().toISOString(),
+        }}
+        onClose={() => undefined}
+      />
+    );
+  }
+
+  if (project) {
+    return (
+      <EditorView
+        key={project.path}
+        project={project}
+        onClose={async () => {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("project_close");
+        }}
+      />
+    );
+  }
+  return <ProjectsView />;
 };

@@ -20,6 +20,7 @@
     "@remotion/player": "^4.0.461",
     "@remotion/zod-types": "^4.0.461",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "dotenv": "^17.4.2",
     "flubber": "^0.4.2",
     "opentype.js": "^2.0.0",
