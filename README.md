@@ -10,17 +10,20 @@ src/HelloVideo.tsx   The video composition — a plain React component.
                      Animation lives here (useCurrentFrame, interpolate, spring).
 src/Root.tsx         Registers <Composition>s — the "render recipe" (size/fps/duration/props).
 src/index.ts         registerRoot() — entry point for Studio + CLI renderer.
-app/App.tsx          Interactive host app — embeds <Player>, wires props to live UI controls.
-app/main.tsx         Vite entry for the host app.
 remotion.config.ts   Config for the CLI/Studio only.
-vite.config.ts       Config for the interactive Player app only.
+vite.editor.config.ts Config for the four-pane editor app.
+editor/App.tsx       Studio shell — four-pane grid, state, keyboard shortcuts.
+editor/player.tsx    <PlayerStage> + <Transport> (play/pause/seek).
+editor/timeline.tsx  Story track + Beats track + live playhead.
+editor/terminal.tsx  Embedded xterm; talks to a node-pty PTY over WS.
+editor/panel.tsx     Selection-driven properties panel.
 ```
 
 ## Run it
 
 ```bash
 npm run studio      # Remotion Studio — visual editor at localhost:3000
-npm run player      # Interactive Player app at localhost:5173
+npm run editor      # Kinetic story studio (terminal + preview + timeline + props) at localhost:5174
 npm run render      # Render HelloVideo -> out/hello.mp4
 #   e.g. npx remotion render HelloVideo out/hello.mp4 --props='{"title":"Hi"}'
 ```
@@ -38,6 +41,50 @@ Remotion has **two consumers of the same component**:
    to the video (via `playerRef`).
 
 Write the composition once; both paths use it.
+
+## The studio (`npm run editor`)
+
+A four-pane editor at `localhost:5174`:
+
+```
+┌─────────────┬──────────────────────┬──────────────┐
+│  TERMINAL   │       PREVIEW        │  PROPERTIES  │
+│             ├──────────────────────┤              │
+│  (xterm +   │      TIMELINE        │ (selection-  │
+│   node-pty) │                      │  driven)     │
+└─────────────┴──────────────────────┴──────────────┘
+```
+
+- **Timeline**: each beat is a clip whose width is proportional to its
+  duration. Click a clip to select it AND seek the player to its start.
+  A yellow playhead line shows the current frame.
+- **Properties**: shows props for the selected element only — either the
+  Story (palette, background, font, glow) or one beat (kind, easing,
+  dynamics, etc.). Drag a slider while playback is running to see changes
+  animate in real time.
+- **Terminal**: a real PTY in the project directory. Type `claude` to
+  drive script-level changes from inside the studio. Login URLs are
+  clickable.
+
+### Keyboard shortcuts
+
+| Key      | Action                       |
+|----------|------------------------------|
+| Space    | Toggle play / pause          |
+| ← / →    | Seek ±1 second               |
+| Home     | Jump to first frame          |
+| End      | Jump to last frame           |
+
+Shortcuts are disabled while typing in input fields or the terminal.
+
+### Native module note
+
+`node-pty` is a native module. On macOS it installs prebuilt binaries. If
+the terminal pane shows `[terminal unavailable ...]`, run:
+
+```bash
+npm rebuild node-pty
+```
 
 ## Best practices baked into this repo
 
