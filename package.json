@@ -6,8 +6,6 @@
     "dev": "remotion studio",
     "studio": "remotion studio",
     "render": "remotion render",
-    "player": "vite",
-    "build:player": "vite build",
     "editor": "vite --config vite.editor.config.ts",
     "build:editor": "vite build --config vite.editor.config.ts",
     "kinetic": "tsx scripts/kinetic.ts"
