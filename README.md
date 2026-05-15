@@ -15,7 +15,7 @@ vite.editor.config.ts Config for the four-pane editor app.
 editor/App.tsx       Studio shell — four-pane grid, state, keyboard shortcuts.
 editor/player.tsx    <PlayerStage> + <Transport> (play/pause/seek).
 editor/timeline.tsx  Story track + Beats track + live playhead.
-editor/terminal.tsx  Embedded xterm; talks to a node-pty PTY over WS.
+editor/terminal.tsx  Embedded xterm; talks to the Tauri PTY backend (desktop) or shows a stub (browser).
 editor/panel.tsx     Selection-driven properties panel.
 ```
 
@@ -24,6 +24,8 @@ editor/panel.tsx     Selection-driven properties panel.
 ```bash
 npm run studio      # Remotion Studio — visual editor at localhost:3000
 npm run editor      # Kinetic story studio (terminal + preview + timeline + props) at localhost:5174
+npm run tauri:dev   # Desktop app (Kinetic Studio) — full PTY terminal
+npm run tauri:build # Bundle a distributable .app / .dmg
 npm run render      # Render HelloVideo -> out/hello.mp4
 #   e.g. npx remotion render HelloVideo out/hello.mp4 --props='{"title":"Hi"}'
 ```
@@ -51,7 +53,7 @@ A four-pane editor at `localhost:5174`:
 │  TERMINAL   │       PREVIEW        │  PROPERTIES  │
 │             ├──────────────────────┤              │
 │  (xterm +   │      TIMELINE        │ (selection-  │
-│   node-pty) │                      │  driven)     │
+│   Tauri PTY)│                      │  driven)     │
 └─────────────┴──────────────────────┴──────────────┘
 ```
 
@@ -79,12 +81,33 @@ Shortcuts are disabled while typing in input fields or the terminal.
 
 ### Native module note
 
-`node-pty` is a native module. On macOS it installs prebuilt binaries. If
-the terminal pane shows `[terminal unavailable ...]`, run:
+The PTY-backed terminal requires the desktop app (`npm run tauri:dev`).
+Browser dev mode (`npm run editor`) skips it and prints a hint in the
+terminal pane.
+
+## Desktop app (`npm run tauri:dev`)
+
+The studio also runs as a native macOS app via Tauri 2. Use the desktop
+app when you want the embedded terminal — browser sandboxes can't open a
+PTY, so `npm run editor` shows a stub message in the terminal pane.
 
 ```bash
-npm rebuild node-pty
+npm run tauri:dev    # opens Kinetic Studio.app loading the Vite UI
+npm run tauri:build  # produces a .app / .dmg under src-tauri/target/
 ```
+
+The terminal spawns your `$SHELL` in the project directory. Type
+`claude` to start the Claude Code CLI; OAuth login URLs are clickable.
+
+Architecture:
+
+- `src-tauri/` — Rust backend (Tauri 2). Owns filesystem (`story.json`
+  save/load) and PTY (`portable-pty` crate).
+- `editor/` — the same React frontend. Detects Tauri at runtime and
+  routes through `invoke`/`listen` instead of `fetch`/WebSocket.
+
+Requires Rust + Cargo (https://rustup.rs/) and Xcode Command Line Tools
+(`xcode-select --install`).
 
 ## Best practices baked into this repo
 
