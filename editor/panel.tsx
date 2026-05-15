@@ -28,7 +28,7 @@ const DIRECTIONS = ["up", "down", "left", "right", "scale"] as const;
 const BG_KINDS = ["gradient", "shader", "image", "video"] as const;
 const SHADER_STYLES = ["aurora", "flowField", "mesh"] as const;
 
-// --- section + card scaffold ------------------------------------------------
+// --- section scaffold -------------------------------------------------------
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
@@ -53,51 +53,6 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   </div>
 );
 
-const Card: React.FC<{
-  index: number;
-  beat: Beat;
-  children: React.ReactNode;
-}> = ({ index, beat, children }) => (
-  <div
-    style={{
-      background: "#14141c",
-      border: "1px solid #232330",
-      borderRadius: 10,
-      padding: 12,
-      marginBottom: 8,
-    }}
-  >
-    <div
-      style={{
-        display: "flex",
-        alignItems: "baseline",
-        gap: 8,
-        marginBottom: 10,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 10,
-          color: "#6b6b80",
-          background: "#232330",
-          borderRadius: 4,
-          padding: "2px 6px",
-        }}
-      >
-        {index + 1}
-      </span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: "#e4e4ee" }}>
-        {beat.text}
-      </span>
-      <span style={{ fontSize: 10, color: "#6b6b80", marginLeft: "auto" }}>
-        {beat.kind}
-      </span>
-    </div>
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {children}
-    </div>
-  </div>
-);
 
 // --- the panel --------------------------------------------------------------
 
@@ -116,16 +71,13 @@ export const Panel: React.FC<{
     );
     onChange({ ...story, beats });
   };
-  // immutably patch the story
-  const patchStory = (patch: Partial<Story>) => onChange({ ...story, ...patch });
 
   return (
     <div
       style={{
-        width: 320,
         background: "#0e0e14",
         borderLeft: "1px solid #232330",
-        height: "100vh",
+        height: "100%",
         overflowY: "auto",
         padding: 16,
         boxSizing: "border-box",
@@ -143,7 +95,9 @@ export const Panel: React.FC<{
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 700, color: "#e4e4ee" }}>
-          Properties
+          {selection.kind === "story"
+            ? "Story"
+            : `${selection.index + 1}. ${story.beats[selection.index]?.text ?? ""}`}
         </span>
         <button
           onClick={onSave}
@@ -163,7 +117,43 @@ export const Panel: React.FC<{
         </button>
       </div>
 
-      {/* STORY-LEVEL PALETTE */}
+      {selection.kind === "story" ? (
+        <StoryEditor story={story} onChange={onChange} />
+      ) : (
+        <BeatEditor
+          beat={story.beats[selection.index]}
+          index={selection.index}
+          fallbackTextColor={story.textColor}
+          onChange={(patch) => patchBeat(selection.index, patch)}
+        />
+      )}
+
+      <div
+        style={{
+          fontSize: 10,
+          color: "#4b4b5a",
+          lineHeight: 1.5,
+          marginTop: 16,
+        }}
+      >
+        This panel tweaks parameters only. To change the sequence — add or
+        remove beats, edit words, generate new shapes — reprompt Claude
+        Code (open the terminal pane).
+      </div>
+    </div>
+  );
+};
+
+// --- StoryEditor subcomponent -----------------------------------------------
+
+const StoryEditor: React.FC<{
+  story: Story;
+  onChange: (story: Story) => void;
+}> = ({ story, onChange }) => {
+  const patchStory = (patch: Partial<Story>) => onChange({ ...story, ...patch });
+
+  return (
+    <>
       <Section title="Palette & background">
         <Row label="bg">
           <ColorControl
@@ -215,7 +205,6 @@ export const Panel: React.FC<{
         </Row>
       </Section>
 
-      {/* BACKGROUND */}
       <Section title="Background">
         <Row label="type">
           <Dropdown
@@ -284,125 +273,124 @@ export const Panel: React.FC<{
           />
         </Row>
       </Section>
+    </>
+  );
+};
 
-      {/* PER-BEAT CARDS */}
-      <Section title={`Beats (${story.beats.length})`}>
-        {story.beats.map((beat, i) => (
-          <Card key={i} index={i} beat={beat}>
-            <Row label="kind">
-              <Dropdown
-                value={beat.kind}
-                options={KINDS}
-                onChange={(v) => patchBeat(i, { kind: v as Beat["kind"] })}
-              />
-            </Row>
-            <Row label="duration">
-              <Slider
-                value={beat.durationInSeconds}
-                min={0.3}
-                max={10}
-                step={0.1}
-                onChange={(v) => patchBeat(i, { durationInSeconds: v })}
-              />
-            </Row>
-            <Row label="easing">
-              <EasingPicker
-                value={beat.easing as EasingName}
-                onChange={(v) => patchBeat(i, { easing: v })}
-              />
-            </Row>
-            {/* direction is meaningless for generativeFill — hide it there */}
-            {beat.kind !== "generativeFill" && (
-              <Row label="direction">
-                <Dropdown
-                  value={beat.direction}
-                  options={DIRECTIONS}
-                  onChange={(v) =>
-                    patchBeat(i, { direction: v as Beat["direction"] })
-                  }
-                />
-              </Row>
-            )}
-            <Row label="dynamics">
-              <Slider
-                value={beat.dynamics}
-                min={0}
-                max={1}
-                step={0.05}
-                onChange={(v) => patchBeat(i, { dynamics: v })}
-              />
-            </Row>
-            <Row label="stagger">
-              <Slider
-                value={beat.staggerSeconds}
-                min={0}
-                max={0.2}
-                step={0.005}
-                onChange={(v) => patchBeat(i, { staggerSeconds: v })}
-              />
-            </Row>
-            <Row label="anim in">
-              <Slider
-                value={beat.animateInPortion}
-                min={0.1}
-                max={0.9}
-                step={0.05}
-                onChange={(v) => patchBeat(i, { animateInPortion: v })}
-              />
-            </Row>
-            <Row label="scale">
-              <Slider
-                value={beat.scale}
-                min={0.3}
-                max={2.5}
-                step={0.05}
-                onChange={(v) => patchBeat(i, { scale: v })}
-              />
-            </Row>
-            <Row label="glow">
-              <Slider
-                value={beat.glow}
-                min={0}
-                max={60}
-                step={2}
-                onChange={(v) => patchBeat(i, { glow: v })}
-              />
-            </Row>
-            <Row label="color">
-              <ColorControl
-                value={beat.color ?? story.textColor}
-                onChange={(v) => patchBeat(i, { color: v })}
-              />
-            </Row>
-            {/* read-only: shape geometry — reprompt Claude to change it */}
-            {beat.kind === "morph" && (
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "#6b6b80",
-                  marginTop: 4,
-                  fontStyle: "italic",
-                }}
-              >
-                shape: {beat.shape ? "provider-generated" : "default circle"}{" "}
-                — reprompt Claude Code to change
-              </div>
-            )}
-          </Card>
-        ))}
-      </Section>
+// --- BeatEditor subcomponent ------------------------------------------------
 
-      <div
-        style={{
-          fontSize: 10,
-          color: "#4b4b5a",
-          lineHeight: 1.5,
-          marginTop: 8,
-        }}
-      >
-        This panel tweaks parameters only. To change the sequence — add or
-        remove beats, edit words, generate new shapes — reprompt Claude Code.
+const BeatEditor: React.FC<{
+  beat: Beat | undefined;
+  index: number;
+  fallbackTextColor: string;
+  onChange: (patch: Partial<Beat>) => void;
+}> = ({ beat, fallbackTextColor, onChange }) => {
+  if (!beat) {
+    return (
+      <div style={{ fontSize: 11, color: "#8b8b9a", padding: "10px 0" }}>
+        Selected beat no longer exists.
       </div>
-    </div>
+    );
+  }
+  return (
+    <Section title={`${beat.kind} beat`}>
+      <Row label="kind">
+        <Dropdown
+          value={beat.kind}
+          options={KINDS}
+          onChange={(v) => onChange({ kind: v as Beat["kind"] })}
+        />
+      </Row>
+      <Row label="duration">
+        <Slider
+          value={beat.durationInSeconds}
+          min={0.3}
+          max={10}
+          step={0.1}
+          onChange={(v) => onChange({ durationInSeconds: v })}
+        />
+      </Row>
+      <Row label="easing">
+        <EasingPicker
+          value={beat.easing as EasingName}
+          onChange={(v) => onChange({ easing: v })}
+        />
+      </Row>
+      {beat.kind !== "generativeFill" && (
+        <Row label="direction">
+          <Dropdown
+            value={beat.direction}
+            options={DIRECTIONS}
+            onChange={(v) =>
+              onChange({ direction: v as Beat["direction"] })
+            }
+          />
+        </Row>
+      )}
+      <Row label="dynamics">
+        <Slider
+          value={beat.dynamics}
+          min={0}
+          max={1}
+          step={0.05}
+          onChange={(v) => onChange({ dynamics: v })}
+        />
+      </Row>
+      <Row label="stagger">
+        <Slider
+          value={beat.staggerSeconds}
+          min={0}
+          max={0.2}
+          step={0.005}
+          onChange={(v) => onChange({ staggerSeconds: v })}
+        />
+      </Row>
+      <Row label="anim in">
+        <Slider
+          value={beat.animateInPortion}
+          min={0.1}
+          max={0.9}
+          step={0.05}
+          onChange={(v) => onChange({ animateInPortion: v })}
+        />
+      </Row>
+      <Row label="scale">
+        <Slider
+          value={beat.scale}
+          min={0.3}
+          max={2.5}
+          step={0.05}
+          onChange={(v) => onChange({ scale: v })}
+        />
+      </Row>
+      <Row label="glow">
+        <Slider
+          value={beat.glow}
+          min={0}
+          max={60}
+          step={2}
+          onChange={(v) => onChange({ glow: v })}
+        />
+      </Row>
+      <Row label="color">
+        <ColorControl
+          value={beat.color ?? fallbackTextColor}
+          onChange={(v) => onChange({ color: v })}
+        />
+      </Row>
+      {beat.kind === "morph" && (
+        <div
+          style={{
+            fontSize: 10,
+            color: "#6b6b80",
+            marginTop: 4,
+            fontStyle: "italic",
+          }}
+        >
+          shape: {beat.shape ? "provider-generated" : "default circle"} —
+          reprompt Claude Code to change
+        </div>
+      )}
+    </Section>
   );
 };
