@@ -29,6 +29,8 @@ import { Panel } from "./panel";
 import { Timeline } from "./timeline";
 import { Terminal } from "./terminal";
 import { isTauri } from "./runtime";
+import { diffFields, applyFields, fieldLabel, readField, type FieldKey } from "./diff";
+import { getActivePtyId } from "./terminal";
 
 const FPS = 30;
 
@@ -42,6 +44,17 @@ export const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const playerRef = useRef<PlayerRef>(null);
   const [selection, setSelection] = useState<Selection>({ kind: "story" });
+
+  const storyRef = useRef<typeof story>(null);
+  const savedJsonRef = useRef("");
+
+  useEffect(() => {
+    storyRef.current = story;
+  }, [story]);
+
+  useEffect(() => {
+    savedJsonRef.current = savedJson;
+  }, [savedJson]);
 
   // load story.json on mount (served by Vite from the project root)
   useEffect(() => {
@@ -64,6 +77,81 @@ export const App: React.FC = () => {
       }
     };
     void load();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: undefined | (() => void);
+
+    void (async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      const off = await listen<void>("story://changed", async () => {
+        if (!storyRef.current) return;
+        try {
+          const text = await invoke<string>("load_story");
+          const fresh = storySchema.parse(JSON.parse(text));
+          const inMem = storyRef.current;
+          const saved = JSON.parse(savedJsonRef.current) as typeof fresh;
+
+          const userChanges = diffFields(saved, inMem);
+          const agentChanges = diffFields(saved, fresh);
+
+          if (userChanges.size === 0) {
+            setStory(fresh);
+            setSavedJson(JSON.stringify(fresh));
+            return;
+          }
+
+          const conflicts = new Set<FieldKey>();
+          const nonConflicting = new Set<FieldKey>();
+          for (const f of userChanges) {
+            if (agentChanges.has(f)) conflicts.add(f);
+            else nonConflicting.add(f);
+          }
+
+          const merged = applyFields(fresh, inMem, nonConflicting);
+          setStory(merged);
+
+          // Flush merged result so non-conflicting user edits are on disk.
+          const mergedJson = JSON.stringify(merged, null, 2);
+          try {
+            await invoke("save_story", { json: mergedJson });
+            setSavedJson(JSON.stringify(merged));
+          } catch (e) {
+            setError(`Auto-merge save failed: ${(e as Error).message}`);
+          }
+
+          if (conflicts.size > 0) {
+            const lines = [...conflicts].map((f) => {
+              const a = JSON.stringify(readField(merged, f));
+              const b = JSON.stringify(readField(inMem, f));
+              return `  - ${fieldLabel(f)}: ${a} → ${b}`;
+            });
+            const prompt =
+              "Apply my changes on top of yours:\n" + lines.join("\n") + "\n";
+
+            const ptyId = getActivePtyId();
+            if (ptyId) {
+              await invoke("pty_paste_prompt", { id: ptyId, text: prompt });
+            } else {
+              setError(
+                "Conflicts detected but terminal is not open — copy from console: " +
+                  prompt,
+              );
+              console.warn("[merge] no active pty for prompt:", prompt);
+            }
+          }
+        } catch (e) {
+          setError(`External reload failed: ${(e as Error).message}`);
+        }
+      });
+      unlisten = () => off();
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   useEffect(() => {

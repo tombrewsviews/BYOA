@@ -17,6 +17,14 @@ import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
 import { isTauri } from "./runtime";
 
+/**
+ * Exposed for App.tsx so the merge-conflict flow can paste a prompt
+ * into the live terminal. Single-pty-at-a-time, so a module mutable
+ * is fine; refactor when multi-tab terminals arrive.
+ */
+let _activePtyId: string | null = null;
+export const getActivePtyId = (): string | null => _activePtyId;
+
 export const Terminal: React.FC = () => {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -64,6 +72,7 @@ export const Terminal: React.FC = () => {
             cols: term.cols,
             rows: term.rows,
           });
+          _activePtyId = sessionId;
         } catch (e) {
           term.writeln(`\r\n[pty_open failed: ${(e as Error).message ?? e}]`);
           return;
@@ -96,6 +105,7 @@ export const Terminal: React.FC = () => {
             } catch {
               // already gone — ignore
             }
+            if (_activePtyId === sessionId) _activePtyId = null;
           },
         );
       })();

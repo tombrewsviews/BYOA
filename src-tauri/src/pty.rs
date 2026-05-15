@@ -152,3 +152,24 @@ pub fn pty_close(
     }
     Ok(())
 }
+
+/// Inject text directly into a PTY's master side — the connected
+/// shell sees it as if the user typed it. We do NOT append a newline;
+/// the user reviews and presses Enter themselves so an in-flight
+/// agent turn isn't interrupted.
+#[tauri::command]
+pub fn pty_paste_prompt(
+    id: String,
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let session = state
+        .ptys
+        .get(&id)
+        .ok_or_else(|| format!("no pty session: {}", id))?;
+    let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
+    writer
+        .write_all(text.as_bytes())
+        .map_err(|e| format!("write: {}", e))?;
+    Ok(())
+}
