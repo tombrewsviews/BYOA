@@ -109,6 +109,35 @@ Architecture:
 Requires Rust + Cargo (https://rustup.rs/) and Xcode Command Line Tools
 (`xcode-select --install`).
 
+## Projects (the home view)
+
+`npm run tauri:dev` opens a projects home screen. Each project is a
+folder under `~/KineticStudio/` containing `story.json`. Click a card
+to open the editor; the title bar shows a `← Projects` button to come
+back.
+
+- **+ New project** — creates `~/KineticStudio/<slug>/` with a starter
+  `story.json` and a `.kinetic-studio/` metadata folder.
+- **Open folder…** — pick any folder containing `story.json` (handy
+  for projects stored outside the home folder, e.g. inside a git
+  repo).
+
+Recently-opened ordering is tracked in `~/.kinetic-studio/recents.json`.
+
+### Agent skill
+
+Every project gets `.kinetic-studio/skill.md` written automatically.
+The studio's terminal sources `.kinetic-studio/rc.zsh` before handing
+control to your shell, which aliases `claude` to inject the skill as
+an `--append-system-prompt`. So when you type `claude` inside the
+studio, the agent already knows: edit `story.json` here, no superpowers
+detours.
+
+The skill is rewritten on every `project_open`, so binary updates that
+change the template propagate the next time you open the project.
+
+Non-zsh shells skip the alias. Run `claude --append-system-prompt @./.kinetic-studio/skill.md` manually.
+
 ## Best practices baked into this repo
 
 ### Composition / animation
