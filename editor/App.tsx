@@ -31,6 +31,7 @@ import { Terminal } from "./terminal";
 import { isTauri } from "./runtime";
 import { diffFields, applyFields, fieldLabel, readField, type FieldKey } from "./diff";
 import { getActivePtyId } from "./terminal";
+import { beginColumnDrag, usePersistedColumnWidth } from "./resize";
 
 const FPS = 30;
 
@@ -47,6 +48,23 @@ export const App: React.FC = () => {
 
   const storyRef = useRef<typeof story>(null);
   const savedJsonRef = useRef("");
+
+  usePersistedColumnWidth({
+    side: "left",
+    storageKey: "studio.col.terminal",
+    cssVar: "--col-terminal",
+    defaultPx: 360,
+    minPx: 200,
+    maxPx: 800,
+  });
+  usePersistedColumnWidth({
+    side: "right",
+    storageKey: "studio.col.properties",
+    cssVar: "--col-properties",
+    defaultPx: 320,
+    minPx: 200,
+    maxPx: 600,
+  });
 
   useEffect(() => {
     storyRef.current = story;
@@ -248,7 +266,7 @@ export const App: React.FC = () => {
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "360px 1fr 320px",
+        gridTemplateColumns: "var(--col-terminal, 360px) 1fr var(--col-properties, 320px)",
         gridTemplateRows: "1fr auto",
         width: "100vw",
         height: "100vh",
@@ -266,8 +284,30 @@ export const App: React.FC = () => {
           background: "#0a0a10",
           borderRight: "1px solid #232330",
           overflow: "hidden",
+          position: "relative",
         }}
       >
+        <div
+          onMouseDown={(e) =>
+            beginColumnDrag(e, {
+              side: "left",
+              storageKey: "studio.col.terminal",
+              cssVar: "--col-terminal",
+              defaultPx: 360,
+              minPx: 200,
+              maxPx: 800,
+            })
+          }
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            right: -2,
+            width: 4,
+            cursor: "col-resize",
+            zIndex: 10,
+          }}
+        />
         <Terminal />
       </div>
 
@@ -315,7 +355,28 @@ export const App: React.FC = () => {
       </div>
 
       {/* PROPERTIES: right column, full height */}
-      <div style={{ gridColumn: "3", gridRow: "1 / span 2", minWidth: 0 }}>
+      <div style={{ gridColumn: "3", gridRow: "1 / span 2", minWidth: 0, position: "relative" }}>
+        <div
+          onMouseDown={(e) =>
+            beginColumnDrag(e, {
+              side: "right",
+              storageKey: "studio.col.properties",
+              cssVar: "--col-properties",
+              defaultPx: 320,
+              minPx: 200,
+              maxPx: 600,
+            })
+          }
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: -2,
+            width: 4,
+            cursor: "col-resize",
+            zIndex: 10,
+          }}
+        />
         <Panel
           story={story}
           selection={selection}
