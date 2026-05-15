@@ -127,6 +127,7 @@ pub fn projects_create(name: String) -> Result<ProjectMeta, String> {
         .map_err(|e| format!("write story: {}", e))?;
     fs::create_dir_all(dir.join(".kinetic-studio"))
         .map_err(|e| format!("mkdir meta: {}", e))?;
+    crate::skill::write(&dir).map_err(|e| format!("write skill: {}", e))?;
 
     let display_name = if name.trim().is_empty() {
         "Untitled".into()
@@ -159,6 +160,7 @@ pub fn project_open(
 
     let watcher = watch::spawn(story.clone(), app.clone())
         .map_err(|e| format!("watcher: {}", e))?;
+    crate::skill::write(&path_buf).map_err(|e| format!("write skill: {}", e))?;
 
     let mut active = state.active_project.lock().unwrap();
     *active = Some(ActiveProject {

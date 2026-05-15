@@ -3,6 +3,7 @@
 mod projects;
 mod pty;
 mod seed;
+mod skill;
 mod story;
 mod watch;
 
