@@ -39,8 +39,6 @@ pub fn pty_open(
         .map_err(|e| format!("openpty: {}", e))?;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l");
     let project_path = state
         .active_project
         .lock()
@@ -48,10 +46,31 @@ pub fn pty_open(
         .as_ref()
         .map(|p| p.path.clone())
         .ok_or_else(|| "no active project".to_string())?;
+    let project_str = project_path.to_string_lossy().to_string();
+    let rc_path = project_path.join(".kinetic-studio").join("rc.zsh");
+
+    let mut cmd = CommandBuilder::new(&shell);
     cmd.cwd(&project_path);
+
     // Inherit env so `claude` finds ~/.claude credentials.
     for (k, v) in std::env::vars() {
         cmd.env(k, v);
+    }
+    // Studio scope hints.
+    cmd.env("KINETIC_PROJECT", &project_str);
+    cmd.env("KINETIC_STUDIO", "1");
+
+    // If zsh AND the rc file exists, source it before going interactive.
+    let shell_name = std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if shell_name == "zsh" && rc_path.exists() {
+        let rc_str = rc_path.to_string_lossy().to_string();
+        cmd.arg("-c");
+        cmd.arg(format!("source \"{}\"; exec zsh -i", rc_str));
+    } else {
+        cmd.arg("-l");
     }
 
     let child = pair
