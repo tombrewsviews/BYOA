@@ -18,8 +18,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Player, type PlayerRef } from "@remotion/player";
-import { KineticStory } from "../src/kinetic/KineticStory";
+import { type PlayerRef } from "@remotion/player";
+import { PlayerStage, Transport } from "./player";
 import {
   storySchema,
   storyDurationInFrames,
@@ -104,17 +104,19 @@ export const App: React.FC = () => {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          padding: 32,
-          gap: 16,
+          padding: 24,
+          gap: 12,
           minWidth: 0,
         }}
       >
-        {/* story is guaranteed non-null here (guarded above). It IS the
-            Player's inputProps — already stable React state, so no extra
-            useMemo needed; the Player only re-renders when it changes. */}
+        <Transport
+          playerRef={playerRef}
+          durationInFrames={durationInFrames}
+        />
         <PlayerStage
           inputProps={story}
           durationInFrames={durationInFrames}
+          fps={FPS}
           playerRef={playerRef}
         />
         <div style={{ fontSize: 11, color: "#4b4b5a" }}>
@@ -135,37 +137,6 @@ export const App: React.FC = () => {
     </div>
   );
 };
-
-const PlayerStage: React.FC<{
-  inputProps: Story;
-  durationInFrames: number;
-  playerRef: React.RefObject<PlayerRef | null>;
-}> = ({ inputProps, durationInFrames, playerRef }) => (
-  <div
-    style={{
-      height: "78vh",
-      aspectRatio: "9 / 16",
-      borderRadius: 14,
-      overflow: "hidden",
-      boxShadow: "0 24px 70px rgba(0,0,0,0.6)",
-      border: "1px solid #232330",
-    }}
-  >
-    <Player
-      ref={playerRef}
-      component={KineticStory}
-      inputProps={inputProps}
-      durationInFrames={durationInFrames}
-      compositionWidth={1080}
-      compositionHeight={1920}
-      fps={FPS}
-      style={{ width: "100%", height: "100%" }}
-      controls
-      loop
-      autoPlay
-    />
-  </div>
-);
 
 const fill: React.CSSProperties = {
   width: "100vw",
