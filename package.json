@@ -8,7 +8,10 @@
     "render": "remotion render",
     "editor": "vite --config vite.editor.config.ts",
     "build:editor": "vite build --config vite.editor.config.ts",
-    "kinetic": "tsx scripts/kinetic.ts"
+    "kinetic": "tsx scripts/kinetic.ts",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.3",
@@ -16,6 +19,7 @@
     "@remotion/google-fonts": "^4.0.461",
     "@remotion/player": "^4.0.461",
     "@remotion/zod-types": "^4.0.461",
+    "@tauri-apps/api": "^2.11.0",
     "dotenv": "^17.4.2",
     "flubber": "^0.4.2",
     "opentype.js": "^2.0.0",
@@ -30,6 +34,7 @@
   "devDependencies": {
     "@remotion/bundler": "^4.0.461",
     "@remotion/renderer": "^4.0.461",
+    "@tauri-apps/cli": "^2.11.1",
     "@types/node": "^25.7.0",
     "@types/opentype.js": "^1.3.9",
     "@types/react": "^19.2.14",
