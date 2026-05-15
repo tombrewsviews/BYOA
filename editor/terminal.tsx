@@ -1,15 +1,21 @@
 /**
- * Embedded terminal. xterm.js in the browser <-> node-pty in the Vite
- * dev-server plugin, bridged by a WebSocket on /__terminal.
+ * Embedded terminal.
  *
- * Spawns a plain shell. Type `claude` to start the Claude Code CLI; its
- * OAuth login URL is clickable (web-links addon).
+ * Desktop (Tauri): xterm.js <-> Rust pty commands. pty_open returns a
+ * session id; pty://{id}/data events stream stdout back; keystrokes go
+ * out via pty_write; resize via pty_resize; pty_close on unmount.
+ *
+ * Browser (npm run editor): the terminal is disabled — we print a single
+ * line of instructions so the user knows where to find it. The browser
+ * mode is preserved for fast UI iteration; production use is the
+ * desktop app.
  */
 import React, { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
+import { isTauri } from "./runtime";
 
 export const Terminal: React.FC = () => {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -36,55 +42,72 @@ export const Terminal: React.FC = () => {
     term.open(hostRef.current);
     fit.fit();
 
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(
-      `${proto}://${window.location.host}/__terminal`,
-    );
+    const cleanupFns: Array<() => void | Promise<void>> = [];
 
-    ws.onopen = () => {
-      const send = () => {
+    const onWinResize = () => fit.fit();
+    window.addEventListener("resize", onWinResize);
+    cleanupFns.push(() => window.removeEventListener("resize", onWinResize));
+
+    if (!isTauri()) {
+      term.writeln(
+        "[terminal requires desktop app — run `npm run tauri:dev`]",
+      );
+    } else {
+      // Async wiring; ignore the returned promise (cleanup uses cleanupFns).
+      void (async () => {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { listen } = await import("@tauri-apps/api/event");
+
+        let sessionId: string;
         try {
-          ws.send(
-            JSON.stringify({
-              kind: "resize",
-              cols: term.cols,
-              rows: term.rows,
-            }),
-          );
+          sessionId = await invoke<string>("pty_open", {
+            cols: term.cols,
+            rows: term.rows,
+          });
+        } catch (e) {
+          term.writeln(`\r\n[pty_open failed: ${(e as Error).message ?? e}]`);
+          return;
+        }
+
+        const unlistenData = await listen<string>(
+          `pty://${sessionId}/data`,
+          (e) => term.write(e.payload),
+        );
+        const unlistenClosed = await listen<null>(
+          `pty://${sessionId}/closed`,
+          () => term.writeln("\r\n[shell exited]"),
+        );
+
+        const dataDisp = term.onData((data) => {
+          void invoke("pty_write", { id: sessionId, data });
+        });
+        const resizeDisp = term.onResize(({ cols, rows }) => {
+          void invoke("pty_resize", { id: sessionId, cols, rows });
+        });
+
+        cleanupFns.push(
+          () => unlistenData(),
+          () => unlistenClosed(),
+          () => dataDisp.dispose(),
+          () => resizeDisp.dispose(),
+          async () => {
+            try {
+              await invoke("pty_close", { id: sessionId });
+            } catch {
+              // already gone — ignore
+            }
+          },
+        );
+      })();
+    }
+
+    return () => {
+      for (const fn of cleanupFns) {
+        try {
+          void fn();
         } catch {
           // ignore
         }
-      };
-      send();
-      term.onResize(send);
-    };
-    ws.onmessage = (ev) => {
-      // ev.data is string or Blob
-      if (typeof ev.data === "string") term.write(ev.data);
-      else (ev.data as Blob).text().then((s) => term.write(s));
-    };
-    ws.onclose = () =>
-      term.writeln("\r\n[terminal disconnected — reload to reconnect]");
-    ws.onerror = () => {
-      // onclose will fire after; nothing extra needed.
-    };
-
-    const disp = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
-    });
-
-    const onWinResize = () => {
-      fit.fit();
-    };
-    window.addEventListener("resize", onWinResize);
-
-    return () => {
-      window.removeEventListener("resize", onWinResize);
-      disp.dispose();
-      try {
-        ws.close();
-      } catch {
-        // ignore
       }
       term.dispose();
     };
