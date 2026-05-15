@@ -13,6 +13,7 @@
  */
 import React from "react";
 import type { Story, Beat } from "../src/kinetic/schema";
+import type { Selection } from "./App";
 import type { EasingName } from "../src/typography/easings";
 import {
   Row,
@@ -102,10 +103,12 @@ const Card: React.FC<{
 
 export const Panel: React.FC<{
   story: Story;
+  selection: Selection;
+  onSelect: (s: Selection) => void;
   onChange: (story: Story) => void;
   dirty: boolean;
   onSave: () => void;
-}> = ({ story, onChange, dirty, onSave }) => {
+}> = ({ story, selection, onSelect, onChange, dirty, onSave }) => {
   // immutably patch one beat
   const patchBeat = (i: number, patch: Partial<Beat>) => {
     const beats = story.beats.map((b, idx) =>

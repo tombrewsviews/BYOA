@@ -29,11 +29,16 @@ import { Panel } from "./panel";
 
 const FPS = 30;
 
+export type Selection =
+  | { kind: "story" }
+  | { kind: "beat"; index: number };
+
 export const App: React.FC = () => {
   const [story, setStory] = useState<Story | null>(null);
   const [savedJson, setSavedJson] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const playerRef = useRef<PlayerRef>(null);
+  const [selection, setSelection] = useState<Selection>({ kind: "story" });
 
   // load story.json on mount (served by Vite from the project root)
   useEffect(() => {
@@ -46,6 +51,14 @@ export const App: React.FC = () => {
       })
       .catch((e) => setError(`Failed to load story.json: ${e.message}`));
   }, []);
+
+  useEffect(() => {
+    if (!story) return;
+    if (selection.kind === "beat" && selection.index >= story.beats.length) {
+      setSelection({ kind: "story" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [story]);
 
   const durationInFrames = useMemo(
     () => (story ? storyDurationInFrames(story, FPS) : 1),
@@ -113,6 +126,8 @@ export const App: React.FC = () => {
       {/* properties panel */}
       <Panel
         story={story}
+        selection={selection}
+        onSelect={setSelection}
         onChange={setStory}
         dirty={dirty}
         onSave={handleSave}
