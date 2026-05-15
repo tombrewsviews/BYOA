@@ -26,6 +26,7 @@ import {
   type Story,
 } from "../src/kinetic/schema";
 import { Panel } from "./panel";
+import { Timeline } from "./timeline";
 
 const FPS = 30;
 
@@ -65,6 +66,48 @@ export const App: React.FC = () => {
     [story],
   );
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.matches("input, textarea, [contenteditable='true']") ||
+          t.closest("[data-terminal-root]"))
+      ) {
+        return;
+      }
+      const p = playerRef.current;
+      if (!p) return;
+      const clamp = (f: number) =>
+        Math.max(0, Math.min(durationInFrames - 1, f));
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (p.isPlaying()) p.pause();
+        else
+          p.play(
+            // play() accepts SyntheticEvent | undefined; passing the
+            // KeyboardEvent works at runtime and preserves user-gesture
+            // context for autoplay rules.
+            e as unknown as React.SyntheticEvent,
+          );
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        p.seekTo(clamp(p.getCurrentFrame() - FPS));
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        p.seekTo(clamp(p.getCurrentFrame() + FPS));
+      } else if (e.code === "Home") {
+        e.preventDefault();
+        p.seekTo(0);
+      } else if (e.code === "End") {
+        e.preventDefault();
+        p.seekTo(clamp(durationInFrames - 1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [durationInFrames]);
+
   const dirty = useMemo(
     () => (story ? JSON.stringify(story) !== savedJson : false),
     [story, savedJson],
@@ -95,11 +138,42 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div style={{ display: "flex", ...fill, background: "#08080c" }}>
-      {/* preview side */}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "360px 1fr 320px",
+        gridTemplateRows: "1fr auto",
+        width: "100vw",
+        height: "100vh",
+        background: "#08080c",
+        color: "#e4e4ee",
+        fontFamily:
+          "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      }}
+    >
+      {/* TERMINAL: left column, full height. Placeholder until Task 8. */}
+      <div
+        data-terminal-root
+        style={{
+          gridColumn: "1",
+          gridRow: "1 / span 2",
+          background: "#0a0a10",
+          borderRight: "1px solid #232330",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#4b4b5a",
+          fontSize: 12,
+        }}
+      >
+        terminal (coming next task)
+      </div>
+
+      {/* PREVIEW: center-top */}
       <div
         style={{
-          flex: 1,
+          gridColumn: "2",
+          gridRow: "1",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -107,6 +181,7 @@ export const App: React.FC = () => {
           padding: 24,
           gap: 12,
           minWidth: 0,
+          overflow: "hidden",
         }}
       >
         <Transport
@@ -125,15 +200,29 @@ export const App: React.FC = () => {
         </div>
       </div>
 
-      {/* properties panel */}
-      <Panel
-        story={story}
-        selection={selection}
-        onSelect={setSelection}
-        onChange={setStory}
-        dirty={dirty}
-        onSave={handleSave}
-      />
+      {/* TIMELINE: center-bottom */}
+      <div style={{ gridColumn: "2", gridRow: "2", minWidth: 0 }}>
+        <Timeline
+          story={story}
+          selection={selection}
+          onSelect={setSelection}
+          playerRef={playerRef}
+          durationInFrames={durationInFrames}
+          fps={FPS}
+        />
+      </div>
+
+      {/* PROPERTIES: right column, full height */}
+      <div style={{ gridColumn: "3", gridRow: "1 / span 2", minWidth: 0 }}>
+        <Panel
+          story={story}
+          selection={selection}
+          onSelect={setSelection}
+          onChange={setStory}
+          dirty={dirty}
+          onSave={handleSave}
+        />
+      </div>
     </div>
   );
 };
