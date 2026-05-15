@@ -27,6 +27,7 @@ import {
 } from "../src/kinetic/schema";
 import { Panel } from "./panel";
 import { Timeline } from "./timeline";
+import { Terminal } from "./terminal";
 
 const FPS = 30;
 
@@ -151,22 +152,17 @@ export const App: React.FC = () => {
           "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
-      {/* TERMINAL: left column, full height. Placeholder until Task 8. */}
+      {/* TERMINAL: left column, full height. */}
       <div
-        data-terminal-root
         style={{
           gridColumn: "1",
           gridRow: "1 / span 2",
           background: "#0a0a10",
           borderRight: "1px solid #232330",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "#4b4b5a",
-          fontSize: 12,
+          overflow: "hidden",
         }}
       >
-        terminal (coming next task)
+        <Terminal />
       </div>
 
       {/* PREVIEW: center-top */}
