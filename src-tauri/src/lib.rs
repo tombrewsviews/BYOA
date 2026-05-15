@@ -2,6 +2,7 @@
 
 mod pty;
 mod story;
+mod watch;
 
 use std::path::PathBuf;
 
