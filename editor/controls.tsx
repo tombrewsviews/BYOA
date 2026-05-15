@@ -6,7 +6,7 @@
  * "controlled": value in, onChange out. The panel composes these; they
  * know nothing about the story schema.
  */
-import React, { useState, useRef, useEffect } from "react";
+import React from "react";
 import { resolveEasing, type EasingName } from "../src/typography/easings";
 
 // --- shared row scaffold ----------------------------------------------------
@@ -108,44 +108,33 @@ export const Dropdown: React.FC<{
   </select>
 );
 
-// --- ColorControl: swatch + popover picker ---------------------------------
+// --- ColorControl: native color picker + hex input -------------------------
 
 export const ColorControl: React.FC<{
   value: string;
   onChange: (v: string) => void;
 }> = ({ value, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-
   return (
-    <div ref={ref} style={{ position: "relative", display: "flex", gap: 8 }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: 26,
-          height: 26,
-          borderRadius: 6,
-          background: value,
-          border: "1px solid #3a3a4a",
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+      <input
+        type="color"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         aria-label="pick color"
+        style={{
+          width: 22,
+          height: 22,
+          border: "1px solid #2e2e3c",
+          borderRadius: 4,
+          padding: 0,
+          background: "transparent",
+          cursor: "pointer",
+        }}
       />
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        spellCheck={false}
         style={{
           flex: 1,
           background: "#1c1c26",
@@ -154,37 +143,9 @@ export const ColorControl: React.FC<{
           color: "#e4e4ee",
           fontSize: 11,
           padding: "3px 6px",
-          fontFamily: "monospace",
+          fontFamily: "ui-monospace, Menlo, monospace",
         }}
       />
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: 32,
-            left: 0,
-            zIndex: 50,
-            background: "#16161e",
-            border: "1px solid #2e2e3c",
-            borderRadius: 8,
-            padding: 10,
-            boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
-          }}
-        >
-          <input
-            type="color"
-            value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#000000"}
-            onChange={(e) => onChange(e.target.value)}
-            style={{
-              width: 160,
-              height: 120,
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 };
