@@ -520,7 +520,8 @@ export const MorphBeat: React.FC<BeatProps> = ({
         inset: 0,
         transform: `rotate(${userRotation}deg) ${exit.transform}`,
         transformOrigin: `${anchorX}px ${anchorY}px`,
-        opacity: exit.opacity,
+        opacity: exit.opacity * beat.opacity,
+        mixBlendMode: beat.blendMode,
         filter: exit.filter,
       }}
     >
@@ -1015,7 +1016,8 @@ export const ShapeBeat: React.FC<BeatProps> = ({
         // translate centers the SVG on the anchor; rotate then orbits
         // around that center; entry/exit translateY and scale stack on.
         transform: `translate(-50%, -50%) rotate(${userRotation}deg) translateY(${translateY}px) scale(${scale})`,
-        opacity,
+        opacity: opacity * beat.opacity,
+        mixBlendMode: beat.blendMode,
         filter: blur > 0 ? `blur(${blur.toFixed(1)}px)` : undefined,
         willChange: "transform, opacity",
       }}
@@ -1201,7 +1203,8 @@ export const VideoClipBeat: React.FC<BeatProps> = ({
         width: displayWidth,
         height: displayHeight,
         transform: `translate(-50%, -50%) rotate(${userRotation}deg) ${exit.transform}`,
-        opacity: entryOpacity * exit.opacity,
+        opacity: entryOpacity * exit.opacity * beat.opacity,
+        mixBlendMode: beat.blendMode,
         filter: exit.filter,
         overflow: "hidden",
         willChange: "transform, opacity",
@@ -1332,7 +1335,8 @@ export const ImageClipBeat: React.FC<BeatProps> = ({
         width: displayWidth,
         height: displayHeight,
         transform: `translate(-50%, -50%) rotate(${userRotation}deg) ${exit.transform}`,
-        opacity: entryOpacity * exit.opacity,
+        opacity: entryOpacity * exit.opacity * beat.opacity,
+        mixBlendMode: beat.blendMode,
         filter: exit.filter,
         overflow: "hidden",
         willChange: "transform, opacity",
