@@ -71,6 +71,8 @@ const Stage: React.FC<{
   const x = beat?.positionX ?? 0.5;
   const y = beat?.positionY ?? 0.5;
   const rot = beat?.rotation ?? 0;
+  const opacity = beat?.opacity ?? 1;
+  const blendMode = beat?.blendMode ?? "normal";
   return (
     <div
       style={{
@@ -88,6 +90,12 @@ const Stage: React.FC<{
           // the anchor point. The order matters — rotate after translate
           // would orbit the element around the canvas origin.
           transform: `translate(-50%, -50%) rotate(${rot}deg)`,
+          // Beat-level opacity and blend mode. Opacity here MULTIPLIES with
+          // any animation-driven opacity that callers pass through `style`
+          // on the outer div (e.g. exit fades), giving the expected behavior:
+          // user-set opacity caps the peak, animations still play.
+          opacity,
+          mixBlendMode: blendMode,
         }}
       >
         {children}
