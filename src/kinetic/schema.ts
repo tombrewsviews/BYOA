@@ -327,6 +327,44 @@ export const beatSchema = z.object({
     .default(0)
     .describe("Layered drop-shadow depth (count)"),
   shadowColor: zColor().optional().describe("Shadow color"),
+  /**
+   * Beat opacity, 0..1. Multiplied with any animation-driven opacity
+   * (e.g. exit fades), so user-set opacity caps the peak. Default 1
+   * (no change).
+   */
+  opacity: z
+    .number()
+    .min(0)
+    .max(1)
+
+    .default(1)
+    .describe("Beat opacity (0=invisible, 1=fully visible)"),
+  /**
+   * CSS `mix-blend-mode` applied to this beat. Lets the beat composite
+   * against beats on lower tracks, videos, images, and the background.
+   * Default `"normal"` (no change).
+   */
+  blendMode: z
+    .enum([
+      "normal",
+      "multiply",
+      "screen",
+      "overlay",
+      "darken",
+      "lighten",
+      "color-dodge",
+      "color-burn",
+      "hard-light",
+      "soft-light",
+      "difference",
+      "exclusion",
+      "hue",
+      "saturation",
+      "color",
+      "luminosity",
+    ])
+    .default("normal")
+    .describe("CSS mix-blend-mode applied to this beat"),
 
   // --- morph-only --------------------------------------------------------
   /**
