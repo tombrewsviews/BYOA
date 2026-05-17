@@ -26,6 +26,24 @@ import {
 
 const KINDS = ["reveal", "morph", "generativeFill", "tile", "oscillate", "cinema", "shape", "videoClip", "imageClip"] as const;
 const DIRECTIONS = ["up", "down", "left", "right", "scale", "vertical-roll"] as const;
+const BLEND_MODES = [
+  "normal",
+  "multiply",
+  "screen",
+  "overlay",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+] as const;
 const BG_KINDS = ["gradient", "shader"] as const;
 const SHADER_STYLES = ["aurora", "flowField", "mesh"] as const;
 
@@ -415,6 +433,22 @@ const BeatEditor: React.FC<{
           max={60}
           step={2}
           onChange={(v) => onChange({ glow: v })}
+        />
+      </Row>
+      <Row label="opacity">
+        <Slider
+          value={beat.opacity}
+          min={0}
+          max={1}
+          step={0.01}
+          onChange={(v) => onChange({ opacity: v })}
+        />
+      </Row>
+      <Row label="blend">
+        <Dropdown
+          value={beat.blendMode}
+          options={BLEND_MODES}
+          onChange={(v) => onChange({ blendMode: v as Beat["blendMode"] })}
         />
       </Row>
       <Row label="color">
