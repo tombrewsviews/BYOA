@@ -12,8 +12,8 @@
  *   - beat.shape (provider-generated geometry — reprompt to change)
  */
 import React from "react";
-import type { Story, Beat } from "../src/kinetic/schema";
-import type { Selection } from "./App";
+import { resolveBeatTimes, type Story, type Beat } from "../src/kinetic/schema";
+import type { Selection } from "./selection";
 import type { EasingName } from "../src/typography/easings";
 import {
   Row,
@@ -21,11 +21,12 @@ import {
   Dropdown,
   ColorControl,
   EasingPicker,
+  TextInput,
 } from "./controls";
 
-const KINDS = ["reveal", "morph", "generativeFill"] as const;
-const DIRECTIONS = ["up", "down", "left", "right", "scale"] as const;
-const BG_KINDS = ["gradient", "shader", "image", "video"] as const;
+const KINDS = ["reveal", "morph", "generativeFill", "tile", "oscillate", "cinema", "shape", "videoClip", "imageClip"] as const;
+const DIRECTIONS = ["up", "down", "left", "right", "scale", "vertical-roll"] as const;
+const BG_KINDS = ["gradient", "shader"] as const;
 const SHADER_STYLES = ["aurora", "flowField", "mesh"] as const;
 
 // --- section scaffold -------------------------------------------------------
@@ -61,9 +62,7 @@ export const Panel: React.FC<{
   selection: Selection;
   onSelect: (s: Selection) => void;
   onChange: (story: Story) => void;
-  dirty: boolean;
-  onSave: () => void;
-}> = ({ story, selection, onSelect, onChange, dirty, onSave }) => {
+}> = ({ story, selection, onSelect, onChange }) => {
   // immutably patch one beat
   const patchBeat = (i: number, patch: Partial<Beat>) => {
     const beats = story.beats.map((b, idx) =>
@@ -85,46 +84,39 @@ export const Panel: React.FC<{
           "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
-      {/* header + save */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 16,
-        }}
-      >
+      {/* header — auto-save runs in the background, no manual button.
+          When multiple beats are selected, the panel still shows the
+          editor for the FIRST one (multi-edit isn't supported), but the
+          header indicates how many are selected so the user isn't
+          confused that their tweaks only apply to one. */}
+      <div style={{ marginBottom: 16 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: "#e4e4ee" }}>
           {selection.kind === "story"
             ? "Story"
-            : `${selection.index + 1}. ${story.beats[selection.index]?.text ?? ""}`}
+            : `${selection.indices[0] + 1}. ${story.beats[selection.indices[0]]?.text ?? ""}`}
         </span>
-        <button
-          onClick={onSave}
-          disabled={!dirty}
-          style={{
-            fontSize: 11,
-            padding: "5px 12px",
-            borderRadius: 6,
-            border: "none",
-            cursor: dirty ? "pointer" : "default",
-            background: dirty ? "#7c5cff" : "#232330",
-            color: dirty ? "white" : "#6b6b80",
-            fontWeight: 600,
-          }}
-        >
-          {dirty ? "Save to story.json" : "Saved"}
-        </button>
+        {selection.kind === "beat" && selection.indices.length > 1 && (
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 11,
+              color: "#8b8b9a",
+              fontWeight: 400,
+            }}
+          >
+            (+{selection.indices.length - 1} more selected)
+          </span>
+        )}
       </div>
 
       {selection.kind === "story" ? (
         <StoryEditor story={story} onChange={onChange} />
       ) : (
         <BeatEditor
-          beat={story.beats[selection.index]}
-          index={selection.index}
+          beat={story.beats[selection.indices[0]]}
+          index={selection.indices[0]}
           fallbackTextColor={story.textColor}
-          onChange={(patch) => patchBeat(selection.index, patch)}
+          onChange={(patch) => patchBeat(selection.indices[0], patch)}
         />
       )}
 
@@ -152,8 +144,68 @@ const StoryEditor: React.FC<{
 }> = ({ story, onChange }) => {
   const patchStory = (patch: Partial<Story>) => onChange({ ...story, ...patch });
 
+  // What the composition length is right now: the explicit override if
+  // set, otherwise the longest beat's end time (or the 4-second floor
+  // for an empty story). Used both for the slider's effective value
+  // and for hinting the user what "auto" would resolve to.
+  const derivedDuration = (() => {
+    const resolved = resolveBeatTimes(story);
+    const maxEnd = resolved.reduce((m, r) => Math.max(m, r.endSeconds), 0);
+    return maxEnd > 0 ? maxEnd : 4;
+  })();
+  const isAuto = story.durationInSeconds === undefined;
+  const effectiveDuration = isAuto
+    ? derivedDuration
+    : story.durationInSeconds!;
+
   return (
     <>
+      <Section title="Composition">
+        <Row label="duration">
+          <Slider
+            value={effectiveDuration}
+            min={0.5}
+            max={Math.max(60, effectiveDuration + 5)}
+            step={0.1}
+            onChange={(v) => patchStory({ durationInSeconds: v })}
+          />
+        </Row>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 10,
+            color: "#6b6b80",
+            marginTop: -2,
+          }}
+        >
+          <span>
+            {isAuto
+              ? `auto · fits longest beat (${derivedDuration.toFixed(1)}s)`
+              : `locked to ${effectiveDuration.toFixed(1)}s`}
+          </span>
+          <button
+            onClick={() =>
+              patchStory({
+                durationInSeconds: isAuto ? derivedDuration : undefined,
+              })
+            }
+            style={{
+              background: isAuto ? "transparent" : "#1c1c26",
+              border: "1px solid #2e2e3c",
+              borderRadius: 4,
+              color: isAuto ? "#8b8b9a" : "#fafafa",
+              fontSize: 10,
+              padding: "2px 8px",
+              cursor: "pointer",
+            }}
+          >
+            {isAuto ? "lock" : "auto"}
+          </button>
+        </div>
+      </Section>
+
       <Section title="Palette & background">
         <Row label="bg">
           <ColorControl
@@ -236,29 +288,6 @@ const StoryEditor: React.FC<{
             />
           </Row>
         )}
-        {(story.background.kind === "image" ||
-          story.background.kind === "video") && (
-          <Row label="src">
-            <input
-              value={story.background.src ?? ""}
-              placeholder="path under public/ or URL"
-              onChange={(e) =>
-                patchStory({
-                  background: { ...story.background, src: e.target.value },
-                })
-              }
-              style={{
-                flex: 1,
-                background: "#1c1c26",
-                border: "1px solid #2e2e3c",
-                borderRadius: 5,
-                color: "#e4e4ee",
-                fontSize: 11,
-                padding: "3px 6px",
-              }}
-            />
-          </Row>
-        )}
         <Row label="motion">
           <Slider
             value={story.background.motion}
@@ -294,6 +323,13 @@ const BeatEditor: React.FC<{
   }
   return (
     <Section title={`${beat.kind} beat`}>
+      <Row label="text">
+        <TextInput
+          value={beat.text}
+          onChange={(v) => onChange({ text: v })}
+          placeholder="the word"
+        />
+      </Row>
       <Row label="kind">
         <Dropdown
           value={beat.kind}
@@ -317,12 +353,12 @@ const BeatEditor: React.FC<{
         />
       </Row>
       {beat.kind !== "generativeFill" && (
-        <Row label="direction">
+        <Row label="enter direction">
           <Dropdown
-            value={beat.direction}
+            value={beat.enterDirection}
             options={DIRECTIONS}
             onChange={(v) =>
-              onChange({ direction: v as Beat["direction"] })
+              onChange({ enterDirection: v as Beat["enterDirection"] })
             }
           />
         </Row>
@@ -358,9 +394,18 @@ const BeatEditor: React.FC<{
         <Slider
           value={beat.scale}
           min={0.3}
-          max={2.5}
+          max={10}
           step={0.05}
           onChange={(v) => onChange({ scale: v })}
+        />
+      </Row>
+      <Row label="rotation">
+        <Slider
+          value={beat.rotation ?? 0}
+          min={-180}
+          max={180}
+          step={1}
+          onChange={(v) => onChange({ rotation: v })}
         />
       </Row>
       <Row label="glow">
@@ -390,6 +435,98 @@ const BeatEditor: React.FC<{
           shape: {beat.shape ? "provider-generated" : "default circle"} —
           reprompt Claude Code to change
         </div>
+      )}
+      {beat.kind === "videoClip" && (
+        <>
+          <Row label="in-point">
+            <Slider
+              value={beat.videoStartSec ?? 0}
+              min={0}
+              max={Math.max(60, (beat.videoStartSec ?? 0) + 10)}
+              step={0.1}
+              onChange={(v) => onChange({ videoStartSec: v })}
+            />
+          </Row>
+          <Row label="volume">
+            <Slider
+              value={beat.volume ?? 0}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => onChange({ volume: v })}
+            />
+          </Row>
+          <div
+            style={{
+              fontSize: 10,
+              color: "#6b6b80",
+              marginTop: 4,
+              fontFamily: "ui-monospace, monospace",
+              wordBreak: "break-all",
+              lineHeight: 1.4,
+            }}
+            title={beat.videoSrc ?? ""}
+          >
+            {beat.videoSrc
+              ? `src: ${beat.videoSrc.split("/").pop()}`
+              : "src: (none)"}
+          </div>
+        </>
+      )}
+      {beat.kind === "imageClip" && (
+        <>
+          <Row label="zoom">
+            <Slider
+              value={beat.kenBurnsZoom ?? 0.15}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(v) => onChange({ kenBurnsZoom: v })}
+            />
+          </Row>
+          <Row label="zoom dir">
+            <Dropdown
+              value={beat.kenBurnsDir ?? "in"}
+              options={["in", "out"] as const}
+              onChange={(v) =>
+                onChange({ kenBurnsDir: v as "in" | "out" })
+              }
+            />
+          </Row>
+          <Row label="pan">
+            <Slider
+              value={beat.kenBurnsPan ?? 0}
+              min={0}
+              max={0.5}
+              step={0.01}
+              onChange={(v) => onChange({ kenBurnsPan: v })}
+            />
+          </Row>
+          <Row label="pan dir">
+            <Slider
+              value={beat.kenBurnsPanAngle ?? 0}
+              min={-180}
+              max={180}
+              step={5}
+              onChange={(v) => onChange({ kenBurnsPanAngle: v })}
+            />
+          </Row>
+          <div
+            style={{
+              fontSize: 10,
+              color: "#6b6b80",
+              marginTop: 4,
+              fontFamily: "ui-monospace, monospace",
+              wordBreak: "break-all",
+              lineHeight: 1.4,
+            }}
+            title={beat.imageSrc ?? ""}
+          >
+            {beat.imageSrc
+              ? `src: ${beat.imageSrc.split("/").pop()}`
+              : "src: (none)"}
+          </div>
+        </>
       )}
     </Section>
   );
