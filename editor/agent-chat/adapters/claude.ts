@@ -40,6 +40,11 @@ interface ClaudeStreamLine {
     >;
   };
   is_error?: boolean;
+  prompt_id?: string;
+  tool?: string;
+  args?: unknown;
+  scope?: string;
+  decision?: "allow" | "allow-always" | "deny";
 }
 
 interface AdapterState {
@@ -131,6 +136,26 @@ const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
         });
       }
     }
+    return;
+  }
+
+  if (evt.type === "permission_request" && evt.prompt_id && evt.tool) {
+    emit({
+      kind: "permission-request",
+      promptId: evt.prompt_id,
+      tool: evt.tool,
+      args: evt.args ?? {},
+      scope: evt.scope ?? "unknown",
+    });
+    return;
+  }
+
+  if (evt.type === "permission_decision" && evt.prompt_id && evt.decision) {
+    emit({
+      kind: "permission-decided",
+      promptId: evt.prompt_id,
+      decision: evt.decision,
+    });
     return;
   }
 

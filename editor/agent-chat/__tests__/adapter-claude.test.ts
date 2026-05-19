@@ -80,3 +80,35 @@ describe("claudeAdapter.parseChunk — tool calls", () => {
     expect(result!.ok).toBe(true);
   });
 });
+
+describe("claudeAdapter.parseChunk — permissions", () => {
+  it("emits permission-request and permission-decided for allow flow", () => {
+    const events = collect(fixture("claude-permission-allow.jsonl"));
+    const req = events.find((e) => e.kind === "permission-request");
+    expect(req).toBeDefined();
+    expect((req as { tool: string }).tool).toBe("Edit");
+    const decided = events.find((e) => e.kind === "permission-decided");
+    expect((decided as { decision: string }).decision).toBe("allow");
+  });
+
+  it("emits permission-decided=deny for deny flow", () => {
+    const events = collect(fixture("claude-permission-deny.jsonl"));
+    const decided = events.find((e) => e.kind === "permission-decided");
+    expect((decided as { decision: string }).decision).toBe("deny");
+  });
+});
+
+describe("claudeAdapter.encodePermissionDecision", () => {
+  it("returns 'y' for allow", () => {
+    const bytes = claudeAdapter.encodePermissionDecision("p", "allow");
+    expect(new TextDecoder().decode(bytes!)).toBe("y\n");
+  });
+  it("returns 'n' for deny", () => {
+    const bytes = claudeAdapter.encodePermissionDecision("p", "deny");
+    expect(new TextDecoder().decode(bytes!)).toBe("n\n");
+  });
+  it("returns 'a' for allow-always", () => {
+    const bytes = claudeAdapter.encodePermissionDecision("p", "allow-always");
+    expect(new TextDecoder().decode(bytes!)).toBe("a\n");
+  });
+});
