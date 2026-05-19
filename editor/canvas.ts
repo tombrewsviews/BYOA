@@ -18,7 +18,6 @@
 import type React from "react";
 import type { PlayerRef } from "@remotion/player";
 import type { Selection } from "./selection";
-import type { HistoryHandle } from "./shell";
 
 export type CanvasRendererProps<Doc> = {
   doc: Doc;

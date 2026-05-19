@@ -14,17 +14,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Story } from "../../../src/kinetic/schema";
 import { diffFields, fieldLabel } from "../../diff";
-import type { HistoryHandle } from "../../shell";
+import type { HistoryHandle, HistoryEntry } from "../../shell";
 
 const MAX_HISTORY = 100;
 const COALESCE_MS = 400;
-
-export type HistoryEntry = {
-  story: Story;
-  label: string;
-  /** ms epoch when this entry was committed */
-  at: number;
-};
 
 const inferLabel = (prev: Story | null, next: Story): string => {
   if (!prev) return "Initial";
@@ -40,8 +33,8 @@ const inferLabel = (prev: Story | null, next: Story): string => {
 
 export const useHistory = (): HistoryHandle<Story> => {
   const [story, setStoryState] = useState<Story | null>(null);
-  const pastRef = useRef<HistoryEntry[]>([]);
-  const futureRef = useRef<HistoryEntry[]>([]);
+  const pastRef = useRef<HistoryEntry<Story>[]>([]);
+  const futureRef = useRef<HistoryEntry<Story>[]>([]);
   // For coalescing: when the last commit was, and whether it was eligible
   // to merge with the next one.
   const lastCommitAtRef = useRef<number>(0);
@@ -142,7 +135,7 @@ export const useHistory = (): HistoryHandle<Story> => {
         // removed[0] is the target; removed[1..] become future entries (last
         // is current). Push current first, then the popped ones in reverse
         // so redo replays them oldest→newest.
-        const newFuture: HistoryEntry[] = [
+        const newFuture: HistoryEntry<Story>[] = [
           { story: current, label: "Current", at: Date.now() },
           ...removed.slice(1).reverse().map((e) => ({ ...e })),
         ];
