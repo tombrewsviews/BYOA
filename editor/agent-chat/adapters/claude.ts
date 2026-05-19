@@ -1,6 +1,26 @@
 import type { ChatEvent } from "../events";
 import type { AgentAdapter, SpawnArgs } from "./types";
 
+/**
+ * Single-session-only by design. `state` is module-scoped because each
+ * renderer holds exactly one Chat surface, and the renderer lifetime
+ * is the session lifetime. Tests must call
+ * `__resetClaudeAdapterStateForTesting` between cases.
+ *
+ * Protocol assumptions (Claude `--output-format stream-json --verbose`):
+ *   - Lines are LF-delimited (no CRLF handling).
+ *   - For a given assistant message id, accumulated text grows
+ *     monotonically; we emit only the suffix that hasn't been emitted
+ *     yet. A shrinking re-send would be silently swallowed — that's
+ *     not in the protocol today.
+ *   - `turn-end` is terminal for the turn; we don't emit `message-end`
+ *     separately. UIs that need a per-message finalizer should treat
+ *     `turn-end` (or the next `tool-call`) as the boundary.
+ *   - `cwd` is supplied to `spawnArgs` for future use (e.g. setting
+ *     env hints) but Claude itself is spawned with the cwd by the
+ *     Tauri backend; the adapter does not propagate it.
+ */
+
 interface ClaudeStreamLine {
   type: string;
   subtype?: string;
@@ -132,4 +152,16 @@ export const claudeAdapter: AgentAdapter = {
   parseChunk,
   encodeUserInput,
   encodePermissionDecision,
+};
+
+/**
+ * Reset adapter state for tests. NOT for production use — production
+ * has exactly one Chat session per renderer, so state lifetime equals
+ * the page lifetime. Tests that drive the adapter sequentially need
+ * this hook to avoid cross-test pollution.
+ */
+export const __resetClaudeAdapterStateForTesting = (): void => {
+  state.buf = "";
+  state.turnId = null;
+  state.emittedText.clear();
 };

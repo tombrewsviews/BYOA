@@ -1,8 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { claudeAdapter } from "../adapters/claude";
+import {
+  claudeAdapter,
+  __resetClaudeAdapterStateForTesting,
+} from "../adapters/claude";
 import type { ChatEvent } from "../events";
+
+beforeEach(() => {
+  __resetClaudeAdapterStateForTesting();
+});
 
 const fixture = (name: string): Uint8Array =>
   new TextEncoder().encode(
@@ -38,9 +45,10 @@ describe("claudeAdapter.parseChunk — prose", () => {
     expect(kinds).toContain("turn-start");
     expect(kinds).toContain("message-delta");
     expect(kinds).toContain("turn-end");
-    const deltas = events
-      .filter((e) => e.kind === "message-delta")
-      .map((e) => (e as { text: string }).text);
+    const deltas: string[] = [];
+    for (const e of events) {
+      if (e.kind === "message-delta") deltas.push(e.text);
+    }
     expect(deltas.join("")).toContain("Hello");
   });
 
