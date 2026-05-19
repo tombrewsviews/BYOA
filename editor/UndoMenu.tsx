@@ -10,6 +10,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import type { HistoryHandle } from "./shell";
+import { color, font, radius, secondaryBtn } from "./platform/theme";
 
 const fmtAgo = (now: number, then: number): string => {
   const ms = Math.max(0, now - then);
@@ -35,12 +36,9 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
   }, [open]);
 
   const baseBtn: React.CSSProperties = {
-    background: "transparent",
-    border: "1px solid #2e2e3c",
-    color: "#e4e4ee",
-    fontSize: 11,
+    ...secondaryBtn(),
+    fontSize: font.size.sm,
     padding: "3px 8px",
-    cursor: "pointer",
   };
 
   const now = Date.now();
@@ -101,22 +99,22 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
             minWidth: 220,
             maxHeight: 320,
             overflowY: "auto",
-            background: "#0a0a10",
-            border: "1px solid #2e2e3c",
-            borderRadius: 6,
+            background: color.bg.surface,
+            border: `1px solid ${color.border.strong}`,
+            borderRadius: radius.md,
             boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
             zIndex: 100,
-            fontSize: 11,
+            fontSize: font.size.sm,
           }}
         >
           <div
             style={{
               padding: "6px 10px",
-              borderBottom: "1px solid #232330",
-              color: "#6b6b80",
+              borderBottom: `1px solid ${color.border.line}`,
+              color: color.text.dim,
               textTransform: "uppercase",
               letterSpacing: 0.5,
-              fontSize: 10,
+              fontSize: font.size.xs,
             }}
           >
             History · {entries.length}
@@ -137,22 +135,18 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
                   width: "100%",
                   background: "transparent",
                   border: 0,
-                  color: "#e4e4ee",
+                  color: color.text.secondary,
                   padding: "6px 10px",
                   cursor: "pointer",
                   textAlign: "left",
                   alignItems: "baseline",
                   gap: 8,
                 }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "#14141c")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
+                onMouseEnter={(e) => (e.currentTarget.style.background = color.bg.hover)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 <span style={{ flex: 1 }}>{entry.label}</span>
-                <span style={{ color: "#6b6b80", fontSize: 10 }}>
+                <span style={{ color: color.text.dim, fontSize: font.size.xs }}>
                   {fmtAgo(now, entry.at)}
                 </span>
               </button>
