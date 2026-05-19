@@ -18,6 +18,7 @@ import { Player, type PlayerRef, type CallbackListener } from "@remotion/player"
 import { KineticStory } from "../src/kinetic/KineticStory";
 import { resolveBeatTimes, type Beat, type Story } from "../src/kinetic/schema";
 import type { Selection } from "./selection";
+import { color, font, radius, secondaryBtn } from "./platform/theme";
 
 type PlayerStageProps = {
   inputProps: Story;
@@ -136,7 +137,7 @@ export const PlayerStage: React.FC<PlayerStageProps> = React.memo(
           borderRadius: 14,
           overflow: "hidden",
           boxShadow: "0 24px 70px rgba(0,0,0,0.6)",
-          border: "1px solid #232330",
+          border: `1px solid ${color.border.line}`,
           position: "relative",
         }}
       >
@@ -248,7 +249,7 @@ const InlineTextEditor: React.FC<{
         background: "rgba(8,8,12,0.92)",
         border: "1.5px solid #facc15",
         borderRadius: 6,
-        color: "#fafafa",
+        color: color.text.primary,
         fontSize: 24,
         fontWeight: 600,
         padding: "8px 14px",
@@ -357,7 +358,7 @@ const RotationHandle: React.FC<{
           height: 14,
           borderRadius: "50%",
           background: "#facc15",
-          border: "2px solid #0a0a10",
+          border: `2px solid ${color.bg.surface}`,
           cursor: "grab",
           boxShadow: "0 0 6px rgba(250,204,21,0.7)",
           pointerEvents: "auto",
@@ -426,8 +427,8 @@ export const Transport: React.FC<{
         display: "flex",
         gap: 6,
         padding: "6px 8px",
-        background: "#0e0e14",
-        border: "1px solid #232330",
+        background: color.bg.raised,
+        border: `1px solid ${color.border.line}`,
         borderRadius: 8,
         alignItems: "center",
       }}
@@ -458,18 +459,10 @@ const TBtn: React.FC<{
     onClick={onClick}
     aria-pressed={ariaPressed}
     style={{
-      // Pressed state (e.g. loop active) gets the accent color so the
-      // user can see it's an on/off toggle, not a one-shot button.
-      background: ariaPressed ? "#7c5cff" : "#1c1c26",
-      border: "1px solid",
-      borderColor: ariaPressed ? "#9d83ff" : "#2e2e3c",
-      borderRadius: 6,
-      color: ariaPressed ? "white" : "#e4e4ee",
-      fontSize: 12,
+      ...secondaryBtn({ active: ariaPressed }),
+      fontSize: font.size.md,
       padding: "5px 10px",
-      cursor: "pointer",
       minWidth: 80,
-      fontWeight: ariaPressed ? 600 : 400,
     }}
   >
     {label}
