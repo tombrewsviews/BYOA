@@ -85,23 +85,27 @@ const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
   if (evt.type === "assistant" && evt.message) {
     const turnId = startTurnIfNeeded(emit);
     const msgId = evt.message.id;
+
+    // Aggregate all text blocks at once (Claude re-sends complete
+    // accumulated text on each line). Emit the unseen suffix as a
+    // single message-delta keyed by message id.
+    const fullText =
+      evt.message.content
+        ?.filter(
+          (x): x is { type: "text"; text: string } => x.type === "text",
+        )
+        .map((x) => x.text)
+        .join("") ?? "";
+    const previous = state.emittedText.get(msgId) ?? "";
+    if (fullText.length > previous.length) {
+      const delta = fullText.slice(previous.length);
+      state.emittedText.set(msgId, fullText);
+      emit({ kind: "message-delta", turnId, text: delta });
+    }
+
+    // Loop for the heterogeneous content blocks that ARE per-block:
+    // tool_use (and, later, others). Text is handled above.
     for (const c of evt.message.content ?? []) {
-      if (c.type === "text") {
-        const fullText =
-          evt.message.content
-            ?.filter(
-              (x): x is { type: "text"; text: string } => x.type === "text",
-            )
-            .map((x) => x.text)
-            .join("") ?? "";
-        const previous = state.emittedText.get(msgId) ?? "";
-        if (fullText.length > previous.length) {
-          const delta = fullText.slice(previous.length);
-          state.emittedText.set(msgId, fullText);
-          emit({ kind: "message-delta", turnId, text: delta });
-        }
-        break; // text already aggregated for the whole message
-      }
       if (c.type === "tool_use") {
         emit({
           kind: "tool-call",
@@ -115,13 +119,14 @@ const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
     return;
   }
 
+  // tool_result payloads arrive in user-role messages, before the `result` line
   if (evt.type === "user" && evt.message) {
     for (const c of evt.message.content ?? []) {
       if (c.type === "tool_result") {
         emit({
           kind: "tool-result",
           callId: c.tool_use_id,
-          ok: !c.is_error,
+          ok: !c.is_error, // undefined is_error → not an error → ok: true
           output: c.content,
         });
       }

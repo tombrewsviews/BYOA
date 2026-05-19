@@ -6,6 +6,7 @@ import {
   __resetClaudeAdapterStateForTesting,
 } from "../adapters/claude";
 import type { ChatEvent } from "../events";
+import { isToolCall, isToolResult } from "../events";
 
 beforeEach(() => {
   __resetClaudeAdapterStateForTesting();
@@ -66,15 +67,16 @@ describe("claudeAdapter.parseChunk — prose", () => {
 describe("claudeAdapter.parseChunk — tool calls", () => {
   it("emits tool-call with name + input, then tool-result", () => {
     const events = collect(fixture("claude-tool-call.jsonl"));
-    const call = events.find((e) => e.kind === "tool-call");
+
+    const call = events.find(isToolCall);
     expect(call).toBeDefined();
-    expect((call as { name: string }).name).toBe("Read");
-    expect((call as { input: { file_path: string } }).input.file_path).toBe(
+    expect(call!.name).toBe("Read");
+    expect((call!.input as { file_path: string }).file_path).toBe(
       "/x/story.json",
     );
 
-    const result = events.find((e) => e.kind === "tool-result");
+    const result = events.find(isToolResult);
     expect(result).toBeDefined();
-    expect((result as { ok: boolean }).ok).toBe(true);
+    expect(result!.ok).toBe(true);
   });
 });
