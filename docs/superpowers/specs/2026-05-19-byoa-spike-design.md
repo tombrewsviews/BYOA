@@ -1,25 +1,25 @@
-# KeepDiggin spike — design
+# BYOA spike — design
 
 A research-spike spec for turning KineticType's substrate into a
-framework called **KeepDiggin**: a desktop runtime for apps where the
+framework called **BYOA**: a desktop runtime for apps where the
 agent is a first-class user. This document is both the manifesto and
 the audit. No production refactor follows from it — the deliverable
 is the spec plus the file-by-file audit in Section 5.
 
 **Vocabulary:**
 
-- **KeepDiggin** — the framework / runtime / brand. Lowercase
-  everywhere terminal-facing (`keepdiggin` package, `.keepdiggin/`
-  project directory, `KEEPDIGGIN=1` env). Camel-case
-  ("KeepDiggin") only in prose and brand surfaces. The name evokes
+- **BYOA** — the framework / runtime / brand. Lowercase
+  everywhere terminal-facing (`byoa` package, `.byoa/`
+  project directory, `BYOA=1` env). Camel-case
+  ("BYOA") only in prose and brand surfaces. The name evokes
   the GSD attitude: the agent keeps digging at the task on your
   behalf, turn after turn, until it's done.
-- **Canvas plugin** — one app's contract with KeepDiggin. Codebase
+- **Canvas plugin** — one app's contract with BYOA. Codebase
   uses *canvas*; this spec uses both.
 - **App** — an installable surface listed on the Square.
-- **Square** — KeepDiggin's launcher home screen (the
+- **Square** — BYOA's launcher home screen (the
   `editor/platform/Square.tsx` component today). It is *not* a
-  synonym for the framework — KeepDiggin is the framework, the
+  synonym for the framework — BYOA is the framework, the
   Square is one screen inside it.
 - **Manifest** — the canvas plugin's declaration file.
 
@@ -27,7 +27,7 @@ is the spec plus the file-by-file audit in Section 5.
 
 ## 1 — Thesis
 
-**One-line pitch.** KeepDiggin is a desktop runtime for apps where
+**One-line pitch.** BYOA is a desktop runtime for apps where
 the agent is a first-class user. Every app ships its source with the
 binary, runs inside an embedded terminal, exposes its UI as prompts,
 and lets users redirect it mid-task. Indie devs ship one app and
@@ -38,7 +38,7 @@ tester corps (the users) for free.
 user can only push pixels and click widgets. The agent era inverts
 that: the highest-bandwidth way to use a tool is to describe what you
 want, and the highest-bandwidth way to extend a tool is to edit its
-source while it's running. KeepDiggin is built around that
+source while it's running. BYOA is built around that
 inversion. The agent is not a sidebar — it is a way of using the
 app, peer to the cursor.
 
@@ -53,19 +53,19 @@ app, peer to the cursor.
    it."*
 2. **Prompts are a first-class input mode**, not a chat box bolted
    on. The agent can do anything a human can do with the UI (the app
-   dev declares verbs; KeepDiggin wires them as tools), see
+   dev declares verbs; BYOA wires them as tools), see
    everything the human sees (preview snapshot + structured state),
    and read everything the runtime emits (console + network +
    errors). Users alternate fluidly: drag a slider, then say "make
    the rest of the track follow that".
 3. **State is a file you can read.** Every app has one canonical
    state file (whatever schema the app defines; e.g. KineticType's
-   `story.json`). KeepDiggin watches it, validates it, hot-reloads
+   `story.json`). BYOA watches it, validates it, hot-reloads
    the preview from it, and versions it. The agent edits this file.
    The user can read it. The two can never disagree about "what is
    the project right now".
 4. **Time-travel is free.** Because state is one validated file,
-   KeepDiggin keeps a content-addressed history of every change.
+   BYOA keeps a content-addressed history of every change.
    The agent can branch, the user can rewind, both can diff. "Agent
    as contributor" stays safe — nothing the agent does is
    irreversible.
@@ -78,7 +78,7 @@ app, peer to the cursor.
 **Who wins if this works.**
 
 - *Indie builders* — ship one focused app, inherit terminal + agent
-  contract + preview + Square + community. KeepDiggin absorbs the
+  contract + preview + Square + community. BYOA absorbs the
   bottom 70% of "make a desktop app" so the dev can spend 100% on
   the magic.
 - *Users* — get tools that feel alive: the agent can drive them, the
@@ -89,7 +89,7 @@ app, peer to the cursor.
   entering app X is structurally identical to the skill for app Y;
   only verbs and schema differ.
 
-**What KeepDiggin is not.**
+**What BYOA is not.**
 
 - Not a generic Tauri replacement. It is opinionated for one app
   shape (one watched state file + one live preview + one agent + one
@@ -103,8 +103,8 @@ app, peer to the cursor.
 
 ## 2 — The four pillars
 
-Every app on KeepDiggin inherits all four. The app dev declares
-schemas + verbs; KeepDiggin does the wiring. The agent sees a
+Every app on BYOA inherits all four. The app dev declares
+schemas + verbs; BYOA does the wiring. The agent sees a
 consistent contract across every app.
 
 ### 2.1 — Observe (see preview, read logs)
@@ -112,7 +112,7 @@ consistent contract across every app.
 The agent can look at the running app the same way a user does, plus
 read the firehose underneath.
 
-Two tools KeepDiggin auto-provides:
+Two tools BYOA auto-provides:
 
 - `observe.snapshot()` → `{ screenshot, view, ts }`. Screenshot is a
   real bitmap of the preview surface. `view` is whatever the app dev
@@ -121,7 +121,7 @@ Two tools KeepDiggin auto-provides:
   elements, current route). Tight: under 50KB JSON per call.
 - `observe.logs({ since?, level?, source?, limit? })` and
   `observe.network({ since?, status?, urlIncludes?, limit? })` —
-  stackpack-debug style. Captured by KeepDiggin-level
+  stackpack-debug style. Captured by BYOA-level
   instrumentation in the preview iframe that runs before app code
   (no opt-in). Network capture includes URL, method, status,
   duration, sizes — not bodies by default (privacy guardrail; app
@@ -133,7 +133,7 @@ see — the agent's edge over a sighted human.
 
 **Cost shape.** Snapshot is cheap; agents call it freely. Logs are
 an append-only ring buffer (last ~5MB per app under
-`.keepdiggin/logs/`); the tool reads slices, agent never gets the
+`.byoa/logs/`); the tool reads slices, agent never gets the
 whole buffer.
 
 ### 2.2 — Act (prompt-driven UI verbs + first-class user)
@@ -145,7 +145,7 @@ user, not a remote control.
 **Layer A: declared verbs.** The app dev declares a JSON schema of
 high-intent verbs. Example for KineticType: `{ selectBeat: { index:
 int }, setColor: { hex: string }, addBeat: { kind, durationSeconds,
-... } }`. KeepDiggin wires each verb as a typed agent tool with arg
+... } }`. BYOA wires each verb as a typed agent tool with arg
 validation. App dev's runtime handler runs the verb against UI state.
 
 **Layer B: low-level navigation primitives.** A fixed, app-agnostic
@@ -178,7 +178,7 @@ what's wrong" workflows.
 ### 2.3 — State (one watched file, schema-validated, time-traveled)
 
 Generalizes KineticType's `story.json` contract. The single most
-important seam in KeepDiggin.
+important seam in BYOA.
 
 **The contract.** Each app declares:
 
@@ -187,14 +187,14 @@ important seam in KeepDiggin.
 - A `migrate(oldVersion, oldData) → newData` function for schema
   evolution.
 
-KeepDiggin:
+BYOA:
 
 - Watches the file (~300ms debounced, same as today's KineticType).
 - Validates on every write; invalid writes are *rejected* and
   reported to the agent's tool result (not silently mangled).
 - Hot-reloads the preview component with the new state.
 - Stores every accepted write in a content-addressed log under
-  `.keepdiggin/history/` (sha-named blobs + a thin index). Default
+  `.byoa/history/` (sha-named blobs + a thin index). Default
   retention: last 200 versions per project. Not a git repo — a flat
   append-only log; cheaper, no commit ceremony.
 
@@ -225,7 +225,7 @@ instead of retrying the whole document.
 Every app gets a consistent agent-facing identity for free. No more
 hand-writing SKILL.md per app.
 
-**Auto-injected routing skill.** When a project opens, KeepDiggin
+**Auto-injected routing skill.** When a project opens, BYOA
 generates `.claude/skills/<app-id>/SKILL.md` from the app's manifest.
 The skill is structurally identical across apps — only the verbs,
 schema, and snapshot shape vary. The app dev may add domain-specific
@@ -242,10 +242,10 @@ picks up a paused session.
 
 **Per-app memory.** `memory.get(key)` / `memory.set(key, value)` /
 `memory.list()` / `memory.delete(key)`. Persisted per project under
-`.keepdiggin/memory.json`. Two crucial properties:
+`.byoa/memory.json`. Two crucial properties:
 
 - *User-visible.* The agent's memory is not a black box; an app can
-  surface it in its own UI (KeepDiggin provides `memory.*` as a
+  surface it in its own UI (BYOA provides `memory.*` as a
   capability; the app provides the view).
 - *App-scoped, project-scoped.* Memory in KineticType project A is
   invisible to KineticType project B and to other apps. No cross-app
@@ -259,7 +259,7 @@ An app is three files plus an icon. That's the whole surface.
 
 ```
 my-app/
-├── keepdiggin.manifest.ts     # what this app is
+├── byoa.manifest.ts     # what this app is
 ├── preview.tsx                # what the user sees
 ├── runtime.ts                 # how verbs change state
 └── icon.png                   # 512×512, square
@@ -269,7 +269,7 @@ No fourth file. No "configure your build." No Rust unless the app
 dev opts in (3.5). An agent should be able to read these three files
 and fully understand the app.
 
-> **Design constraint:** KeepDiggin is optimized for an agent to
+> **Design constraint:** BYOA is optimized for an agent to
 > author apps in it, not a human. A human reads the manifest to
 > understand what the agent built; the manifest is written by the
 > agent. Implications: declarative, deterministic, narrow types,
@@ -279,8 +279,8 @@ and fully understand the app.
 ### 3.1 — The manifest
 
 ```ts
-// keepdiggin.manifest.ts
-import { defineApp } from "keepdiggin";
+// byoa.manifest.ts
+import { defineApp } from "byoa";
 import { z } from "zod";
 
 export const StoryState = z.object({ /* app's schema */ });
@@ -337,7 +337,7 @@ and the runtime tools given to the agent.
 
 ```tsx
 // preview.tsx
-import { useState, useUI, useStableId } from "keepdiggin";
+import { useState, useUI, useStableId } from "byoa";
 
 export default function Preview() {
   const state = useState();
@@ -352,7 +352,7 @@ export default function Preview() {
 }
 ```
 
-Three KeepDiggin-provided hooks:
+Three BYOA-provided hooks:
 
 - `useState()` — current validated state from the watched file.
   Re-renders on every accepted write (user, agent, or external
@@ -360,19 +360,19 @@ Three KeepDiggin-provided hooks:
 - `useUI()` — local UI state (selection, playhead, route, anything
   non-persistent). Set by the runtime module.
 - `useStableId(name)` — gives an element a stable test-id-style
-  attribute KeepDiggin uses for `nav.click(selector)`. The agent's
+  attribute BYOA uses for `nav.click(selector)`. The agent's
   nav layer never depends on raw DOM structure; only on names the
   app dev explicitly exposes.
 
 No router required. No state-management library required. App dev
 brings whatever — Zustand, Redux, MobX, plain `useState` — but the
-contract with KeepDiggin is just these three hooks.
+contract with BYOA is just these three hooks.
 
 ### 3.3 — The runtime
 
 ```ts
 // runtime.ts
-import { defineRuntime } from "keepdiggin";
+import { defineRuntime } from "byoa";
 
 export default defineRuntime({
   ui: {
@@ -415,25 +415,25 @@ the codebase.
 
 ### 3.4 — Auto-generated agent skill
 
-KeepDiggin reads the manifest at app-open time and writes
+BYOA reads the manifest at app-open time and writes
 `.claude/skills/<app-id>/SKILL.md`. The content is mechanical — same
 template for every app, interpolating from the manifest:
 
 ```
 ---
 name: <app-id>
-description: You are running inside <app name> on KeepDiggin. ...
+description: You are running inside <app name> on BYOA. ...
 ---
 
 # <app name>
 
-You are inside <app name>, a KeepDiggin app. The user launched you
-from KeepDiggin's embedded terminal. The state file is
-`./<state.file>` — KeepDiggin watches it and refreshes the preview
+You are inside <app name>, a BYOA app. The user launched you
+from BYOA's embedded terminal. The state file is
+`./<state.file>` — BYOA watches it and refreshes the preview
 within ~300ms of every write.
 
 ## Hard rules
-- Read `.keepdiggin/prompt-mode` and `.keepdiggin/selection` FIRST
+- Read `.byoa/prompt-mode` and `.byoa/selection` FIRST
   on every turn. Apply replace | append | insert semantics.
 - Write to state via `state.write({ patch })`. Patches only — never
   rewrite the file in full.
@@ -461,14 +461,14 @@ everything else is generated. Domain knowledge lives in a sibling
 
 If an app needs OS-level powers (custom file types, system menus,
 hardware access), it ships a Rust crate alongside, named
-`<app-id>-native`. KeepDiggin loads it at boot. The native crate
+`<app-id>-native`. BYOA loads it at boot. The native crate
 gets exactly one capability: register more verbs. No direct preview
-DOM access, no direct file mutations, no KeepDiggin internals. The
+DOM access, no direct file mutations, no BYOA internals. The
 verb shape is identical to TS verbs. The agent sees no difference.
 
 Standalone .app bundles ship the dylib inside `Frameworks/`.
 Square-installed apps load it from `~/Library/Application
-Support/KeepDiggin/apps/<id>/native/`. Cross-platform dylib
+Support/BYOA/apps/<id>/native/`. Cross-platform dylib
 stability is a real cost; the V1 escape hatch is "ship as
 subprocess + local socket" for apps that don't want to take on ABI
 risk. The decision is per-app, not framework-wide.
@@ -476,7 +476,7 @@ risk. The decision is per-app, not framework-wide.
 ### 3.6 — What the contract deliberately doesn't have
 
 - **No lifecycle hooks** (onOpen, onClose, onError, onUserIdle).
-  KeepDiggin handles lifecycle. Apps are pure-state-plus-verbs.
+  BYOA handles lifecycle. Apps are pure-state-plus-verbs.
 - **No multi-window.** One preview surface per project.
 - **No remote runtime.** State is local, agent is local, source is
   local.
@@ -484,7 +484,7 @@ risk. The decision is per-app, not framework-wide.
 - **No animation/transition declarations in the manifest.** Apps own
   their preview entirely.
 - **No theming API for apps.** Each app draws its own UI;
-  KeepDiggin's chrome (terminal, menubar, Square) is themed
+  BYOA's chrome (terminal, menubar, Square) is themed
   separately.
 
 Every omission is load-bearing. Adding any of them makes the agent's
@@ -500,7 +500,7 @@ identical in both; only the wrapper differs.
 
 ### 4.1 — Standalone
 
-An app dev runs `npx keepdiggin build`. Out comes a single native
+An app dev runs `npx byoa build`. Out comes a single native
 bundle:
 
 ```
@@ -511,15 +511,15 @@ Kinetic Type.app/
     ├── Resources/
     │   ├── app/                     # manifest + preview + runtime
     │   ├── skills/                  # domain skills
-    │   ├── keepdiggin/              # KeepDiggin runtime
+    │   ├── byoa/              # BYOA runtime
     │   └── icon.icns
     └── Frameworks/                  # optional native dylibs
 ```
 
 Regular distributable .app/.exe/.AppImage. Users double-click;
-KeepDiggin boots in single-app mode (no Square, just opens the most
+BYOA boots in single-app mode (no Square, just opens the most
 recent project for this app, or its empty state). Updates ship via
-KeepDiggin's auto-updater pointed at the app dev's release feed. No
+BYOA's auto-updater pointed at the app dev's release feed. No
 infra required beyond GitHub releases.
 
 **Why standalone exists** when the Square is the "real" channel:
@@ -528,10 +528,10 @@ a user's dock — with their icon, their installer, their support
 story — gets it without ceding identity to a hub. Steam exists;
 itch.io exists. Both are needed.
 
-### 4.2 — The Square (KeepDiggin's hub)
+### 4.2 — The Square (BYOA's hub)
 
-KeepDiggin's hub is itself a KeepDiggin app, distributed as
-`KeepDiggin.app`. The home screen of that app is **the Square** — a
+BYOA's hub is itself a BYOA app, distributed as
+`BYOA.app`. The home screen of that app is **the Square** — a
 launcher, not a dashboard.
 
 **Two states only:**
@@ -542,7 +542,7 @@ launcher, not a dashboard.
 - **Inside an app.** Once the user clicks a tile, the Square hands
   the central surface entirely to that app. The app decides what to
   show — a projects list (KineticType does), a blank canvas, a
-  dashboard, an empty state with a prompt. KeepDiggin adds exactly
+  dashboard, an empty state with a prompt. BYOA adds exactly
   **one** persistent affordance: a "← Square" control visible
   always, that returns to the home screen. The terminal pane stays
   mounted on the side (PTY survives the round-trip).
@@ -550,7 +550,7 @@ launcher, not a dashboard.
 Per-app concerns (history, memory, settings) are inside-the-app
 surfaces the app dev designs, not framework-level globals. If an
 app wants to surface its history log, it builds that view using
-KeepDiggin's `state.history()` API. KeepDiggin provides the
+BYOA's `state.history()` API. BYOA provides the
 capability; the app owns the UI.
 
 ### 4.3 — What's shared, what's per-app
@@ -559,7 +559,7 @@ The split is the seam the audit in §5 validates. Anything in
 "shared" must be app-agnostic; anything in "per-app" must be
 declared in the contract.
 
-**Shared (in `keepdiggin/`):** PTY pool + terminal pane (xterm);
+**Shared (in `byoa/`):** PTY pool + terminal pane (xterm);
 file watcher; schema validator + patch applier + content-addressed
 history store; preview iframe + observe instrumentation; verb tool
 registry + agent tool plumbing; nav primitives; memory store; auto-
@@ -570,7 +570,7 @@ runtime module / verb handlers; domain skill files (optional); native
 extension crate (optional); icon, README, license.
 
 The agent doesn't see the split. From inside any app, the agent has
-the same tool surface. The split exists so KeepDiggin can iterate
+the same tool surface. The split exists so BYOA can iterate
 independently of the apps — when the framework adds a capability,
 every installed app gets it for free.
 
@@ -589,7 +589,7 @@ The Square talks to a registry. V1 design:
   anywhere (GitHub releases, S3, their own server). Registry is a
   pointer file, not a CDN.
 
-The registry being thin is deliberate. If KeepDiggin takes off,
+The registry being thin is deliberate. If BYOA takes off,
 expand. If it doesn't, the registry never grows into a liability.
 
 ### 4.5 — Project anatomy on disk
@@ -600,7 +600,7 @@ same shape:
 ```
 my-project/
 ├── story.json                    # canonical state file (app-defined name)
-├── .keepdiggin/
+├── .byoa/
 │   ├── app-id                    # which app this project belongs to
 │   ├── prompt-mode               # replace | append | insert
 │   ├── selection                 # current selection
@@ -622,16 +622,16 @@ my-project/
 - `.claude/skills/` symlinks from the app bundle (KineticType
   pattern today), so app updates propagate to existing projects
   without rewriting per-project files.
-- `.keepdiggin/` is `.gitignore`d by default. Users who want
+- `.byoa/` is `.gitignore`d by default. Users who want
   history committed opt in.
 
 ### 4.6 — Concurrency: agent and user
 
-Both write to the state file. KeepDiggin already solves this for
+Both write to the state file. BYOA already solves this for
 KineticType via the `diff.ts` reconciliation pass; the V1 framework
 generalizes it.
 
-All writes go through KeepDiggin's patch applier, which serializes
+All writes go through BYOA's patch applier, which serializes
 them. The agent's `state.write(patch)` and the user's UI-triggered
 writes (dragging a slider → verb call → patch) hit the same queue.
 Conflicting writes within the same animation frame resolve by last-
@@ -651,11 +651,11 @@ so both sides see who did what.
 
 The validation artifact: every file in `src-tauri/src/`, `editor/`,
 and `src/kinetic/` (plus templates/skills/scripts) gets a label so
-the KeepDiggin/app boundary stops being theoretical.
+the BYOA/app boundary stops being theoretical.
 
 **Methodology.** Each file gets one of:
 
-- **shell** — domain-agnostic substrate; stays in KeepDiggin when
+- **shell** — domain-agnostic substrate; stays in BYOA when
   extracted; nothing about kinetic typography in here.
 - **app** — kinetic-typography-specific; ships inside the
   kinetic-type app bundle.
@@ -723,9 +723,9 @@ as is — it doesn't need to be renamed to match the brand.
 | `runtime.ts` | shell | `isTauri()`. Generic. |
 | `terminal.tsx` | shell | xterm + canvas renderer. |
 | `ProjectsView.tsx` | split | Currently shell-level. Per §4.2, projects-as-screen is app-owned now. Move to `canvases/kinetic/`. |
-| `PromptModeBar.tsx` | shell | Prompt mode is a KeepDiggin concept. |
+| `PromptModeBar.tsx` | shell | Prompt mode is a BYOA concept. |
 | `PerfOverlay.tsx` | shell | Diagnostic. |
-| `FirstRun.tsx` | shell | KeepDiggin onboarding. |
+| `FirstRun.tsx` | shell | BYOA onboarding. |
 | `UndoMenu.tsx` | shell | When Pillar 3 time-travel lands, this is its UI. |
 | `panel.tsx` | app | Kinetic properties panel. Move. |
 | `timeline.tsx` | app | Kinetic timeline. Move. |
@@ -752,7 +752,7 @@ as is — it doesn't need to be renamed to match the brand.
 
 |  | files | LOC share (rough) |
 |---|---|---|
-| shell (→ KeepDiggin) | ~30 | 60–65% |
+| shell (→ BYOA) | ~30 | 60–65% |
 | app (→ kinetic-type bundle) | ~25 | 30% |
 | split | 6 | 5–10% |
 
@@ -766,7 +766,7 @@ share of the work.
 
 Three findings worth promoting to decisions (§7):
 
-1. **KeepDiggin is already 60%+ extracted in place.** The remaining
+1. **BYOA is already 60%+ extracted in place.** The remaining
    work isn't invention — it's relocation, naming the framework,
    and finishing the six split files.
 2. **Pillar 3 (state with time-travel) deletes more code than it
@@ -788,14 +788,14 @@ What it looks like, inside an open project, from the agent's seat.
 
 ### 6.1 — What loads when the agent attaches
 
-The user opens a project. KeepDiggin:
+The user opens a project. BYOA:
 
 1. Resolves the project's canvas plugin (from
-   `.keepdiggin/app-id`).
+   `.byoa/app-id`).
 2. Writes/refreshes the auto-generated routing skill from the
    manifest.
-3. Boots a PTY into the project root with `KEEPDIGGIN=1` and
-   `KEEPDIGGIN_APP=<app-id>` in the env. The agent launches inside
+3. Boots a PTY into the project root with `BYOA=1` and
+   `BYOA_APP=<app-id>` in the env. The agent launches inside
    this PTY.
 4. Mounts the preview component, installs observe instrumentation
    in its iframe, starts the watcher.
@@ -806,7 +806,7 @@ file it can read/write, and a history log starting at version 0.
 
 ### 6.2 — Tool surface (full catalog)
 
-Five namespaces, ~15 tools. Stable across every KeepDiggin app.
+Five namespaces, ~15 tools. Stable across every BYOA app.
 
 **`observe.*`** — `snapshot()`, `logs(...)`, `network(...)`.
 
@@ -832,7 +832,7 @@ catalog (every verb, route, stable id, memory key, schema). The
 ### 6.3 — Patterns the agent learns by doing
 
 Five patterns the routing skill doesn't spell out (framework-level),
-but every KeepDiggin agent learns by doing them once. Shape how
+but every BYOA agent learns by doing them once. Shape how
 Pillars 1–4 actually feel in practice.
 
 1. **Look-before-leap.** Before any non-trivial change, call
@@ -878,32 +878,32 @@ audited channels.
 
 ### 7.1 — Decisions
 
-1. The framework is named **KeepDiggin**. Lowercase `keepdiggin`
-   for package, `.keepdiggin/` for project directory, `KEEPDIGGIN=1`
-   for env. Camel-case "KeepDiggin" only in prose and brand
+1. The framework is named **BYOA**. Lowercase `byoa`
+   for package, `.byoa/` for project directory, `BYOA=1`
+   for env. Camel-case "BYOA" only in prose and brand
    surfaces.
 2. Hybrid distribution — Square + standalone. Same runtime,
    different wrappers.
 3. The Square is launcher-only. No global tabs. Each app owns its
-   inside-the-app surface; the only persistent KeepDiggin chrome is
+   inside-the-app surface; the only persistent BYOA chrome is
    "← Square" + the terminal.
 4. Three-file canvas contract: manifest + preview + runtime. Plus
    optional `skills/*.md` and optional Rust native crate.
 5. JSON Patch for state writes. RFC 6902. Not full-doc rewrites.
-6. Content-addressed history under `.keepdiggin/history/`. Append-
+6. Content-addressed history under `.byoa/history/`. Append-
    only log, not git.
 7. Stable IDs for nav primitives. App devs sprinkle
-   `useStableId("name")`; KeepDiggin never uses raw DOM selectors.
+   `useStableId("name")`; BYOA never uses raw DOM selectors.
 8. Auto-generated routing skill. Hand-written domain skills
    (typography-system, motion-design, etc.) stay; routing skill
    itself is mechanical.
-9. `.keepdiggin/` git-ignored by default. Opt-in for committed
+9. `.byoa/` git-ignored by default. Opt-in for committed
    history.
 10. Codebase vocabulary kept: "canvas plugin," "Square,"
     "manifest" — matches what `canvas.rs`, `editor/canvas.ts`,
     `editor/platform/`, `editor/shell.ts` already established. The
     "platform / substrate" placeholder vocabulary is replaced by
-    "KeepDiggin" in prose; `editor/platform/` stays as a folder
+    "BYOA" in prose; `editor/platform/` stays as a folder
     name.
 11. Thin registry — pointer file; no CDN, no review, no payments.
 
@@ -930,7 +930,7 @@ The spec doesn't resolve these; the implementation plan will. Listed
 explicitly so they don't sneak in as accidental decisions:
 
 - Where native Rust extensions live in standalone vs Square mode
-  (in-bundle vs `~/Library/Application Support/KeepDiggin/...`).
+  (in-bundle vs `~/Library/Application Support/BYOA/...`).
 - Snapshot rate-limiting — framework-enforced or trusted to the
   agent.
 - Verb return-shape consistency — `return { result }` vs side-
@@ -947,7 +947,7 @@ true:
 
 1. **The audit's "shell" pile makes structural sense without
    kinetic typography.** A reader who doesn't know KineticType
-   would understand what KeepDiggin does from §5.1–§5.4.
+   would understand what BYOA does from §5.1–§5.4.
 2. **A hypothetical second canvas plugin is describable in one
    paragraph.** Pick a domain (e.g. "Markdown Slide Deck" — state
    is `slides.json` with `[{markdown, theme}]`; verbs are
@@ -972,7 +972,7 @@ true:
 
 | Spec term | Codebase term | Where in codebase |
 |---|---|---|
-| KeepDiggin (the framework) | the substrate / shell / "platform" placeholder | `editor/canvas.ts`, `src-tauri/src/canvas.rs`, `editor/shell.ts`, `editor/platform/` (folder) |
+| BYOA (the framework) | the substrate / shell / "platform" placeholder | `editor/canvas.ts`, `src-tauri/src/canvas.rs`, `editor/shell.ts`, `editor/platform/` (folder) |
 | canvas plugin | canvas | `Canvas` trait in `canvas.rs`; `activeCanvas` export in `editor/canvas.ts` |
 | Square (the launcher screen) | Square | `editor/platform/Square.tsx` |
 | app manifest | `AppManifest` | `editor/platform/apps.ts` |

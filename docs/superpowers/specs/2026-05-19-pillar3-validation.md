@@ -1,6 +1,6 @@
 # Pillar 3 validation (after Phase C)
 
-This doc validates §7.4 criterion #3 of the KeepDiggin spike spec for
+This doc validates §7.4 criterion #3 of the BYOA spike spec for
 Pillar 3 — the highest-risk pillar. The spec claims:
 
 > `state.write({ patch })` — JSON Patch (RFC 6902) applied to current
@@ -183,5 +183,5 @@ infrastructure.
 
 The spike is validated pending the manual run. The next step
 (post-plan) is to decide whether to commit to the framework
-extraction described in the spec's §3–§4 or to keep KeepDiggin's
+extraction described in the spec's §3–§4 or to keep BYOA's
 seams in place and continue shipping KineticType.

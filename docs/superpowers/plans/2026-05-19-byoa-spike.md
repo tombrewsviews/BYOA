@@ -1,10 +1,10 @@
-# KeepDiggin spike — implementation plan
+# BYOA spike — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Validate the three success criteria in §7.4 of
-`docs/superpowers/specs/2026-05-19-keepdiggin-spike-design.md`
-without committing to a full KeepDiggin V1: produce a paragraph-spec
+`docs/superpowers/specs/2026-05-19-byoa-spike-design.md`
+without committing to a full BYOA V1: produce a paragraph-spec
 for a second canvas plugin (criterion #2), execute the audit's split-
 file refactor so the substrate/app boundary is real in code
 (criterion #1), and ship a Pillar 3 tracer (JSON-Patch writes +
@@ -27,7 +27,7 @@ tracer is proven.
 in package.json) for TS tests; `cargo test` for Rust tests.
 
 **Out of scope (deferred past the spike):** brand rename to
-keepdiggin; Square redesign; observe/act/identity pillars; native
+byoa; Square redesign; observe/act/identity pillars; native
 extension loading; registry; second app's actual code.
 
 **Verification gates between phases:**
@@ -68,7 +68,7 @@ with the following exact content:
 ```markdown
 # Second-canvas validation (Markdown Slide Deck)
 
-This doc validates §7.4 criterion #2 of the KeepDiggin spike spec:
+This doc validates §7.4 criterion #2 of the BYOA spike spec:
 "a hypothetical second canvas plugin is describable in one paragraph
 against the contract in §3 without inventing new fields." If this
 doc is internally consistent and the cross-reference table at the
@@ -77,7 +77,7 @@ satisfied.
 
 ## The paragraph
 
-Markdown Slide Deck is a KeepDiggin app for building presentations.
+Markdown Slide Deck is a BYOA app for building presentations.
 Its canonical state file is `slides.json`, a Zod-validated array of
 `{ markdown: string, theme: "light" | "dark" | "highContrast",
 notes?: string }`. The preview renders one slide at a time as a
@@ -141,7 +141,7 @@ or modification. §7.4 criterion #2 is satisfied.
 
 ```bash
 git add docs/superpowers/specs/2026-05-19-second-canvas-validation.md
-git commit -m "docs: validate KeepDiggin contract against second canvas (slide deck)
+git commit -m "docs: validate BYOA contract against second canvas (slide deck)
 
 Paragraph-spec for a hypothetical Markdown Slide Deck app, with a
 field-by-field cross-reference to the manifest shape in §3.1 of the
@@ -803,7 +803,7 @@ Create `docs/superpowers/specs/2026-05-19-audit-verification.md`:
 ```markdown
 # Audit verification (after Phase B)
 
-This doc validates §7.4 criterion #1 of the KeepDiggin spike spec:
+This doc validates §7.4 criterion #1 of the BYOA spike spec:
 "the audit's 'shell' pile makes structural sense without kinetic
 typography." After Phase B's refactor (B1–B5), the on-disk state
 should match the audit's labels.
@@ -1580,7 +1580,7 @@ Create `docs/superpowers/specs/2026-05-19-pillar3-validation.md`:
 ```markdown
 # Pillar 3 validation (after Phase C)
 
-This doc validates §7.4 criterion #3 of the KeepDiggin spike spec
+This doc validates §7.4 criterion #3 of the BYOA spike spec
 for Pillar 3 — the highest-risk pillar. The spec claims:
 "`state.write({ patch })` — JSON Patch (RFC 6902) applied to
 current state; validated; history entry written; preview reloads.
@@ -1643,7 +1643,7 @@ mapping of pillars to existing KineticType infrastructure.
 
 The spike is validated. The next step (post-plan) is to decide
 whether to commit to the framework extraction described in the
-spec's §3–§4 or to keep KeepDiggin's seams in place and continue
+spec's §3–§4 or to keep BYOA's seams in place and continue
 shipping KineticType.
 ```
 
@@ -1673,7 +1673,7 @@ ls -1 docs/superpowers/specs/2026-05-19-*.md
 ```
 
 Expected:
-- `2026-05-19-keepdiggin-spike-design.md` (the spec)
+- `2026-05-19-byoa-spike-design.md` (the spec)
 - `2026-05-19-second-canvas-validation.md` (Phase A)
 - `2026-05-19-audit-verification.md` (Phase B)
 - `2026-05-19-pillar3-validation.md` (Phase C)
@@ -1694,9 +1694,9 @@ confirm history does not grow.
 
 The four docs form a chain: the spec proposes; the three
 validation docs each demonstrate one success criterion. Read in
-order, the case for (or against) extracting KeepDiggin should be
+order, the case for (or against) extracting BYOA should be
 legible to a reader who didn't write any of it.
 
 If all four steps pass, the spike is done. The decision to extract
-KeepDiggin as a public framework — or to keep KineticType
+BYOA as a public framework — or to keep KineticType
 monolithic with the seams in place — is now an informed one.

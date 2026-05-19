@@ -1,6 +1,6 @@
 # Second-canvas validation (Markdown Slide Deck)
 
-This doc validates §7.4 criterion #2 of the KeepDiggin spike spec:
+This doc validates §7.4 criterion #2 of the BYOA spike spec:
 "a hypothetical second canvas plugin is describable in one paragraph
 against the contract in §3 without inventing new fields." If this
 doc is internally consistent and the cross-reference table at the
@@ -9,7 +9,7 @@ satisfied.
 
 ## The paragraph
 
-Markdown Slide Deck is a KeepDiggin app for building presentations.
+Markdown Slide Deck is a BYOA app for building presentations.
 Its canonical state file is `slides.json`, a Zod-validated array of
 `{ markdown: string, theme: "light" | "dark" | "highContrast",
 notes?: string }`. The preview renders one slide at a time as a

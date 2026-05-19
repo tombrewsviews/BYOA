@@ -1,6 +1,6 @@
 # Audit verification (after Phase B)
 
-This doc validates §7.4 criterion #1 of the KeepDiggin spike spec:
+This doc validates §7.4 criterion #1 of the BYOA spike spec:
 "the audit's 'shell' pile makes structural sense without kinetic
 typography." After Phase B's refactor (B1–B5), the on-disk state
 should match the audit's labels for the load-bearing seams.
