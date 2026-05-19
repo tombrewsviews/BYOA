@@ -2,6 +2,7 @@
 
 mod agents;
 mod canvas;
+mod canvases;
 mod doc;
 mod preview;
 mod projects;
