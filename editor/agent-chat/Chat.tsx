@@ -37,6 +37,11 @@ export const Chat: React.FC<Props> = ({
     () => getAdapter(agentId),
     [agentId],
   );
+
+  const spawn = useMemo(
+    () => adapter?.spawnArgs({ cwd, skipPermissions }) ?? null,
+    [adapter, cwd, skipPermissions],
+  );
   const storeRef = useRef(createChatStore());
   const store = storeRef.current;
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -53,9 +58,7 @@ export const Chat: React.FC<Props> = ({
 
   // Mount: spawn agent.
   useEffect(() => {
-    if (!adapter) return;
-    const spawn = adapter.spawnArgs({ cwd, skipPermissions });
-    if (!spawn) return;
+    if (!adapter || !spawn) return;
 
     let unlistenData: UnlistenFn | null = null;
     let unlistenStderr: UnlistenFn | null = null;
@@ -75,16 +78,12 @@ export const Chat: React.FC<Props> = ({
         openedId = id;
         setSessionId(id);
 
-        unlistenData = await listen<string>(
-          `agent-chat://${id}/data`,
-          (e) => {
+        [unlistenData, unlistenStderr, unlistenClosed] = await Promise.all([
+          listen<string>(`agent-chat://${id}/data`, (e) => {
             const bytes = new TextEncoder().encode(e.payload);
             adapter.parseChunk(bytes, (ev) => store.applyEvent(ev));
-          },
-        );
-        unlistenStderr = await listen<string>(
-          `agent-chat://${id}/stderr`,
-          (e) => {
+          }),
+          listen<string>(`agent-chat://${id}/stderr`, (e) => {
             // stderr is informational — the agent's CLI noise. Don't parse
             // as JSON. Surface as a recoverable error so the UI can show it.
             store.applyEvent({
@@ -92,15 +91,15 @@ export const Chat: React.FC<Props> = ({
               message: `stderr: ${e.payload.trim()}`,
               recoverable: true,
             });
-          },
-        );
-        unlistenClosed = await listen<null>(`agent-chat://${id}/closed`, () => {
-          store.applyEvent({
-            kind: "error",
-            message: "agent process exited",
-            recoverable: false,
-          });
-        });
+          }),
+          listen<null>(`agent-chat://${id}/closed`, () => {
+            store.applyEvent({
+              kind: "error",
+              message: "agent process exited",
+              recoverable: false,
+            });
+          }),
+        ]);
       } catch (e) {
         store.applyEvent({
           kind: "error",
@@ -117,7 +116,7 @@ export const Chat: React.FC<Props> = ({
       unlistenClosed?.();
       if (openedId) void invoke("agent_chat_close", { id: openedId });
     };
-  }, [adapter, cwd, skipPermissions, store]);
+  }, [adapter, spawn, store]);
 
   // Track running state based on turn status.
   useEffect(() => {
@@ -165,7 +164,7 @@ export const Chat: React.FC<Props> = ({
     setSessionId(null);
   }, [sessionId]);
 
-  if (!adapter || !adapter.spawnArgs({ cwd, skipPermissions })) {
+  if (!adapter || !spawn) {
     return (
       <div
         style={{
@@ -221,6 +220,30 @@ export const Chat: React.FC<Props> = ({
           gap: 6,
         }}
       >
+        {state.sessionError ? (
+          <div
+            style={{
+              fontSize: 13,
+              padding: 12,
+              borderRadius: 8,
+              background: "#2a1517",
+              border: "1px solid #5a2a30",
+              color: "#fda4af",
+              fontFamily:
+                "system-ui, -apple-system, Helvetica Neue, sans-serif",
+              marginBottom: 12,
+            }}
+          >
+            {state.sessionError}
+          </div>
+        ) : null}
+        {/*
+          TODO: userBubbles are indexed by turn position, which assumes
+          every turn is initiated by a user message. If the agent ever
+          emits agent-initiated turns (proactive messages, continuation
+          chains), the alignment will drift. Replace with turnId-keyed
+          lookup when that case lands.
+        */}
         {state.turns.map((t, idx) => {
           const userBubble = userBubbles[idx];
           return (

@@ -70,6 +70,19 @@ describe("ChatStore", () => {
     expect(count).toBe(2);
   });
 
+  it("records session-level error when no turn is active", () => {
+    const store = createChatStore();
+    store.applyEvent({
+      kind: "error",
+      message: "spawn failed",
+      recoverable: false,
+    });
+    const s = store.getState();
+    expect(s.sessionError).toBe("spawn failed");
+    expect(s.sessionAlive).toBe(false);
+    expect(s.turns).toHaveLength(0);
+  });
+
   it("ignores duplicate turn-start with the same turnId", () => {
     const store = createChatStore();
     store.applyEvent({ kind: "turn-start", turnId: "t1", startedAt: 0 });

@@ -28,6 +28,9 @@ export interface ChatState {
   turns: TurnRecord[];
   pendingPermission: PendingPermission | null;
   sessionAlive: boolean;
+  /** Session-level error not associated with any turn (e.g. spawn failure
+   *  before any turn started, agent process killed at startup). */
+  sessionError: string | null;
 }
 
 export interface ChatStore {
@@ -41,6 +44,7 @@ const initialState = (): ChatState => ({
   turns: [],
   pendingPermission: null,
   sessionAlive: true,
+  sessionError: null,
 });
 
 export const createChatStore = (): ChatStore => {
@@ -167,6 +171,15 @@ export const createChatStore = (): ChatStore => {
             state = {
               ...state,
               turns: [...state.turns.slice(0, -1), updated],
+              sessionAlive: e.recoverable ? state.sessionAlive : false,
+            };
+          } else {
+            // No current turn — record as a session-level error so the
+            // UI can show it (otherwise the user sees nothing on early
+            // crashes / spawn failures).
+            state = {
+              ...state,
+              sessionError: e.message,
               sessionAlive: e.recoverable ? state.sessionAlive : false,
             };
           }
