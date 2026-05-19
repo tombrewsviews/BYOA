@@ -24,6 +24,7 @@ import {
   TextInput,
 } from "./controls";
 import { writeState } from "./state";
+import { color, font, secondaryBtn } from "./platform/theme";
 
 /**
  * Pillar 3 tracer toggle. When true, beat-color changes route
@@ -74,7 +75,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
         fontSize: 10,
         letterSpacing: 1,
         textTransform: "uppercase",
-        color: "#6b6b80",
+        color: color.text.dim,
         marginBottom: 8,
         fontWeight: 600,
       }}
@@ -107,14 +108,13 @@ export const Panel: React.FC<{
   return (
     <div
       style={{
-        background: "#0e0e14",
-        borderLeft: "1px solid #232330",
+        background: color.bg.raised,
+        borderLeft: `1px solid ${color.border.line}`,
         height: "100%",
         overflowY: "auto",
         padding: 16,
         boxSizing: "border-box",
-        fontFamily:
-          "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        fontFamily: font.family,
       }}
     >
       {/* header — auto-save runs in the background, no manual button.
@@ -123,7 +123,7 @@ export const Panel: React.FC<{
           header indicates how many are selected so the user isn't
           confused that their tweaks only apply to one. */}
       <div style={{ marginBottom: 16 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#e4e4ee" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: color.text.secondary }}>
           {selection.kind === "story"
             ? "Story"
             : `${selection.indices[0] + 1}. ${story.beats[selection.indices[0]]?.text ?? ""}`}
@@ -133,7 +133,7 @@ export const Panel: React.FC<{
             style={{
               marginLeft: 8,
               fontSize: 11,
-              color: "#8b8b9a",
+              color: color.text.muted,
               fontWeight: 400,
             }}
           >
@@ -156,7 +156,7 @@ export const Panel: React.FC<{
       <div
         style={{
           fontSize: 10,
-          color: "#4b4b5a",
+          color: color.text.faint,
           lineHeight: 1.5,
           marginTop: 16,
         }}
@@ -209,7 +209,7 @@ const StoryEditor: React.FC<{
             justifyContent: "space-between",
             alignItems: "center",
             fontSize: 10,
-            color: "#6b6b80",
+            color: color.text.dim,
             marginTop: -2,
           }}
         >
@@ -225,10 +225,7 @@ const StoryEditor: React.FC<{
               })
             }
             style={{
-              background: isAuto ? "transparent" : "#1c1c26",
-              border: "1px solid #2e2e3c",
-              borderRadius: 4,
-              color: isAuto ? "#8b8b9a" : "#fafafa",
+              ...secondaryBtn({ active: !isAuto }),
               fontSize: 10,
               padding: "2px 8px",
               cursor: "pointer",
@@ -349,7 +346,7 @@ const BeatEditor: React.FC<{
 }> = ({ beat, index, fallbackTextColor, onChange }) => {
   if (!beat) {
     return (
-      <div style={{ fontSize: 11, color: "#8b8b9a", padding: "10px 0" }}>
+      <div style={{ fontSize: 11, color: color.text.muted, padding: "10px 0" }}>
         Selected beat no longer exists.
       </div>
     );
@@ -490,7 +487,7 @@ const BeatEditor: React.FC<{
         <div
           style={{
             fontSize: 10,
-            color: "#6b6b80",
+            color: color.text.dim,
             marginTop: 4,
             fontStyle: "italic",
           }}
@@ -522,7 +519,7 @@ const BeatEditor: React.FC<{
           <div
             style={{
               fontSize: 10,
-              color: "#6b6b80",
+              color: color.text.dim,
               marginTop: 4,
               fontFamily: "ui-monospace, monospace",
               wordBreak: "break-all",
@@ -577,7 +574,7 @@ const BeatEditor: React.FC<{
           <div
             style={{
               fontSize: 10,
-              color: "#6b6b80",
+              color: color.text.dim,
               marginTop: 4,
               fontFamily: "ui-monospace, monospace",
               wordBreak: "break-all",
