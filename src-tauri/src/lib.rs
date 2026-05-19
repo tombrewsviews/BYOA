@@ -4,6 +4,7 @@ mod agents;
 mod canvas;
 mod canvases;
 mod doc;
+mod history;
 mod preview;
 mod projects;
 mod prompt_mode;
