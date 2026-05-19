@@ -1,4 +1,5 @@
 import React from "react";
+import ReactMarkdown from "react-markdown";
 
 interface Props {
   text: string;
@@ -13,16 +14,66 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
       fontSize: 15,
       lineHeight: 1.55,
       color: "#e4e4ee",
-      whiteSpace: "pre-wrap",
       padding: "10px 0",
     }}
   >
-    {text}
+    <ReactMarkdown
+      components={{
+        code(props) {
+          const { children, className } = props;
+          const isBlock = className && className.startsWith("language-");
+          if (isBlock) {
+            return (
+              <pre
+                style={{
+                  background: "#13131a",
+                  border: "1px solid #2a2a36",
+                  borderRadius: 6,
+                  padding: 10,
+                  overflow: "auto",
+                  fontSize: 13,
+                  margin: "8px 0",
+                }}
+              >
+                <code>{children}</code>
+              </pre>
+            );
+          }
+          return (
+            <code
+              style={{
+                background: "#1c1c26",
+                padding: "1px 4px",
+                borderRadius: 3,
+                fontSize: 13,
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+              }}
+            >
+              {children}
+            </code>
+          );
+        },
+        a(props) {
+          return (
+            <a
+              href={props.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#7c5cff" }}
+            >
+              {props.children}
+            </a>
+          );
+        },
+      }}
+    >
+      {text}
+    </ReactMarkdown>
     {streaming ? (
       // TODO: `agentchat-pulse` @keyframes is not yet defined globally —
       // until then, the cursor renders as a static block. Add the
-      // keyframe in Task 16 (KineticApp integration) if visible polish
-      // is desired.
+      // keyframe in a global stylesheet if visible polish is desired.
       <span
         aria-hidden
         style={{

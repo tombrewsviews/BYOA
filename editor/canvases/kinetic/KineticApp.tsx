@@ -53,6 +53,19 @@ const fill: React.CSSProperties = {
   margin: 0,
 };
 
+const agentLabelFor = (id: string): string => {
+  switch (id) {
+    case "claude":
+      return "Claude Code";
+    case "codex":
+      return "Codex";
+    case "gemini":
+      return "Gemini CLI";
+    default:
+      return id;
+  }
+};
+
 const EditorView: React.FC<{
   project: ProjectMeta;
   onCloseProject: () => void;
@@ -66,6 +79,9 @@ const EditorView: React.FC<{
   const [leftTab, setLeftTab] = useState<"terminal" | "secondary">("terminal");
 
   const [viewMode, setViewMode] = useState<"terminal" | "chat">("terminal");
+  const [defaultAgentId, setDefaultAgentId] = useState<
+    "claude" | "codex" | "gemini" | null
+  >(null);
 
   useEffect(() => {
     void (async () => {
@@ -80,6 +96,23 @@ const EditorView: React.FC<{
       }
     })();
   }, [project.path]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const settings = await invoke<{ default_agent?: string }>(
+          "get_settings",
+        );
+        const id = settings?.default_agent;
+        if (id === "claude" || id === "codex" || id === "gemini") {
+          setDefaultAgentId(id);
+        }
+      } catch {
+        /* ignore — Chat will render its unsupported state if no agent */
+      }
+    })();
+  }, []);
 
   const persistViewMode = useCallback(
     (m: "terminal" | "chat") => {
@@ -694,8 +727,8 @@ const EditorView: React.FC<{
                   }}
                 >
                   <Chat
-                    agentId="claude"
-                    agentLabel="Claude Code"
+                    agentId={defaultAgentId ?? "claude"}
+                    agentLabel={agentLabelFor(defaultAgentId ?? "claude")}
                     cwd={project.path}
                     skipPermissions={false}
                     onSwitchToTerminal={() => persistViewMode("terminal")}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 interface Props {
   disabled: boolean;
@@ -16,6 +16,45 @@ export const Composer: React.FC<Props> = ({
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [dropActive, setDropActive] = useState(false);
+
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    let aborted = false;
+
+    void (async () => {
+      try {
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+        const webview = getCurrentWebview();
+        const unlisten = await webview.onDragDropEvent((event) => {
+          // Tauri payloads: { type: "drag-enter" | "drag-over" | "drag-drop" | "drag-leave", paths?: string[], position? }
+          const t = (event.payload as { type: string }).type;
+          if (t === "enter" || t === "over") {
+            setDropActive(true);
+          } else if (t === "leave") {
+            setDropActive(false);
+          } else if (t === "drop") {
+            setDropActive(false);
+            const paths = (event.payload as { paths?: string[] }).paths ?? [];
+            if (paths.length) {
+              setAttachments((prev) => [...prev, ...paths]);
+            }
+          }
+        });
+        if (aborted) {
+          unlisten();
+        } else {
+          unlistenFn = unlisten;
+        }
+      } catch {
+        /* not in Tauri context — browser DnD fallback remains active */
+      }
+    })();
+
+    return () => {
+      aborted = true;
+      unlistenFn?.();
+    };
+  }, []);
 
   const submit = () => {
     const trimmed = text.trim();
