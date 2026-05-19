@@ -1,330 +1,325 @@
-# Remotion Tests — Interactive Video Generation with Claude
+# BYOA — Bring Your Own Agent
 
-A working playground for **Remotion** (make videos with React) wired for the
-**Claude Code** workflow. Built to learn the fundamentals hands-on.
+A desktop-app pattern (and an emerging framework spec) for apps where
+the agent is a first-class user. Instead of the app embedding an LLM
+behind an API key it owns, the user brings their own agent — Claude
+Code, Codex, Gemini CLI, a local Ollama model — and it runs in a
+terminal embedded inside the app's window. The app exposes its
+state and verbs to the agent via a skill. The user's existing AI
+subscription pays for the work.
 
-## What's here
+> **TL;DR.** BYOA is the next step up from BYOK (Bring Your Own Key)
+> — the user supplies the agent itself, not just credentials. The
+> app dev never sees a token bill, never picks a model, never owns
+> conversation history.
 
-```
-src/HelloVideo.tsx   The video composition — a plain React component.
-                     Animation lives here (useCurrentFrame, interpolate, spring).
-src/Root.tsx         Registers <Composition>s — the "render recipe" (size/fps/duration/props).
-src/index.ts         registerRoot() — entry point for Studio + CLI renderer.
-remotion.config.ts   Config for the CLI/Studio only.
-vite.editor.config.ts Config for the four-pane editor app.
-editor/App.tsx       Studio shell — four-pane grid, state, keyboard shortcuts.
-editor/player.tsx    <PlayerStage> + <Transport> (play/pause/seek).
-editor/timeline.tsx  Story track + Beats track + live playhead.
-editor/terminal.tsx  Embedded xterm; talks to the Tauri PTY backend (desktop) or shows a stub (browser).
-editor/panel.tsx     Selection-driven properties panel.
-```
+**This repo contains:**
 
-## Run it
+1. **The BYOA spec** — `docs/superpowers/specs/2026-05-19-byoa-spike-design.md`. A research-spike manifesto that defines what BYOA is, the four pillars (Observe / Act / State / Identity), the three-file canvas-plugin contract, and the audit showing how much of the framework is already extracted in-place inside KineticType.
+2. **KineticType** — the first reference app, built around BYOA from the ground up. A kinetic-typography video editor where the agent edits `story.json` and the preview hot-reloads in ~300ms. **Open source under MIT.**
 
-```bash
-npm run studio      # Remotion Studio — visual editor at localhost:3000
-npm run editor      # Kinetic story studio (terminal + preview + timeline + props) at localhost:5174
-npm run tauri:dev   # Desktop app (Kinetic Studio) — full PTY terminal
-npm run tauri:build # Bundle a distributable .app / .dmg
-npm run render      # Render HelloVideo -> out/hello.mp4
-#   e.g. npx remotion render HelloVideo out/hello.mp4 --props='{"title":"Hi"}'
-```
+**The framework is not yet a package.** There is no `npm install
+byoa` to run. There's a spec, an audit showing what the seams look
+like in a real codebase, and one working reference implementation
+(KineticType, which you can build and run today). **Contributions
+that extract the framework are very much wanted** — see
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
-## The mental model
+If you want the long-form pitch, read the blog post:
+[`docs/blog/2026-05-19-byoa-pattern.md`](./docs/blog/2026-05-19-byoa-pattern.md).
 
-Remotion has **two consumers of the same component**:
+---
 
-1. **CLI / Studio** — loads `src/index.ts` → `Root.tsx` → reads `<Composition>`
-   metadata → renders frames to an MP4. Props come from `defaultProps` or
-   `--props`. This is the "generate 1000 videos" path.
-2. **`<Player>`** — a normal React component you embed in any app. Imports the
-   composition component directly, feeds it `inputProps` at runtime. This is
-   the "interactive video" path — the video reacts to your UI, your UI reacts
-   to the video (via `playerRef`).
+## The pattern in 30 seconds
 
-Write the composition once; both paths use it.
+A BYOA app is a desktop app with four properties:
 
-## The studio (`npm run editor`)
+1. **An embedded terminal.** The user's agent (whichever CLI they
+   have installed) runs *here*, in the app's working directory,
+   with the user's existing auth.
+2. **A skill that ships with the app.** When a project opens, the
+   app writes `.claude/skills/<app-id>/SKILL.md` into the project
+   root. The skill tells the agent the schema, the verbs, the
+   domain. The agent reads it once per turn.
+3. **One canonical state file** the app watches. The agent edits
+   it; the preview hot-reloads. The user drags a slider; the file
+   gets rewritten. Two writers, one ground truth.
+4. **Declared verbs the agent calls as typed tools.** `addBeat`,
+   `setColor`, `selectThing`. The framework wires them as agent
+   tools with arg validation.
 
-A four-pane editor at `localhost:5174`:
+The spec walks all four in detail. The repo's source ships *with*
+the binary, so the agent can read the codebase and propose
+changes — open source as a runtime property, not a release strategy.
 
-```
-┌─────────────┬──────────────────────┬──────────────┐
-│  TERMINAL   │       PREVIEW        │  PROPERTIES  │
-│             ├──────────────────────┤              │
-│  (xterm +   │      TIMELINE        │ (selection-  │
-│   Tauri PTY)│                      │  driven)     │
-└─────────────┴──────────────────────┴──────────────┘
-```
+---
 
-- **Timeline**: each beat is a clip whose width is proportional to its
-  duration. Click a clip to select it AND seek the player to its start.
-  A yellow playhead line shows the current frame.
-- **Properties**: shows props for the selected element only — either the
-  Story (palette, background, font, glow) or one beat (kind, easing,
-  dynamics, etc.). Drag a slider while playback is running to see changes
-  animate in real time.
-- **Terminal**: a real PTY in the project directory. Type `claude` to
-  drive script-level changes from inside the studio. Login URLs are
-  clickable.
+## Get started — building KineticType
 
-### Keyboard shortcuts
+KineticType is the buildable artifact. It's a kinetic-typography
+video editor (illustration-into-text reveal, beat sequencing,
+variable-font axes) that demonstrates every property of BYOA on
+real data.
 
-| Key      | Action                       |
-|----------|------------------------------|
-| Space    | Toggle play / pause          |
-| ← / →    | Seek ±1 second               |
-| Home     | Jump to first frame          |
-| End      | Jump to last frame           |
+### Requirements
 
-Shortcuts are disabled while typing in input fields or the terminal.
+- **Node.js** 20 or newer
+- **Rust** + Cargo — install via [rustup](https://rustup.rs/)
+- **macOS Command Line Tools** (`xcode-select --install`) on macOS;
+  the appropriate platform toolchain on Windows/Linux
+- An **agent CLI** — `claude` (Claude Code) is the primary target;
+  `codex` and `gemini` are also supported via PTY
 
-### Native module note
-
-The PTY-backed terminal requires the desktop app (`npm run tauri:dev`).
-Browser dev mode (`npm run editor`) skips it and prints a hint in the
-terminal pane.
-
-## Desktop app (`npm run tauri:dev`)
-
-The studio also runs as a native macOS app via Tauri 2. Use the desktop
-app when you want the embedded terminal — browser sandboxes can't open a
-PTY, so `npm run editor` shows a stub message in the terminal pane.
+### Install + run
 
 ```bash
-npm run tauri:dev    # opens Kinetic Studio.app loading the Vite UI
-npm run tauri:build  # produces a .app / .dmg under src-tauri/target/
+git clone git@github.com:tombrewsviews/BYOA.git
+cd BYOA
+npm install
+npm run tauri:dev      # opens Kinetic Studio.app loading the Vite UI
 ```
 
-The terminal spawns your `$SHELL` in the project directory. Type
-`claude` to start the Claude Code CLI; OAuth login URLs are clickable.
+The first launch lands on **the Square** — the launcher home
+screen. Click `+ New project` to create a project under
+`~/KineticStudio/<slug>/`, or open an existing folder containing a
+`story.json`.
 
-Architecture:
+Once inside a project, you'll see a three-column layout: the
+embedded terminal on the left, the preview + timeline in the
+center, and a properties panel on the right. Type `claude` (or
+`codex`, etc.) in the terminal to start your agent. The agent will
+auto-discover the skill at
+`.claude/skills/kinetic-studio/SKILL.md` and you're ready to
+prompt:
 
-- `src-tauri/` — Rust backend (Tauri 2). Owns filesystem (`story.json`
-  save/load) and PTY (`portable-pty` crate).
-- `editor/` — the same React frontend. Detects Tauri at runtime and
-  routes through `invoke`/`listen` instead of `fetch`/WebSocket.
+> "make me a 15-second piece where a heart shape morphs into the
+> word 'love' in a soft script, then dissolves to scatter into the
+> next word 'always'"
 
-Requires Rust + Cargo (https://rustup.rs/) and Xcode Command Line Tools
-(`xcode-select --install`).
+The agent reads the schema, writes a `story.json`, and the preview
+hot-reloads.
 
-## Projects (the home view)
+### Build distributables
 
-`npm run tauri:dev` opens a projects home screen. Each project is a
-folder under `~/KineticStudio/` containing `story.json`. Click a card
-to open the editor; the title bar shows a `← Projects` button to come
-back.
-
-- **+ New project** — creates `~/KineticStudio/<slug>/` with a starter
-  `story.json` and a `.kinetic-studio/` metadata folder.
-- **Open folder…** — pick any folder containing `story.json` (handy
-  for projects stored outside the home folder, e.g. inside a git
-  repo).
-
-Recently-opened ordering is tracked in `~/.kinetic-studio/recents.json`.
-
-### Agent skill
-
-Every project gets `.kinetic-studio/skill.md` written automatically.
-The studio's terminal sources `.kinetic-studio/rc.zsh` before handing
-control to your shell, which aliases `claude` to inject the skill as
-an `--append-system-prompt`. So when you type `claude` inside the
-studio, the agent already knows: edit `story.json` here, no superpowers
-detours.
-
-The skill is rewritten on every `project_open`, so binary updates that
-change the template propagate the next time you open the project.
-
-Non-zsh shells skip the alias. Run `claude --append-system-prompt @./.kinetic-studio/skill.md` manually.
-
-## Best practices baked into this repo
-
-### Composition / animation
-- **Time = `useCurrentFrame()`.** Never `setTimeout`, `requestAnimationFrame`,
-  or CSS animations — renders must be deterministic (frame N always looks the
-  same). Everything is derived from the frame number.
-- **`interpolate(frame, [in,out], [from,to])`** for linear tweens. Always set
-  `extrapolateLeft/Right: "clamp"` unless you want values to shoot past the range.
-- **`spring({frame, fps})`** for natural motion (entrances, bounces) instead of
-  linear interpolation.
-- **Delay** an element by offsetting frame: `spring({ frame: frame - 15, fps })`.
-- **Keep something always moving** (a subtle breathe/drift) so scenes never
-  look frozen.
-- **Type your props** and pass the same shape via `defaultProps` and `inputProps`.
-
-### Player (interactive)
-- **Memoize `inputProps`** with `useMemo` — a new object every render re-renders
-  the whole Player tree.
-- **Isolate `<Player>`** in its own component, separate from controls. The
-  playhead updates ~30×/sec; don't let that re-render your forms.
-- **Pass the real browser event** into `playerRef.current.play(e)` — keeps the
-  call in the user-gesture context and dodges autoplay blocking.
-- **Drive playback via `playerRef`** (`play`, `pause`, `seekTo`, `getCurrentFrame`)
-  rather than lifting frame state into React.
-
-### Claude Code workflow (how to actually generate videos with AI)
-- Official path: `npx create-video@latest` → Blank template + TailwindCSS +
-  **Install Skills**. The skills teach Claude Remotion's APIs and pitfalls.
-- Run the Studio (`npm run dev`) in one terminal, `claude` in another. Prompt
-  the video in natural language; watch it update live in the Studio.
-- **Keep an approval step.** Have Claude show you the script/captions/props
-  before rendering — review brand voice and message.
-- For social/vertical video: keep text in the safe zone (≥150px top, ≥170px
-  bottom, ≥60px sides). Headlines 56px+, body 36px+, nothing under 28px.
-- Claude needs *design* knowledge (color, type, easing, pacing), not just
-  Remotion syntax — the good outputs come from prompting both.
-- Remotion's superpower is **parametrization**: one composition + a data file
-  → personalized videos, localized versions, auto-updating data viz.
-
-## Typography animations (ported from Portfolio 2026 v3)
-
-`src/typography/` ports the portfolio's text-animation framework into Remotion.
-
-The portfolio uses **`@chenglou/pretext`** (text line-layout) + **GSAP**
-(motion on scroll). Remotion can't use GSAP — GSAP animates on wall-clock
-time, Remotion needs every frame to be a pure function of the frame number.
-So: **pretext is reused as-is** (it's pure measurement, deterministic), and
-GSAP's *easing curves + timings* are ported to frame-based code.
-
-```
-typography/easings.ts       GSAP power3/power4 curves as plain functions.
-typography/useLines.ts      Wraps pretext to split text into wrapped lines.
-typography/AnimatedText.tsx Three components:
-                              <LineReveal/>  line-by-line slide-up (power4.out)
-                              <ScatterText/> scatter-to-assemble (power3.out)
-                              <WidthReveal/> width-expand + reflow (power3.inOut)
-TypographyDemo.tsx          Demo composition sequencing all three.
-```
-
-Pitfalls handled (worth knowing for any Remotion text work):
-- **No `Math.random()` in a composition** — it changes every frame and the
-  MP4 render diverges from the preview. `ScatterText` uses a seeded PRNG.
-- **Load fonts before measuring** — pretext measures against a font; if it's
-  not loaded it measures the fallback and line breaks shift. `TypographyDemo`
-  uses `loadFont()` + `delayRender`/`continueRender`.
-- **Split lines once, not per frame** — `useLines` memoizes on its inputs.
-
-Render: `npx remotion render TypographyDemo out/typography.mp4`
-Vertical: `npx remotion render TypographyDemo-Vertical out/typo-vertical.mp4`
-
-## Kinetic typographic storytelling (the product prototype)
-
-`src/kinetic/` is a script-driven kinetic-typography engine — the seed of a
-product. A "story" is JSON (beats: word + animation + timing); the engine
-animates it frame-accurately and renders to 9:16 social video.
-
-```
-kinetic/schema.ts        Zod schema = THE API SURFACE. A story is beats[],
-                         each beat: { text, kind, durationInSeconds, shape? }.
-kinetic/glyphs.ts        opentype.js: font glyphs -> SVG paths (for morphing).
-kinetic/beats.tsx        The 3 capabilities:
-                           reveal         - letter-by-letter build-in
-                           morph          - shape morphs into the first letter
-                           generativeFill - word masks a seeded noise field
-kinetic/KineticStory.tsx Composition: sequences beats from the script.
-```
-
-Duration is DERIVED from the script (`calculateMetadata` + sum of beat
-durations) — change the script, the timeline follows.
-
-The `shape` field on a `morph` beat is the **LLM/agent integration point**:
-an upstream model emits a clean, low-node SVG path ("a sprout that becomes
-'G'") and flubber morphs it into the glyph. Low node count matters — sparse
-paths morph cleanly, dense AI-traced paths badly. No `shape` -> morphs from
-a circle, so it works with no model in the loop.
-
-Bugs found + fixed during the build (all real Remotion/SVG pitfalls):
-- `opentype.getBoundingBox()` MUTATES the command list — snapshot commands
-  before calling it.
-- `opentype.toPathData()` omits separators between adjacent numbers
-  ("12.710.00") — build the `d` string from command objects, not regex.
-- A bg `<rect>` inside a masked `<g>` paints over the masked content.
-- `flubber.interpolate()` is expensive — `useMemo` it, never per frame.
-- Seeded `random()` for the noise field — never `Math.random()` in a comp.
-
-Render: `npx remotion render KineticStory out/kinetic.mp4`
-
-## Vector providers + the `kinetic` CLI (the benchmark product)
-
-`src/kinetic/providers/` is the plugin layer that turns this from "a video
-tool" into "a vector-model benchmark harness". Every shape source — Recraft
-API, Claude API, a local Ollama model, hand-written — implements one
-`VectorProvider` interface and returns the same thing: a normalized 0..100
-`d` path + benchmark metrics (node count, latency, cost, raw path count).
-
-```
-providers/types.ts        VectorProvider interface — the plugin contract.
-providers/svg-extract.ts  raw SVG -> one normalized shape path (0..100 box).
-providers/recraft.ts      Recraft V4 Vector — REAL API, verified working.
-providers/claude.ts       Claude emits SVG markup — real (needs ANTHROPIC_API_KEY).
-providers/ollama.ts       local model emits SVG — real (needs `ollama pull`).
-providers/index.ts        the registry.
-scripts/kinetic.ts        the CLI Claude Code drives.
-```
-
-### Setup
 ```bash
-cp .env.example .env       # then fill in keys
-#   RECRAFT_API_KEY     — get from recraft.ai
-#   ANTHROPIC_API_KEY   — optional; NOTE: Claude Max does NOT cover API use
-#   OLLAMA_MODEL        — optional; run `ollama pull qwen2.5-coder:7b` first
+npm run tauri:build              # full bundle (.app + .dmg on macOS)
+npm run tauri build -- --bundles app   # just the .app, skip DMG step
 ```
 
-### The `kinetic` CLI — how Claude Code drives the tool
+⚠️ The default `tauri build` may fail at the DMG step on macOS due
+to a long-standing `hdiutil` quirk. Using `--bundles app` produces
+just the `.app`, which is what you want for personal use.
+
+---
+
+## Get started — reading the BYOA spec
+
+If you want to build a *different* BYOA app (or help extract the
+framework), the spec is the starting point.
+
+**Read in this order:**
+
+1. [`docs/superpowers/specs/2026-05-19-byoa-spike-design.md`](./docs/superpowers/specs/2026-05-19-byoa-spike-design.md)
+   — the manifesto + the contract + the file-by-file audit of
+   KineticType. Sections 1–4 are the pitch and design; §5 is the
+   audit; §7 lists locked decisions and explicit non-goals.
+2. [`docs/superpowers/plans/2026-05-19-byoa-spike.md`](./docs/superpowers/plans/2026-05-19-byoa-spike.md)
+   — the implementation plan that validated the spike (Phase A
+   paragraph-spec, Phase B audit-driven refactor, Phase C Pillar 3
+   tracer).
+3. The three validation docs in `docs/superpowers/specs/`:
+   - `2026-05-19-second-canvas-validation.md` — paragraph-spec
+     proof that the contract holds for a hypothetical Markdown
+     Slide Deck app.
+   - `2026-05-19-audit-verification.md` — Phase B refactor
+     confirms the audit's labels match on-disk reality.
+   - `2026-05-19-pillar3-validation.md` — Phase C tracer
+     (JSON-Patch writes + content-addressed history log) proven
+     end-to-end against KineticType's real `story.json` data.
+
+---
+
+## Architecture overview
+
+The substrate that BYOA-ifies KineticType is roughly 60% extracted
+already, living behind two seams:
+
+- **`src-tauri/src/canvas.rs`** — the `Canvas` Rust trait. Each
+  app declares its document filename, seed bytes, project
+  summary, and skill bundle. The kinetic implementation is in
+  `src-tauri/src/canvases/kinetic.rs`.
+- **`editor/canvas.ts`** — the TypeScript canvas plugin seam.
+  Each app declares its preview component, inspector component,
+  conflict-reconciliation function. The kinetic implementation is
+  in `editor/canvases/kinetic/`.
+
+### The four pillars (status)
+
+| Pillar | What it is | Built? |
+|---|---|---|
+| **Observe** | `observe.snapshot()` + `observe.logs()` + `observe.network()` give the agent a structured view of the running preview | Spec only |
+| **Act** | Declared verbs + low-level nav primitives (`route`, `click`, `fill`, `read`, `workflow`) | Spec only |
+| **State** | `state.write({ patch })` (RFC 6902 JSON Patch) + content-addressed history log | ✅ Tracer shipped, validated against KineticType data |
+| **Identity** | Auto-generated routing skill + `introspect.capabilities()` + per-project memory | Hand-written skill exists; auto-generation spec'd only |
+
+The spike validated Pillar 3 (the highest-risk one). The other
+three are spec'd in §2 of the design doc but not yet built — see
+[Contributing](#contributing).
+
+### Project layout
+
+```
+docs/
+├── blog/                              The BYOA blog post.
+├── fixes/                             Engineering postmortems.
+└── superpowers/
+    ├── specs/                         The BYOA spec + validation docs.
+    └── plans/                         Implementation plans (the spike).
+
+editor/                                The studio UI (React 19 + Vite).
+├── App.tsx                            Platform router (Square ↔ active app).
+├── platform/                          The Square + app manifest schema.
+│   ├── Square.tsx                     Launcher home screen.
+│   └── apps.ts                        App registry / manifest type.
+├── canvases/kinetic/                  Kinetic canvas plugin (the app).
+├── canvas.ts / shell.ts               The TS canvas-plugin seam.
+├── terminal.tsx                       Embedded xterm + Tauri PTY bridge.
+└── state.ts                           Pillar 3 tracer client.
+
+src-tauri/                             The Rust backend (Tauri 2).
+├── src/
+│   ├── pty.rs / watch.rs / projects.rs   Substrate.
+│   ├── doc.rs                         save_doc / load_doc / apply_patch.
+│   ├── history.rs                     Content-addressed history log.
+│   ├── skill.rs                       Per-project skill installer (generic).
+│   ├── canvas.rs                      The `Canvas` trait.
+│   └── canvases/kinetic.rs            Kinetic skill bundle.
+└── skills/kinetic/                    Six markdown files: typography,
+                                       motion, color, render, layers,
+                                       routing.
+
+src/                                   Remotion compositions.
+├── kinetic/                           Kinetic typography engine.
+└── typography/                        Reusable text-animation primitives.
+
+scripts/                               The `kinetic` CLI + bench tooling.
+```
+
+---
+
+## Development
+
 ```bash
-npm run kinetic providers                    # which providers are ready
-npm run kinetic gen recraft "a sprout"        # generate one shape, print path
-npm run kinetic set-shape 2 recraft "a sprout"  # generate + write into story.json beat 2
-npm run kinetic benchmark "a circle->letter"  # ALL providers, same prompt, compare table
+npm run editor          # Browser-only studio (Vite dev server, port 5174).
+                        # Terminal pane shows a stub — no PTY in browser.
+
+npm run tauri:dev       # The real studio — desktop app with embedded PTY.
+
+npm run studio          # Legacy Remotion Studio (props-driven editing).
+
+npm run render          # CLI rendering: `npx remotion render <Comp> out.mp4`
+
+npm run kinetic         # The kinetic CLI (provider benchmarks; see below).
 ```
 
-`set-shape` writes the generated path into `story.json` and flips that beat
-to `morph`. `story.json` is the single source of truth — Claude Code edits
-it via the CLI, Studio + the editor read it, renders use it.
+### Type checking + tests
 
-`benchmark` is the core of the product: same prompt → every provider →
-a comparison table scored on node count (morph quality), path count
-(cleanliness), latency, and cost. Honest by design — a local model that
-isn't pulled shows as a failure, not a faked result.
+```bash
+npx tsc --noEmit -p tsconfig.json                       # TypeScript
+cargo test --manifest-path src-tauri/Cargo.toml         # Rust tests
+cargo check --manifest-path src-tauri/Cargo.toml        # Quick compile check
+```
 
-⚠️ **Security:** `.env` is gitignored. Never commit or paste API keys.
-If a key was ever exposed, rotate it.
+---
 
-## The parameter editor — it's Remotion Studio
+## The legacy bits (still work)
 
-There is no custom editor app. **Remotion Studio's Props editor IS the
-editor.** It auto-generates UI controls from the Zod schema in
-`src/kinetic/schema.ts`:
+KineticType started life as a Remotion playground; some of that
+substrate is still here and still useful.
 
-- `.min().max().step()` on a number → a slider
-- `zColor()` → a color picker
-- `z.enum()` → a dropdown
+### Remotion Studio (props-driven editing)
 
-So every per-element knob — `easing`, `direction`, `dynamics`, `scale`,
-`staggerSeconds`, `glow`, `durationInSeconds`, per-beat `color`, and the
-story-level palette — is just a schema field, and Studio renders it.
-Open Studio (`npm run studio`), pick `KineticStory`, open the Props panel.
+Open `npm run studio` and pick a composition. Studio auto-generates
+UI controls from the Zod schema in `src/kinetic/schema.ts` — sliders
+for `.min().max()` numbers, color pickers for `zColor()`, dropdowns
+for `z.enum()`. Good for tweaking *parameters* without touching the
+sequence.
 
-**Division of control (deliberate):**
-- **Claude Code owns the sequence** — beats, order, animation kinds,
-  generating shapes. To change the story, reprompt Claude Code.
-- **The Studio props editor owns the parameters** — tweak how it feels,
-  never regenerate. There is intentionally no "regenerate" button in Studio.
+### The `kinetic` CLI (vector-provider benchmarks)
 
-## The kinetic-storytelling skill
+`src/kinetic/providers/` is a plugin layer turning the project into a
+vector-model benchmark harness. Each provider (Recraft API, Claude
+API, local Ollama model, hand-written) implements `VectorProvider`
+and returns a normalized 0..100 `d` path plus benchmark metrics
+(node count, latency, cost).
 
-`.claude/skills/kinetic-storytelling/SKILL.md` teaches Claude Code how to
-drive this project: the story schema, the `kinetic` CLI, the provider
-setup, and the orchestrator/tweaker division above. It loads automatically
-when you work on kinetic stories in this repo.
+```bash
+cp .env.example .env       # then fill in the keys you have
+npm run kinetic providers                       # which are ready
+npm run kinetic gen recraft "a sprout"           # generate one shape
+npm run kinetic benchmark "a circle->letter"     # all providers, same prompt
+```
 
-## Where to go next
+⚠️ **`ANTHROPIC_API_KEY` here is NOT the same as Claude Code
+auth.** The provider benchmark uses the Anthropic REST API
+(billed separately); Claude Code via the terminal uses your
+Claude Pro/Max subscription. BYOA in this repo refers to the
+Claude-Code-via-terminal path, NOT the API-key provider path.
 
-- **Parametrize** `HelloVideo` with a Zod schema → get a schema-driven form in
-  Studio + validated `--props` for batch rendering.
-- Add **`<Sequence>`s** to build multi-scene videos with independent timing.
-- Add **`<Audio>` / captions** — see the `remotion-best-practices` skill rules.
-- Build a real **video editor UI** around `<Player>` (timeline, scrubber).
+### Typography primitives
 
-Docs: https://www.remotion.dev/docs/ · Player: https://www.remotion.dev/docs/player/
+`src/typography/` ports portfolio-grade text animations
+(line-reveal, scatter, width-reveal) into frame-accurate Remotion
+components. Independent of the kinetic-storytelling layer; usable in
+any Remotion composition.
+
+---
+
+## Contributing
+
+The most useful things that could happen next:
+
+1. **Build a second BYOA app.** Fork this repo, gut the kinetic
+   parts, replace them with a different domain (a markdown slide
+   deck, a vector logo animator, a prompt-music sketcher, a 3D
+   scene editor — anything where state-as-a-file makes sense). The
+   spec's §7.4 validation criterion #2 is satisfied on paper;
+   doing it in code is the real test.
+2. **Help extract the framework.** The spec's §5 audit labels every
+   file as `shell` (would be in the framework) or `app`
+   (kinetic-specific) or `split` (needs surgery). The shell-labelled
+   files are mostly ready to lift into a separate package.
+3. **Implement the other three pillars.** Pillar 3 (State) shipped
+   as a working tracer. Pillars 1 (Observe), 2 (Act), and 4
+   (Identity) are spec'd in §2 of the spec but not built.
+4. **Stress-test the BYOK→BYOA conversion-tax claim.** Try BYOA
+   with non-developer users. Does "install Claude Code first"
+   feel manageable, or does it kill onboarding?
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup, branch
+naming, commit-message convention, and review expectations.
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+Copyright © 2026 Tom Brews Views and contributors.
+
+---
+
+## Further reading
+
+- **The blog post:** [docs/blog/2026-05-19-byoa-pattern.md](./docs/blog/2026-05-19-byoa-pattern.md)
+  — how the agent UI evolved from chat tab → sidebar → agent-native
+  IDE → BYOA, and what makes BYOA economically real now that
+  Anthropic ships subscription auth in the Claude Agent SDK.
+- **The spec:** [docs/superpowers/specs/2026-05-19-byoa-spike-design.md](./docs/superpowers/specs/2026-05-19-byoa-spike-design.md)
+  — the framework's design contract.
+- **The plan + validation docs:** in
+  [docs/superpowers/](./docs/superpowers/) — the GSD-style
+  research-spike process that validated the bet.
+- **External:** Tauri 2 ([tauri.app](https://tauri.app)), Remotion
+  ([remotion.dev](https://remotion.dev)), Claude Code
+  ([claude.com/code](https://claude.com/code)).
