@@ -7,9 +7,6 @@
 //!
 //! All writes are atomic (tmp + rename) so the project-folder watcher
 //! sees one consistent event per save.
-//!
-//! `save_story` / `load_story` are kept as deprecated aliases so the
-//! existing frontend keeps working during the substrate migration.
 
 use std::path::PathBuf;
 use tauri::State;
