@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useState } from "react";
 
 interface Props {
   disabled: boolean;
@@ -13,7 +13,6 @@ export const Composer: React.FC<Props> = ({
   onStop,
   running,
 }) => {
-  const ref = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [dropActive, setDropActive] = useState(false);
@@ -33,23 +32,22 @@ export const Composer: React.FC<Props> = ({
     }
   };
 
-  const onDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setDropActive(false);
-      const paths: string[] = [];
-      for (const f of Array.from(e.dataTransfer.files)) {
-        // Tauri exposes the absolute path on dropped files via the
-        // non-standard `path` property. Browser fallback: just the name.
-        const anyFile = f as File & { path?: string };
-        paths.push(anyFile.path ?? f.name);
-      }
-      if (paths.length) {
-        setAttachments((prev) => [...prev, ...paths]);
-      }
-    },
-    [],
-  );
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDropActive(false);
+    const paths: string[] = [];
+    for (const f of Array.from(e.dataTransfer.files)) {
+      // Tauri exposes the absolute path on dropped files via the
+      // non-standard `path` property. Browser fallback: just the name.
+      const anyFile = f as File & { path?: string };
+      paths.push(anyFile.path ?? f.name);
+    }
+    if (paths.length) {
+      setAttachments((prev) => [...prev, ...paths]);
+    }
+  };
+
+  const canSend = !disabled && text.trim().length > 0;
 
   return (
     <div
@@ -93,7 +91,6 @@ export const Composer: React.FC<Props> = ({
         </div>
       ) : null}
       <textarea
-        ref={ref}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
@@ -140,14 +137,14 @@ export const Composer: React.FC<Props> = ({
         ) : null}
         <button
           onClick={submit}
-          disabled={disabled || !text.trim()}
+          disabled={!canSend}
           style={{
             padding: "6px 14px",
             borderRadius: 6,
             border: "none",
-            background: disabled || !text.trim() ? "#3a3a48" : "#7c5cff",
+            background: canSend ? "#7c5cff" : "#3a3a48",
             color: "#fff",
-            cursor: disabled || !text.trim() ? "not-allowed" : "pointer",
+            cursor: canSend ? "pointer" : "not-allowed",
           }}
         >
           Send
