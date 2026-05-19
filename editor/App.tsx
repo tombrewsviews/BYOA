@@ -20,6 +20,7 @@
 import React, { useEffect, useState } from "react";
 import { APPS, findApp, type AppManifest } from "./platform/apps";
 import { Square } from "./platform/Square";
+import { color, font, radius, secondaryBtn } from "./platform/theme";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
@@ -64,17 +65,16 @@ const PlatformChrome: React.FC<{
     style={{
       height: CHROME_HEIGHT,
       flex: "0 0 auto",
-      background: "#0a0a10",
-      borderBottom: "1px solid #232330",
+      background: color.bg.surface,
+      borderBottom: `1px solid ${color.border.line}`,
       display: "flex",
       alignItems: "center",
       gap: 10,
       paddingLeft: isMac ? MAC_LEFT_PAD : 12,
       paddingRight: 12,
-      color: "#e4e4ee",
-      fontSize: 12,
-      // The bar itself is a drag region; specific buttons opt out
-      // below via `data-tauri-drag-region={false}` so click works.
+      color: color.text.secondary,
+      fontFamily: font.family,
+      fontSize: font.size.md,
       userSelect: "none",
       WebkitUserSelect: "none",
     }}
@@ -86,29 +86,32 @@ const PlatformChrome: React.FC<{
           onClick={onExit}
           title="Back to The Square"
           style={{
-            background: "transparent",
-            border: "1px solid #2e2e3c",
-            borderRadius: 6,
-            color: "#e4e4ee",
-            fontSize: 11,
-            fontWeight: 600,
+            ...secondaryBtn(),
             padding: "4px 10px",
-            cursor: "pointer",
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
+            borderRadius: radius.md,
           }}
         >
           <span style={{ fontSize: 13, lineHeight: 1 }}>⊞</span>
           The Square
         </button>
-        <span style={{ color: "#fafafa", fontWeight: 600 }}>{app.name}</span>
-        <span style={{ color: "#5a5a6e", fontSize: 11 }}>v{app.version}</span>
+        <span style={{ color: color.text.primary, fontWeight: 600 }}>
+          {app.name}
+        </span>
+        <span style={{ color: color.text.faint, fontSize: font.size.sm }}>
+          v{app.version}
+        </span>
       </>
     ) : (
-      // On The Square itself: no button (it's already home). Just a
-      // wordmark so the bar isn't empty.
-      <span style={{ color: "#fafafa", fontWeight: 700, letterSpacing: -0.2 }}>
+      <span
+        style={{
+          color: color.text.primary,
+          fontWeight: 700,
+          letterSpacing: -0.2,
+        }}
+      >
         The Square
       </span>
     )}
