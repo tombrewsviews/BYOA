@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Story } from "../../../src/kinetic/schema";
-import { diffFields, fieldLabel } from "../../diff";
+import { diffFields, fieldLabel } from "./diff";
 import type { HistoryHandle, HistoryEntry } from "../../shell";
 
 const MAX_HISTORY = 100;

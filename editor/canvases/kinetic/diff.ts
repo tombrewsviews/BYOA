@@ -15,7 +15,7 @@
  * a per-field merge is faithful to user intent without needing array
  * reconciliation.
  */
-import type { Story, Beat } from "../src/kinetic/schema";
+import type { Story, Beat } from "../../../src/kinetic/schema";
 
 export type FieldKey =
   | "bgColor"
@@ -42,6 +42,17 @@ const STORY_SCALARS = [
 const BEAT_KEYS: Array<keyof Beat & string> = [
   "text",
   "kind",
+  // `track` and `startSeconds` are LOAD-BEARING here. They are
+  // mutated by timeline drag (vertical = track, horizontal =
+  // startSeconds) and by trim handles. Omitting them caused a
+  // silent revert: the file watcher fires after every autosave; the
+  // merge compares saved-vs-inMem field-by-field and, finding "no
+  // tracked field changed", treats the disk content as authoritative
+  // and overwrites in-mem state — including the just-dragged track
+  // value. The drag appeared to succeed once (the visible state
+  // updated immediately) but the next watcher tick rolled it back.
+  "track",
+  "startSeconds",
   "durationInSeconds",
   "easing",
   "direction",
