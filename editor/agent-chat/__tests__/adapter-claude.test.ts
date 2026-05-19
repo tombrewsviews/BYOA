@@ -11,6 +11,10 @@ import {
   isToolResult,
   isPermissionRequest,
   isPermissionDecided,
+  isError,
+  isMessageDelta,
+  isTurnStart,
+  isTurnEnd,
 } from "../events";
 
 beforeEach(() => {
@@ -117,5 +121,27 @@ describe("claudeAdapter.encodePermissionDecision", () => {
   it("returns 'a' for allow-always", () => {
     const bytes = claudeAdapter.encodePermissionDecision("p", "allow-always");
     expect(new TextDecoder().decode(bytes!)).toBe("a\n");
+  });
+});
+
+describe("claudeAdapter.parseChunk — error recovery", () => {
+  it("emits recoverable error on invalid JSON line, keeps parsing", () => {
+    const events = collect(fixture("claude-error.jsonl"));
+    const err = events.find(isError);
+    expect(err).toBeDefined();
+    expect(err!.recoverable).toBe(true);
+    // The line after the bad one still produces a message-delta:
+    const deltas = events.filter(isMessageDelta);
+    expect(deltas.length).toBeGreaterThan(0);
+  });
+});
+
+describe("claudeAdapter.parseChunk — multi-turn", () => {
+  it("produces two turn-start / turn-end pairs", () => {
+    const events = collect(fixture("claude-multiturn.jsonl"));
+    const starts = events.filter(isTurnStart);
+    const ends = events.filter(isTurnEnd);
+    expect(starts.length).toBe(2);
+    expect(ends.length).toBe(2);
   });
 });

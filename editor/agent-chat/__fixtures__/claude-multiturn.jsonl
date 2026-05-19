@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"sess-6"}
+{"type":"assistant","message":{"id":"msg_a","role":"assistant","content":[{"type":"text","text":"first"}]}}
+{"type":"result","subtype":"success","session_id":"sess-6","is_error":false}
+{"type":"assistant","message":{"id":"msg_b","role":"assistant","content":[{"type":"text","text":"second"}]}}
+{"type":"result","subtype":"success","session_id":"sess-6","is_error":false}
