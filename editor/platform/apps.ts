@@ -22,6 +22,18 @@ import { KineticApp } from "../canvases/kinetic/KineticApp";
 
 export type AppStatus = "available" | "coming-soon";
 
+export type AppCategory =
+  | "video-motion"
+  | "audio"
+  | "3d-render"
+  | "writing"
+  | "data"
+  | "devtools";
+
+export type AppSkill = { name: string; on: boolean };
+
+export type AppRuntime = { model: string; context: string; effort: string };
+
 export type AppManifest = {
   /** Stable id; persisted as the current-app pointer + favorite key. */
   id: string;
@@ -55,6 +67,16 @@ export type AppManifest = {
   /** Mounted by the platform when the user opens the app. Required
    *  for "available"; absent for "coming-soon". */
   Root?: React.FC<{ onExit: () => void }>;
+  /** ISO date when the app was released. Drives "New this week". */
+  releasedAt: string;
+  /** Bundle size in bytes. Shown on the Install button. */
+  sizeBytes: number;
+  /** Primary category — drives the Categories sidebar section. */
+  category: AppCategory;
+  /** Optional skills the app exposes to the agent. */
+  skills?: AppSkill[];
+  /** Optional default-runtime hints. */
+  runtime?: AppRuntime;
 };
 
 /**
@@ -79,6 +101,16 @@ export const APPS: AppManifest[] = [
     hue: 268,
     status: "available",
     Root: KineticApp,
+    releasedAt: "2026-05-10",
+    sizeBytes: 4_100_000,
+    category: "video-motion",
+    skills: [
+      { name: "/gsd:update", on: true },
+      { name: "/beat:add", on: true },
+      { name: "/palette", on: true },
+      { name: "/export", on: true },
+    ],
+    runtime: { model: "Opus 4.7", context: "1M", effort: "xhigh" },
   },
   {
     id: "tonebench",
@@ -96,6 +128,9 @@ export const APPS: AppManifest[] = [
     tags: ["music", "audio", "agent-native"],
     hue: 142,
     status: "coming-soon",
+    releasedAt: "2026-04-22",
+    sizeBytes: 2_900_000,
+    category: "audio",
   },
   {
     id: "voxel",
@@ -113,6 +148,9 @@ export const APPS: AppManifest[] = [
     tags: ["3d", "scene", "agent-native"],
     hue: 24,
     status: "coming-soon",
+    releasedAt: "2026-04-30",
+    sizeBytes: 5_400_000,
+    category: "3d-render",
   },
 ];
 

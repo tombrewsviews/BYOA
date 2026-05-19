@@ -23,6 +23,14 @@ import { isTauri } from "./runtime";
 import { getActivePtyId } from "./terminal";
 import { useShellActions } from "./shell";
 import { ENTRIES, type LibraryEntry } from "./library/entries";
+import {
+  color,
+  font,
+  radius,
+  primaryBtn,
+  secondaryBtn,
+  ghostBtn,
+} from "./platform/theme";
 
 const CATEGORIES: LibraryEntry["category"][] = [
   "Entry",
@@ -88,8 +96,8 @@ export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
       style={{
         position: "absolute",
         inset: 0,
-        background: "#0a0a10",
-        color: "#e4e4ee",
+        background: color.bg.surface,
+        color: color.text.secondary,
         display: "flex",
         flexDirection: "column",
       }}
@@ -98,17 +106,17 @@ export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
       <div
         style={{
           padding: "10px 12px",
-          borderBottom: "1px solid #232330",
+          borderBottom: `1px solid ${color.border.line}`,
           display: "flex",
           flexDirection: "column",
           gap: 6,
           flex: "0 0 auto",
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 600, color: "#fafafa" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: color.text.primary }}>
           Prompt library
         </div>
-        <div style={{ fontSize: 10, color: "#6b6b80", lineHeight: 1.4 }}>
+        <div style={{ fontSize: 10, color: color.text.dim, lineHeight: 1.4 }}>
           Click any card to copy a prompt — it pastes straight into the
           terminal.
         </div>
@@ -118,14 +126,10 @@ export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
               key={c}
               onClick={() => setFilter(c)}
               style={{
+                ...secondaryBtn({ active: filter === c }),
                 padding: "3px 8px",
                 fontSize: 10,
                 borderRadius: 12,
-                border: "1px solid",
-                borderColor: filter === c ? "#7c5cff" : "#2e2e3c",
-                background: filter === c ? "#7c5cff" : "transparent",
-                color: filter === c ? "white" : "#8b8b9a",
-                cursor: "pointer",
               }}
             >
               {c}
@@ -162,7 +166,7 @@ export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
           />
         ))}
         {filtered.length === 0 && (
-          <div style={{ fontSize: 11, color: "#6b6b80", textAlign: "center", padding: 24 }}>
+          <div style={{ fontSize: 11, color: color.text.dim, textAlign: "center", padding: 24 }}>
             No entries in this category yet.
           </div>
         )}
@@ -185,9 +189,9 @@ export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
             bottom: 12,
             left: "50%",
             transform: "translateX(-50%)",
-            background: "#1c1c26",
-            border: "1px solid #2e2e3c",
-            color: "#fafafa",
+            background: color.bg.selected,
+            border: `1px solid ${color.border.line}`,
+            color: color.text.primary,
             fontSize: 11,
             padding: "6px 12px",
             borderRadius: 6,
@@ -243,8 +247,8 @@ const Card: React.FC<{
   return (
     <div
       style={{
-        background: "#14141c",
-        border: "1px solid #232330",
+        background: color.bg.hover,
+        border: `1px solid ${color.border.line}`,
         borderRadius: 8,
         overflow: "hidden",
         display: "flex",
@@ -307,7 +311,7 @@ const Card: React.FC<{
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#4b4b5a",
+              color: color.text.faint,
               fontSize: 10,
               padding: 8,
               textAlign: "center",
@@ -326,16 +330,16 @@ const Card: React.FC<{
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#fafafa" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: color.text.primary }}>
             {entry.title}
           </div>
           <span
             style={{
               fontSize: 9,
-              color: "#8b8b9a",
+              color: color.text.muted,
               padding: "1px 6px",
               borderRadius: 8,
-              border: "1px solid #2e2e3c",
+              border: `1px solid ${color.border.line}`,
               whiteSpace: "nowrap",
               flexShrink: 0,
             }}
@@ -343,21 +347,14 @@ const Card: React.FC<{
             {entry.category}
           </span>
         </div>
-        <div style={{ fontSize: 10, color: "#6b6b80", lineHeight: 1.4 }}>
+        <div style={{ fontSize: 10, color: color.text.dim, lineHeight: 1.4 }}>
           {entry.blurb}
         </div>
         <button
           onClick={onCopy}
           style={{
+            ...primaryBtn({ size: "sm" }),
             marginTop: 4,
-            background: "#7c5cff",
-            border: 0,
-            borderRadius: 6,
-            color: "white",
-            fontSize: 11,
-            fontWeight: 600,
-            padding: "6px 8px",
-            cursor: "pointer",
           }}
         >
           Copy prompt
@@ -396,8 +393,8 @@ const FocusedView: React.FC<{
         style={{
           maxWidth: "100%",
           maxHeight: "100%",
-          background: "#14141c",
-          border: "1px solid #2e2e3c",
+          background: color.bg.hover,
+          border: `1px solid ${color.border.line}`,
           borderRadius: 10,
           overflow: "hidden",
           display: "flex",
@@ -419,18 +416,18 @@ const FocusedView: React.FC<{
           />
         )}
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#fafafa" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: color.text.primary }}>
             {entry.title}
           </div>
-          <div style={{ fontSize: 11, color: "#8b8b9a", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
             {entry.blurb}
           </div>
           <div
             style={{
               fontSize: 11,
-              color: "#e4e4ee",
-              background: "#08080c",
-              border: "1px solid #232330",
+              color: color.text.secondary,
+              background: color.bg.canvas,
+              border: `1px solid ${color.border.line}`,
               borderRadius: 6,
               padding: 10,
               fontFamily: "ui-monospace, SFMono-Regular, monospace",
@@ -445,15 +442,8 @@ const FocusedView: React.FC<{
             <button
               onClick={onCopy}
               style={{
+                ...primaryBtn({ size: "sm" }),
                 flex: 1,
-                background: "#7c5cff",
-                border: 0,
-                borderRadius: 6,
-                color: "white",
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "8px 10px",
-                cursor: "pointer",
               }}
             >
               Copy prompt
@@ -461,13 +451,7 @@ const FocusedView: React.FC<{
             <button
               onClick={onClose}
               style={{
-                background: "transparent",
-                border: "1px solid #2e2e3c",
-                borderRadius: 6,
-                color: "#e4e4ee",
-                fontSize: 12,
-                padding: "8px 10px",
-                cursor: "pointer",
+                ...secondaryBtn(),
               }}
             >
               Close

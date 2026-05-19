@@ -4,6 +4,13 @@
  * actions per card.
  */
 import React, { useEffect, useRef, useState } from "react";
+import {
+  color,
+  font,
+  radius,
+  primaryBtn,
+  secondaryBtn,
+} from "../../platform/theme";
 
 export type ProjectMeta = {
   name: string;
@@ -95,10 +102,9 @@ export const ProjectsView: React.FC = () => {
       style={{
         width: "100%",
         height: "100%",
-        background: "#08080c",
-        color: "#e4e4ee",
-        fontFamily:
-          "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        background: color.bg.canvas,
+        color: color.text.secondary,
+        fontFamily: font.family,
         padding: 40,
         boxSizing: "border-box",
         overflowY: "auto",
@@ -124,40 +130,23 @@ export const ProjectsView: React.FC = () => {
           style={{
             flex: 1,
             maxWidth: 320,
-            background: "#1c1c26",
-            border: "1px solid #2e2e3c",
-            borderRadius: 6,
-            color: "#e4e4ee",
+            background: color.bg.raised,
+            border: `1px solid ${color.border.strong}`,
+            borderRadius: radius.md,
+            color: color.text.secondary,
             fontSize: 13,
             padding: "8px 12px",
           }}
         />
         <button
           onClick={() => void createProject()}
-          style={{
-            background: "#7c5cff",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-            padding: "8px 16px",
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
+          style={primaryBtn({ size: "sm" })}
         >
           + New project
         </button>
         <button
           onClick={() => void openFolder()}
-          style={{
-            background: "#1c1c26",
-            color: "#e4e4ee",
-            border: "1px solid #2e2e3c",
-            borderRadius: 6,
-            padding: "8px 16px",
-            fontSize: 13,
-            cursor: "pointer",
-          }}
+          style={secondaryBtn()}
         >
           Open folder…
         </button>
@@ -166,12 +155,12 @@ export const ProjectsView: React.FC = () => {
       {error && (
         <div
           style={{
-            background: "#3a1c20",
-            color: "#ff8b8b",
+            background: color.danger.bg,
+            color: color.danger.text,
             padding: "8px 12px",
-            borderRadius: 6,
+            borderRadius: radius.md,
             marginBottom: 16,
-            fontSize: 12,
+            fontSize: font.size.md,
           }}
         >
           {error}
@@ -289,16 +278,24 @@ const ProjectCard: React.FC<{
           void onOpen(project.path);
         }
       }}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
+      onMouseEnter={(e) => {
+        onEnter();
+        (e.currentTarget as HTMLDivElement).style.borderColor =
+          color.border.hover;
+      }}
+      onMouseLeave={(e) => {
+        onLeave();
+        (e.currentTarget as HTMLDivElement).style.borderColor =
+          color.border.line;
+      }}
       style={{
         position: "relative",
         textAlign: "left",
-        background: "#14141c",
-        border: "1px solid #232330",
-        borderRadius: 10,
+        background: color.bg.hover,
+        border: `1px solid ${color.border.line}`,
+        borderRadius: radius.xl,
         padding: 0,
-        color: "#e4e4ee",
+        color: color.text.secondary,
         cursor: "pointer",
         overflow: "hidden",
         display: "flex",
@@ -354,7 +351,7 @@ const ProjectCard: React.FC<{
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#6b6b80",
+              color: color.text.dim,
               fontSize: 32,
               fontWeight: 700,
               letterSpacing: 1,
@@ -409,11 +406,11 @@ const ProjectCard: React.FC<{
               fontWeight: 600,
               borderRadius: 4,
               border: "1px solid",
-              borderColor: confirmDelete ? "#ff5c5c" : "#2e2e3c",
+              borderColor: confirmDelete ? color.danger.text : color.border.strong,
               background: confirmDelete
                 ? "rgba(255,92,92,0.85)"
                 : "rgba(10,10,16,0.85)",
-              color: confirmDelete ? "white" : "#e4e4ee",
+              color: confirmDelete ? "white" : color.text.secondary,
               cursor: "pointer",
               backdropFilter: "blur(6px)",
               boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
@@ -443,7 +440,7 @@ const ProjectCard: React.FC<{
         >
           {project.name}
         </div>
-        <div style={{ fontSize: 11, color: "#6b6b80" }}>
+        <div style={{ fontSize: 11, color: color.text.dim }}>
           {project.beats} beats · {fmtAgo(project.lastOpened)}
         </div>
       </div>
