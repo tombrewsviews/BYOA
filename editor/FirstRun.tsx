@@ -17,6 +17,13 @@
  * the permission setting just stays at its default (false).
  */
 import React, { useEffect, useState } from "react";
+import {
+  color,
+  font,
+  radius,
+  primaryBtn,
+  secondaryBtn,
+} from "./platform/theme";
 
 type AgentInfo = {
   id: string;
@@ -39,9 +46,9 @@ const SKIP_FLAG: Record<AgentId, string | null> = {
 const SHELL: React.CSSProperties = {
   width: "100%",
   height: "100%",
-  background: "#08080c",
-  color: "#e4e4ee",
-  fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  background: color.bg.canvas,
+  color: color.text.secondary,
+  fontFamily: font.family,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -106,7 +113,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
           <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
             Pick your agent
           </div>
-          <div style={{ fontSize: 13, color: "#8b8b9a", marginBottom: 28, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: color.text.muted, marginBottom: 28, lineHeight: 1.5 }}>
             Kinetic Studio runs your chosen agent CLI in the terminal panel.
             Bring your own subscription — the studio doesn't broker tokens.
             Already logged in via the CLI? You're ready.
@@ -115,9 +122,9 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             <div
               style={{
                 padding: "8px 12px",
-                background: "#3a1414",
-                border: "1px solid #5a2020",
-                color: "#ffb4b4",
+                background: color.danger.bg,
+                border: `1px solid ${color.danger.border}`,
+                color: color.danger.text,
                 fontSize: 12,
                 borderRadius: 6,
                 marginBottom: 16,
@@ -133,29 +140,27 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
                 disabled={!a.installed || busy}
                 onClick={() => pickAgent(a.id as AgentId)}
                 style={{
+                  ...secondaryBtn({ disabled: !a.installed || busy }),
                   display: "flex",
                   alignItems: "center",
                   gap: 12,
                   padding: "12px 14px",
-                  background: a.installed ? "#0f0f18" : "#0a0a10",
-                  border: "1px solid",
-                  borderColor: a.installed ? "#2e2e3c" : "#1a1a24",
-                  borderRadius: 8,
-                  color: a.installed ? "#fafafa" : "#5a5a6e",
+                  background: a.installed ? color.bg.raised : color.bg.surface,
+                  borderColor: a.installed ? color.border.strong : color.border.faint,
+                  color: a.installed ? color.text.primary : color.text.faint,
                   fontSize: 13,
-                  cursor: a.installed && !busy ? "pointer" : "not-allowed",
                   textAlign: "left",
                 }}
               >
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600 }}>{a.label}</div>
-                  <div style={{ fontSize: 11, color: "#6b6b80", marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: color.text.dim, marginTop: 2 }}>
                     {a.installed ? (
                       a.path
                     ) : (
                       <>
                         not on PATH — install with{" "}
-                        <code style={{ background: "#1a1a24", padding: "1px 5px", borderRadius: 3 }}>
+                        <code style={{ background: color.bg.selected, padding: "1px 5px", borderRadius: 3 }}>
                           {a.installHint}
                         </code>
                       </>
@@ -163,7 +168,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
                   </div>
                 </div>
                 {a.installed && (
-                  <div style={{ fontSize: 11, color: "#7c5cff", fontWeight: 600 }}>USE →</div>
+                  <div style={{ fontSize: 11, color: color.text.primary, fontWeight: 600 }}>USE →</div>
                 )}
               </button>
             ))}
@@ -172,14 +177,10 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             onClick={() => pickAgent(null)}
             disabled={busy}
             style={{
+              ...secondaryBtn({ disabled: busy }),
               marginTop: 16,
-              background: "transparent",
-              border: "1px solid #2e2e3c",
-              borderRadius: 6,
-              color: "#8b8b9a",
               fontSize: 12,
               padding: "8px 14px",
-              cursor: busy ? "default" : "pointer",
             }}
           >
             Skip — just give me a plain shell
@@ -200,7 +201,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
         <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
           Permission mode
         </div>
-        <div style={{ fontSize: 13, color: "#8b8b9a", marginBottom: 28, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: color.text.muted, marginBottom: 28, lineHeight: 1.5 }}>
           {chosenLabel} will run inside the studio terminal with the
           project folder as its CWD. Do you want it to ask before every
           file edit / shell command, or just go?
@@ -209,9 +210,9 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
           <div
             style={{
               padding: "8px 12px",
-              background: "#3a1414",
-              border: "1px solid #5a2020",
-              color: "#ffb4b4",
+              background: color.danger.bg,
+              border: `1px solid ${color.danger.border}`,
+              color: color.danger.text,
               fontSize: 12,
               borderRadius: 6,
               marginBottom: 16,
@@ -225,27 +226,22 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             disabled={busy}
             onClick={() => pickPermissions(true)}
             style={{
+              ...primaryBtn({ disabled: busy }),
               display: "flex",
               flexDirection: "column",
               alignItems: "stretch",
               gap: 6,
               padding: "14px 14px",
-              background: "#0f0f18",
-              border: "1px solid #7c5cff",
-              borderRadius: 8,
-              color: "#fafafa",
-              fontSize: 13,
-              cursor: busy ? "default" : "pointer",
               textAlign: "left",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontWeight: 600 }}>Skip permission prompts (recommended)</span>
-              <span style={{ fontSize: 11, color: "#7c5cff", fontWeight: 600 }}>DEFAULT →</span>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>DEFAULT →</span>
             </div>
-            <div style={{ fontSize: 11, color: "#8b8b9a", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
               Launches with{" "}
-              <code style={{ background: "#1a1a24", padding: "1px 5px", borderRadius: 3 }}>
+              <code style={{ background: color.bg.selected, padding: "1px 5px", borderRadius: 3 }}>
                 {flag}
               </code>
               . The agent edits {`./story.json`} and runs commands without
@@ -257,22 +253,17 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             disabled={busy}
             onClick={() => pickPermissions(false)}
             style={{
+              ...secondaryBtn({ disabled: busy }),
               display: "flex",
               flexDirection: "column",
               alignItems: "stretch",
               gap: 6,
               padding: "14px 14px",
-              background: "#0f0f18",
-              border: "1px solid #2e2e3c",
-              borderRadius: 8,
-              color: "#fafafa",
-              fontSize: 13,
-              cursor: busy ? "default" : "pointer",
               textAlign: "left",
             }}
           >
             <div style={{ fontWeight: 600 }}>Supervised — keep prompts</div>
-            <div style={{ fontSize: 11, color: "#8b8b9a", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
               The agent's normal permission flow stays on. Slower, safer.
               You can change this later.
             </div>
