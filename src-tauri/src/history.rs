@@ -5,8 +5,8 @@
 //! (history/index.json) lists versions in insertion order:
 //!
 //!     [
-//!       { "sha": "...", "parent": null,    "author": "user",  "ts": "..." },
-//!       { "sha": "...", "parent": "<sha>", "author": "agent", "ts": "..." }
+//!       { "sha": "...", "parent": null,    "author": "user",  "ts": "2026-05-19T12:34:56.789012Z" },
+//!       { "sha": "...", "parent": "<sha>", "author": "agent", "ts": "2026-05-19T12:34:57.123456Z" }
 //!     ]
 //!
 //! Reads return the most recent version's sha and contents. Reverts
@@ -133,5 +133,14 @@ mod tests {
         assert_eq!(first.sha, second.sha, "same content → same sha");
         let index = read_index(root);
         assert_eq!(index.len(), 2, "two entries even though content is identical");
+
+        // The blob file count under history_dir() should be exactly 1
+        // (the index.json) + 1 (the single dedup'd blob) = 2. If
+        // the guard against double-writing ever regresses, this
+        // catches it.
+        let on_disk = std::fs::read_dir(history_dir(root))
+            .unwrap()
+            .count();
+        assert_eq!(on_disk, 2, "should be exactly one blob + one index.json on disk");
     }
 }
