@@ -1,70 +1,146 @@
 /**
- * Glyph → SVG path extraction, using opentype.js.
+ * Glyph → SVG path extraction, using opentype.js. Multi-font edition.
  *
  * For the "morph" capability we need letterforms AS SVG PATHS (not text)
- * so flubber can interpolate a shape into a letter. opentype.js parses the
- * raw .ttf and gives us per-glyph vector outlines.
+ * so flubber can interpolate a shape into a letter. opentype.js parses
+ * the raw .ttf and gives us per-glyph vector outlines.
  *
- * ⚠️ HARD-WON BUG NOTE: in this opentype.js version, `path.getBoundingBox()`
- * MUTATES the path's command list — calling it before `path.toPathData()`
- * corrupts the output (emits "NaN" coords). So we ALWAYS call toPathData()
- * first, then getBoundingBox(). Order matters. Do not reorder.
+ * We now ship four families:
+ *  - SpaceGrotesk  : static bold (legacy default)
+ *  - RobotoFlex    : variable, 16 axes (wght/wdth/slnt/grad/opsz/…)
+ *  - Recursive     : variable (CASL/CRSV/MONO/slnt/wght) — display
+ *  - InterVF       : variable (wght, optical size)
  *
- * REMOTION CONCERNS handled here:
- *  - The font file is fetched once via staticFile() and parsed once into a
- *    module-level cache. Parsing per frame would be absurdly slow.
- *  - Loading is async, so callers use delayRender()/continueRender() (see
- *    useFont) to hold the render until the font is ready.
+ * opentype.js parses *static* outlines (the default instance of a VF).
+ * The morph beat only morphs the FIRST letter from a shape — the value
+ * of the variable axes for that first letter just uses the parsed
+ * default. The remaining letters are HTML text (RevealBeat etc.) and
+ * THOSE animate `font-variation-settings` in CSS, where the browser
+ * (and Remotion's headless Chromium during render) honours the VF axes.
+ *
+ * ⚠️ HARD-WON BUG NOTE: in this opentype.js version,
+ * `path.getBoundingBox()` MUTATES the path's command list — calling it
+ * before `path.toPathData()` corrupts the output (emits "NaN" coords).
+ * ALWAYS snapshot commands first, then call getBoundingBox(). Order matters.
+ *
+ * REMOTION CONCERNS:
+ *  - Each font is fetched once and parsed once into a module-level cache.
+ *  - useFont returns null until the requested family is parsed, and holds
+ *    the Remotion render via delayRender so no frame paints prematurely.
  *  - getGlyphPath is pure given a parsed font, so it's frame-deterministic.
  */
 import { useEffect, useState } from "react";
 import { staticFile, delayRender, continueRender } from "remotion";
-// Namespace import: opentype.js's .mjs build has no usable default export
-// in Rollup (the editor's Vite build) — `import opentype from` breaks the
-// build. `import * as` works in tsx, the renderer, AND Rollup. The type
-// names (Font, PathCommand) still resolve from @types/opentype.js.
 import * as opentype from "opentype.js";
+import type { FontFamily } from "./schema";
 
-let cachedFont: opentype.Font | null = null;
-let loadingPromise: Promise<opentype.Font> | null = null;
+// ---------------------------------------------------------------------------
+// Font registry — file paths + CSS family name (for HTML beats)
+// ---------------------------------------------------------------------------
 
-const FONT_URL = staticFile("fonts/SpaceGrotesk-Bold.ttf");
+type FontRegistryEntry = {
+  /** path under public/ (consumed by staticFile()) */
+  file: string;
+  /** CSS font-family value used in <style> and inline styles */
+  cssFamily: string;
+};
 
-const loadFontOnce = (): Promise<opentype.Font> => {
-  if (cachedFont) return Promise.resolve(cachedFont);
-  if (loadingPromise) return loadingPromise;
-  loadingPromise = fetch(FONT_URL)
+export const FONT_REGISTRY: Record<FontFamily, FontRegistryEntry> = {
+  SpaceGrotesk: {
+    file: "fonts/SpaceGrotesk-Bold.ttf",
+    cssFamily: "SpaceGroteskKinetic",
+  },
+  RobotoFlex: {
+    file: "fonts/RobotoFlex.ttf",
+    cssFamily: "RobotoFlexKinetic",
+  },
+  Recursive: {
+    file: "fonts/Recursive.ttf",
+    cssFamily: "RecursiveKinetic",
+  },
+  InterVF: {
+    file: "fonts/InterVF.ttf",
+    cssFamily: "InterVFKinetic",
+  },
+};
+
+/** Sensible per-family axis bounds, for clamping schema axis ranges. */
+export const FONT_AXIS_BOUNDS: Record<
+  FontFamily,
+  { wght: [number, number]; wdth: [number, number]; slnt: [number, number] }
+> = {
+  SpaceGrotesk: {
+    wght: [700, 700], // static — no variation
+    wdth: [100, 100],
+    slnt: [0, 0],
+  },
+  RobotoFlex: {
+    wght: [100, 1000],
+    wdth: [25, 151],
+    slnt: [-10, 0],
+  },
+  Recursive: {
+    wght: [300, 1000],
+    wdth: [100, 100], // no width axis in this build
+    slnt: [-15, 0],
+  },
+  InterVF: {
+    wght: [100, 900],
+    wdth: [100, 100],
+    slnt: [0, 0],
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Font loading — cached per family
+// ---------------------------------------------------------------------------
+
+const cachedFonts: Partial<Record<FontFamily, opentype.Font>> = {};
+const loadingPromises: Partial<Record<FontFamily, Promise<opentype.Font>>> = {};
+
+const loadFontOnce = (family: FontFamily): Promise<opentype.Font> => {
+  const cached = cachedFonts[family];
+  if (cached) return Promise.resolve(cached);
+  const inflight = loadingPromises[family];
+  if (inflight) return inflight;
+  const url = staticFile(FONT_REGISTRY[family].file);
+  const p = fetch(url)
     .then((r) => r.arrayBuffer())
     .then((buf) => {
       const font = opentype.parse(buf);
-      cachedFont = font;
+      cachedFonts[family] = font;
       return font;
     });
-  return loadingPromise;
+  loadingPromises[family] = p;
+  return p;
 };
 
 /**
- * Hook: returns the parsed font (or null until ready). Holds the Remotion
- * render via delayRender so no frame paints before glyphs are available.
+ * Hook: returns the parsed font for the requested family (or null until
+ * ready). Holds the Remotion render via delayRender so no frame paints
+ * before glyphs are available.
  */
-export const useFont = (): opentype.Font | null => {
-  const [font, setFont] = useState<opentype.Font | null>(cachedFont);
+export const useFont = (family: FontFamily = "RobotoFlex"): opentype.Font | null => {
+  const [font, setFont] = useState<opentype.Font | null>(
+    cachedFonts[family] ?? null,
+  );
 
   useEffect(() => {
-    if (font) return;
-    const handle = delayRender("Parsing font for glyph paths");
-    loadFontOnce()
+    if (cachedFonts[family]) {
+      setFont(cachedFonts[family]!);
+      return;
+    }
+    const handle = delayRender(`Parsing font: ${family}`);
+    loadFontOnce(family)
       .then((f) => {
         setFont(f);
         continueRender(handle);
       })
       .catch((e) => {
-        // Don't deadlock the render if the font fails — continue and let
-        // the morph fall back to its circle primitive.
-        console.error("Font parse failed:", e);
+        console.error(`Font parse failed (${family}):`, e);
         continueRender(handle);
       });
-  }, [font]);
+  }, [family]);
 
   return font;
 };
@@ -72,29 +148,28 @@ export const useFont = (): opentype.Font | null => {
 export type GlyphPath = {
   /** SVG path data, normalized into a 0..100 x 0..100 viewBox */
   d: string;
+  /** number of subpaths in the glyph (1 for most letters, 2+ for O/e/g/A) */
+  subpaths: number;
 };
 
 /**
  * Build an SVG path `d` string from opentype's structured command objects,
  * applying scale + offset, with EXPLICIT separators.
- *
- * ⚠️ Why not regex the toPathData() string instead? opentype's toPathData
- * omits the separator between a number and a following positive decimal
- * ("12.71" + "0.00" -> "12.710.00"), which is unparseable. The command
- * objects are unambiguous structured data — use those.
  */
 const buildPathData = (
   commands: opentype.PathCommand[],
   scale: number,
   offsetX: number,
   offsetY: number,
-): string => {
+): { d: string; subpaths: number } => {
   const X = (v: number) => (v * scale + offsetX).toFixed(2);
   const Y = (v: number) => (v * scale + offsetY).toFixed(2);
-  return commands
+  let subpaths = 0;
+  const d = commands
     .map((c) => {
       switch (c.type) {
         case "M":
+          subpaths++;
           return `M${X(c.x)} ${Y(c.y)}`;
         case "L":
           return `L${X(c.x)} ${Y(c.y)}`;
@@ -109,6 +184,7 @@ const buildPathData = (
       }
     })
     .join("");
+  return { d, subpaths };
 };
 
 /**
@@ -126,8 +202,7 @@ export const getGlyphPath = (
   const SIZE = 100;
   const path = glyph.getPath(0, 0, SIZE);
 
-  // Snapshot commands BEFORE getBoundingBox() — see the file-header note
-  // about getBoundingBox mutating the command list in this version.
+  // Snapshot commands BEFORE getBoundingBox() — see file-header note.
   const commands = path.commands.map((c) => ({ ...c }));
   const bb = path.getBoundingBox();
 
@@ -137,8 +212,28 @@ export const getGlyphPath = (
   const offsetX = (SIZE - w * scale) / 2 - bb.x1 * scale;
   const offsetY = (SIZE - h * scale) / 2 - bb.y1 * scale;
 
-  return { d: buildPathData(commands, scale, offsetX, offsetY) };
+  return buildPathData(commands, scale, offsetX, offsetY);
+};
+
+/**
+ * Extract JUST the outer (largest) subpath from a glyph path string.
+ * Letters with holes (o, e, a, g, p, b, d) come back as multiple "M…Z"
+ * subpaths from opentype. Flubber's `interpolate(from, to)` can only
+ * morph between SINGLE closed paths, so we morph to the outer shape and
+ * fade the counter (the hole) in separately. See MorphBeat.
+ */
+export const splitSubpaths = (d: string): string[] => {
+  // split on M but preserve it as the start of each segment
+  const parts = d.split(/(?=M)/).filter((s) => s.trim().length);
+  return parts;
+};
+
+/** Pick the longest subpath (heuristic for "outer contour"). */
+export const outerSubpath = (d: string): string => {
+  const subs = splitSubpaths(d);
+  if (subs.length <= 1) return d;
+  return subs.reduce((a, b) => (b.length > a.length ? b : a), subs[0]);
 };
 
 /** A default "shape to morph from" when a beat provides no custom path. */
-export const DEFAULT_MORPH_SHAPE = "M50,8 A42,42 0 1,1 49.9,8 Z"; // ~circle
+export const DEFAULT_MORPH_SHAPE = "M50,8 A42,42 0 1,1 49.9,8 Z";

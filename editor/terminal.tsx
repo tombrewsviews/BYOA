@@ -25,7 +25,21 @@ import { isTauri } from "./runtime";
 let _activePtyId: string | null = null;
 export const getActivePtyId = (): string | null => _activePtyId;
 
-export const Terminal: React.FC = () => {
+/** The mounted xterm instance, exposed so shell-level code can focus
+ *  it programmatically (e.g. after the user copies a prompt from the
+ *  Library). Set by the Terminal component on mount, cleared on
+ *  unmount. */
+let _activeTerm: XTerm | null = null;
+export const focusActiveTerminal = (): void => {
+  _activeTerm?.focus();
+};
+
+// React.memo: Terminal has no props, so it should NEVER re-render once
+// mounted. Without memo, every parent `setStory` (triggered by Player
+// frameupdate or watcher reload) walks Terminal's subtree even though
+// the xterm instance is stable inside a useEffect. Trivial guard, big
+// win at high typing rates.
+const TerminalInner: React.FC = () => {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,6 +62,13 @@ export const Terminal: React.FC = () => {
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
+    _activeTerm = term;
+    // NOTE: xterm-addon-canvas was previously loaded here for perf, but
+    // its dispose() crashes ("undefined is not an object" on
+    // _renderer.value.onRequestRedraw) whenever this Terminal unmounts —
+    // which happens every project switch (key={project.path} in App.tsx)
+    // and every dev StrictMode mount cycle. The DOM renderer is fast
+    // enough for a one-column terminal in this app.
     fit.fit();
 
     const cleanupFns: Array<() => void | Promise<void>> = [];
@@ -119,6 +140,7 @@ export const Terminal: React.FC = () => {
           // ignore
         }
       }
+      if (_activeTerm === term) _activeTerm = null;
       term.dispose();
     };
   }, []);
@@ -138,3 +160,6 @@ export const Terminal: React.FC = () => {
     />
   );
 };
+
+export const Terminal = React.memo(TerminalInner);
+Terminal.displayName = "Terminal";

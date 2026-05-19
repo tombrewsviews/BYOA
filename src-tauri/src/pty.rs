@@ -6,13 +6,17 @@
 //! events. pty_write/resize/close mutate the session through the map.
 
 use std::io::{Read, Write};
+use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
+use crate::agents::AgentKind;
+use crate::settings;
 use crate::AppState;
 
 pub struct PtySession {
@@ -60,15 +64,39 @@ pub fn pty_open(
     cmd.env("KINETIC_PROJECT", &project_str);
     cmd.env("KINETIC_STUDIO", "1");
 
-    // If zsh AND the rc file exists, source it before going interactive.
+    // If zsh AND the rc file exists, source it before going interactive,
+    // then auto-launch the user's configured agent if any is set. The
+    // shell stays the host process so Ctrl-C, scrollback, and copy/paste
+    // all keep working — when the agent exits, the shell prompt is
+    // there waiting.
     let shell_name = std::path::Path::new(&shell)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
+    let agent_launch = settings::default_agent()
+        .map(|a: AgentKind| {
+            let flag = if settings::skip_permissions() {
+                a.skip_permissions_flag().unwrap_or("")
+            } else {
+                ""
+            };
+            if flag.is_empty() {
+                format!("{} ; ", a.binary())
+            } else {
+                format!("{} {} ; ", a.binary(), flag)
+            }
+        })
+        .unwrap_or_default();
     if shell_name == "zsh" && rc_path.exists() {
         let rc_str = rc_path.to_string_lossy().to_string();
         cmd.arg("-c");
-        cmd.arg(format!("source \"{}\"; exec zsh -i", rc_str));
+        cmd.arg(format!(
+            "source \"{}\"; {}exec zsh -i",
+            rc_str, agent_launch
+        ));
+    } else if !agent_launch.is_empty() {
+        cmd.arg("-c");
+        cmd.arg(format!("{}exec {} -i", agent_launch, shell));
     } else {
         cmd.arg("-l");
     }
@@ -97,30 +125,86 @@ pub fn pty_open(
     };
     state.ptys.insert(id.clone(), session);
 
-    // Spawn the reader thread. It emits pty://{id}/data events until EOF,
-    // then emits pty://{id}/closed and exits. The map entry is dropped by
-    // pty_close (explicit) or by the reader on natural EOF.
-    let app_for_thread = app.clone();
-    let id_for_thread = id.clone();
+    // Pty -> UI pipeline: a READER thread does blocking reads from the
+    // pty (cheap, no JS interop) and ships chunks to a FLUSHER thread via
+    // a channel. The flusher coalesces bytes for a short window (~4ms)
+    // before emitting one Tauri event, so high-bandwidth output (claude
+    // code re-renders, big `cat`, etc.) doesn't drown the event bus with
+    // thousands of tiny emits. Typing latency stays imperceptible because
+    // the window is small and the first byte after an idle period flushes
+    // promptly.
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+
+    // Reader: blocking, just pumps bytes.
     thread::spawn(move || {
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 16384]; // 16KB read buffer
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    let _ = app_for_thread.emit(
-                        &format!("pty://{}/data", id_for_thread),
-                        chunk,
-                    );
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break; // flusher gone
+                    }
                 }
                 Err(_) => break,
             }
         }
-        let _ = app_for_thread.emit::<()>(
-            &format!("pty://{}/closed", id_for_thread),
-            (),
-        );
+        // dropping tx signals EOF to the flusher
+    });
+
+    // Flusher: coalesces only when bytes are arriving fast. For interactive
+    // typing (one keystroke echo at a time) we emit immediately. For floods
+    // (claude code re-renders, large `cat`, etc.) we batch via a short tail
+    // window — if more bytes arrive within FLUSH_WINDOW after the previous
+    // batch, fold them in; otherwise emit and return to the blocking recv.
+    //
+    // FLUSH_WINDOW is intentionally tight (1ms): well under one frame at
+    // 60Hz, so a lone echo back from the pty (typing) emits with negligible
+    // delay. It still suffices to coalesce thousands of fast small chunks
+    // into one event because pipe reads come back-to-back.
+    let app_for_thread = app.clone();
+    let id_for_thread = id.clone();
+    thread::spawn(move || {
+        const FLUSH_WINDOW: Duration = Duration::from_micros(800); // ~1ms
+        const FLUSH_BYTES: usize = 64 * 1024; // 64KB hard cap per emit
+        let event_name = format!("pty://{}/data", id_for_thread);
+        let closed_name = format!("pty://{}/closed", id_for_thread);
+        let mut pending: Vec<u8> = Vec::with_capacity(FLUSH_BYTES);
+
+        loop {
+            // Block on first byte — wakes on activity, not on a timer,
+            // so an idle terminal costs zero CPU.
+            let first = match rx.recv() {
+                Ok(v) => v,
+                Err(_) => break, // channel closed → reader exited
+            };
+            pending.clear();
+            pending.extend_from_slice(&first);
+
+            // Tail-fold: keep absorbing whatever lands within FLUSH_WINDOW
+            // since the last bytes arrived. A single keystroke echo (one
+            // chunk, idle pty after) ends after one ~1ms timeout. Bulk
+            // output keeps refreshing the deadline until the pipe drains.
+            while pending.len() < FLUSH_BYTES {
+                match rx.recv_timeout(FLUSH_WINDOW) {
+                    Ok(more) => pending.extend_from_slice(&more),
+                    Err(mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        if !pending.is_empty() {
+                            let chunk = String::from_utf8_lossy(&pending).into_owned();
+                            let _ = app_for_thread.emit(&event_name, chunk);
+                        }
+                        let _ = app_for_thread.emit::<()>(&closed_name, ());
+                        return;
+                    }
+                }
+            }
+
+            let chunk = String::from_utf8_lossy(&pending).into_owned();
+            let _ = app_for_thread.emit(&event_name, chunk);
+        }
+
+        let _ = app_for_thread.emit::<()>(&closed_name, ());
     });
 
     Ok(id)

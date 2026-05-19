@@ -52,10 +52,37 @@ const springCurve = (t: number): number => {
 };
 
 /**
+ * Elastic — strong overshoot with damped oscillation. The KEEP-GOING /
+ * ELASTIC reference: letters past their target, then settling.
+ */
+const elasticCurve = (t: number): number => {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  const c4 = (2 * Math.PI) / 3;
+  return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+};
+
+/**
+ * back.out — single soft overshoot then settle. Less manic than elastic,
+ * good default for "interesting but readable" entries.
+ */
+const backOutCurve = (t: number): number => {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+};
+
+/**
  * Resolve the schema's `easing` enum value to an easing function.
  * Keeps the parameter editor (a dropdown) wired to real curves.
  */
-export type EasingName = "power3.out" | "power3.inOut" | "power4.out" | "spring";
+export type EasingName =
+  | "power3.out"
+  | "power3.inOut"
+  | "power4.out"
+  | "spring"
+  | "elastic"
+  | "back.out";
 
 export const resolveEasing = (name: EasingName): ((t: number) => number) => {
   switch (name) {
@@ -65,6 +92,10 @@ export const resolveEasing = (name: EasingName): ((t: number) => number) => {
       return power4.out;
     case "spring":
       return springCurve;
+    case "elastic":
+      return elasticCurve;
+    case "back.out":
+      return backOutCurve;
     case "power3.out":
     default:
       return power3.out;

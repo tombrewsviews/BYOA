@@ -3,13 +3,17 @@
  * new projects, opening an arbitrary folder, and basic context-menu
  * actions per card.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 export type ProjectMeta = {
   name: string;
   path: string;
   beats: number;
   lastOpened: string;
+  /** Absolute path to the cached preview MP4, if rendered. */
+  previewPath?: string | null;
+  /** True if story.json has been edited since the preview was rendered. */
+  previewStale?: boolean;
 };
 
 const fmtAgo = (iso: string) => {
@@ -52,6 +56,19 @@ export const ProjectsView: React.FC = () => {
     }
   };
 
+  // Move the project folder to the macOS Trash. Recoverable from
+  // Trash if the user changes their mind. The Rust side uses the
+  // `trash` crate, which routes through Finder's recycle path.
+  const deleteProject = async (path: string) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      await invoke("project_delete", { path });
+      await refresh();
+    } catch (e) {
+      setError(`Delete failed: ${(e as Error).message}`);
+    }
+  };
+
   const createProject = async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     try {
@@ -76,8 +93,8 @@ export const ProjectsView: React.FC = () => {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: "100%",
+        height: "100%",
         background: "#08080c",
         color: "#e4e4ee",
         fontFamily:
@@ -169,43 +186,266 @@ export const ProjectsView: React.FC = () => {
         }}
       >
         {projects.map((p) => (
-          <button
+          <ProjectCard
             key={p.path}
-            onClick={() => void openProject(p.path)}
+            project={p}
+            onOpen={openProject}
+            onDelete={deleteProject}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Square card with an optional video preview that plays on hover.
+ * Stories render 9:16 portrait; the card uses `object-fit: cover` so
+ * the portrait fills the square — its HEIGHT determines the scale and
+ * the sides are cropped. Without a preview the card shows a gradient
+ * placeholder with the project name.
+ */
+const ProjectCard: React.FC<{
+  project: ProjectMeta;
+  onOpen: (path: string) => void;
+  onDelete: (path: string) => Promise<void>;
+}> = ({ project, onOpen, onDelete }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [src, setSrc] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  // Resolve the preview's file path → asset:// URL the webview can load.
+  // Cache-busts on mtime so a re-rendered preview shows up immediately
+  // (without ?v=… the webview would cache the old file forever).
+  useEffect(() => {
+    let cancelled = false;
+    if (!project.previewPath) {
+      setSrc(null);
+      return;
+    }
+    void (async () => {
+      try {
+        const { convertFileSrc } = await import("@tauri-apps/api/core");
+        const base = convertFileSrc(project.previewPath!);
+        // lastOpened ≈ a per-card cache-bust token; close→render→new
+        // lastOpened on next list.
+        const url = `${base}?v=${encodeURIComponent(project.lastOpened)}`;
+        if (!cancelled) {
+          console.debug("[preview]", project.name, project.previewPath, "→", url);
+          setSrc(url);
+        }
+      } catch (err) {
+        console.warn("[preview] convertFileSrc failed", err);
+        if (!cancelled) setSrc(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project.previewPath, project.lastOpened, project.name]);
+
+  // Seek to the middle of the video for the still-frame poster. The
+  // user wanted "middle of the project" so there's a better chance of
+  // showing visible content than the empty pre-animation frame 0.
+  const seekToMiddle = (v: HTMLVideoElement) => {
+    try {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        v.currentTime = v.duration / 2;
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onEnter = () => {
+    setHovered(true);
+    const v = videoRef.current;
+    if (!v) return;
+    void v.play().catch(() => {
+      /* autoplay-policy edge */
+    });
+  };
+  const onLeave = () => {
+    setHovered(false);
+    setConfirmDelete(false);
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    seekToMiddle(v);
+  };
+
+  return (
+    // Outer is a div role="button" rather than a real <button> so we can
+    // nest the delete <button> inside without violating HTML or having
+    // its click bubble up to "open project".
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => void onOpen(project.path)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          void onOpen(project.path);
+        }
+      }}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      style={{
+        position: "relative",
+        textAlign: "left",
+        background: "#14141c",
+        border: "1px solid #232330",
+        borderRadius: 10,
+        padding: 0,
+        color: "#e4e4ee",
+        cursor: "pointer",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* SQUARE preview region — aspect-ratio: 1 makes it a square
+          regardless of the card's grid width. */}
+      <div
+        style={{
+          width: "100%",
+          aspectRatio: "1 / 1",
+          background:
+            "linear-gradient(135deg, #1c1432 0%, #0b0b14 60%, #14141c 100%)",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        {src ? (
+          <video
+            ref={videoRef}
+            src={src}
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            onLoadedMetadata={(e) => {
+              // Show the middle frame as a still while paused — first
+              // frames of kinetic-type stories are often empty (text
+              // hasn't entered yet), middle is where the action is.
+              seekToMiddle(e.currentTarget as HTMLVideoElement);
+            }}
+            onError={(e) => {
+              const err = (e.currentTarget as HTMLVideoElement).error;
+              console.warn("[preview] video error", project.name, err);
+            }}
             style={{
-              textAlign: "left",
-              background: "#14141c",
-              border: "1px solid #232330",
-              borderRadius: 10,
-              padding: 16,
-              color: "#e4e4ee",
-              cursor: "pointer",
+              display: "block",
+              width: "100%",
+              height: "100%",
+              // cover: the 9:16 portrait fills the square — its HEIGHT
+              // is the scale-driver, sides crop. This is the right
+              // fit per the user's "whatever is bigger" requirement.
+              objectFit: "cover",
+              pointerEvents: "none",
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#6b6b80",
+              fontSize: 32,
+              fontWeight: 700,
+              letterSpacing: 1,
+              textTransform: "uppercase",
+              opacity: 0.6,
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</div>
-            <div
-              style={{
-                fontSize: 11,
-                color: "#6b6b80",
-                marginTop: 4,
-              }}
-            >
-              {p.beats} beats · {fmtAgo(p.lastOpened)}
-            </div>
-            <div
-              style={{
-                fontSize: 10,
-                color: "#4b4b5a",
-                marginTop: 8,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {p.path}
-            </div>
+            {project.name.slice(0, 2)}
+          </div>
+        )}
+        {/* Stale-preview indicator: small amber dot, top-LEFT so it
+            doesn't collide with the delete button (top-right). */}
+        {project.previewStale && project.previewPath && (
+          <div
+            title="Preview is older than the story — will refresh on next close."
+            style={{
+              position: "absolute",
+              top: 8,
+              left: 8,
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#facc15",
+              boxShadow: "0 0 6px rgba(250,204,21,0.7)",
+            }}
+          />
+        )}
+        {/* Delete button — appears on hover. First click swaps to a
+            "Delete?" confirm; second click within the same hover trashes
+            the project. Mouse-leave resets the confirm state. */}
+        {hovered && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirmDelete) {
+                void onDelete(project.path);
+              } else {
+                setConfirmDelete(true);
+              }
+            }}
+            title={
+              confirmDelete
+                ? "Click again to move to Trash"
+                : "Move project to Trash"
+            }
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              padding: confirmDelete ? "4px 10px" : "4px 8px",
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 4,
+              border: "1px solid",
+              borderColor: confirmDelete ? "#ff5c5c" : "#2e2e3c",
+              background: confirmDelete
+                ? "rgba(255,92,92,0.85)"
+                : "rgba(10,10,16,0.85)",
+              color: confirmDelete ? "white" : "#e4e4ee",
+              cursor: "pointer",
+              backdropFilter: "blur(6px)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            }}
+          >
+            {confirmDelete ? "Delete?" : "×"}
           </button>
-        ))}
+        )}
+      </div>
+
+      <div
+        style={{
+          padding: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {project.name}
+        </div>
+        <div style={{ fontSize: 11, color: "#6b6b80" }}>
+          {project.beats} beats · {fmtAgo(project.lastOpened)}
+        </div>
       </div>
     </div>
   );

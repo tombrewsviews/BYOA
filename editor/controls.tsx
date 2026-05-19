@@ -40,6 +40,34 @@ export const Row: React.FC<{ label: string; children: React.ReactNode }> = ({
   </div>
 );
 
+// --- TextInput --------------------------------------------------------------
+// Live text editor. Updates the parent on every keystroke (we don't debounce —
+// updates are cheap relative to a render, and the user expects WYSIWYG as
+// they type a word).
+export const TextInput: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}> = ({ value, onChange, placeholder }) => (
+  <input
+    type="text"
+    value={value}
+    placeholder={placeholder}
+    onChange={(e) => onChange(e.target.value)}
+    style={{
+      width: "100%",
+      background: "#08080c",
+      border: "1px solid #232330",
+      borderRadius: 4,
+      color: "#fafafa",
+      fontSize: 12,
+      padding: "5px 8px",
+      fontFamily: "inherit",
+      outline: "none",
+    }}
+  />
+);
+
 // --- Slider -----------------------------------------------------------------
 
 export const Slider: React.FC<{

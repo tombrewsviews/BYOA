@@ -1,22 +1,17 @@
 /**
  * The background layer — behind the kinetic type.
  *
- * Four kinds (schema: `story.background.kind`):
+ * Two kinds (schema: `story.background.kind`):
  *  - gradient : animated mesh gradient — drifting linear base + two
- *               wandering radial accent glows. (was the old hardcoded bg)
- *  - shader   : "shader-like" animated patterns. NOT WebGL — these are
- *               frame-deterministic SVG/CSS, because Remotion needs every
- *               frame to be a pure function of the frame number and a
- *               WebGL context can't guarantee that. Three styles:
- *               aurora, flowField, mesh.
- *  - image    : a still <Img> from public/ or a URL. STUBBED — renders the
- *               image if `src` is set, else a labelled placeholder.
- *  - video    : an <OffthreadVideo>. STUBBED likewise. The "Claude-
- *               generated video" path would feed a generated file here,
- *               but that needs a video-gen API (separate work + cost).
+ *               wandering radial accent glows.
+ *  - shader   : frame-deterministic SVG/CSS animated patterns
+ *               (aurora, flowField, mesh). NOT WebGL — Remotion
+ *               requires every frame to be a pure function of the
+ *               frame number, which a WebGL context can't guarantee.
  *
- * All animation is driven by useCurrentFrame() — deterministic, renders
- * identically every time.
+ * Image and video backgrounds were removed in favor of `imageClip`
+ * and `videoClip` BEAT kinds — they're proper timeline citizens with
+ * trim/reorder/multi-track support.
  */
 import React from "react";
 import {
@@ -25,8 +20,6 @@ import {
   useVideoConfig,
   interpolate,
   random,
-  Img,
-  OffthreadVideo,
 } from "remotion";
 import type { Story } from "./schema";
 
@@ -41,10 +34,6 @@ export const Background: React.FC<{ story: Story }> = ({ story }) => {
   switch (kind) {
     case "shader":
       return <ShaderBackground story={story} />;
-    case "image":
-      return <ImageBackground story={story} />;
-    case "video":
-      return <VideoBackground story={story} />;
     case "gradient":
     default:
       return <GradientBackground story={story} />;
@@ -178,61 +167,3 @@ const ShaderBackground: React.FC<{ story: Story }> = ({ story }) => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// image / video — STUBBED. Render the asset if a src is given, else a
-// labelled placeholder so the schema option is usable end-to-end.
-// ---------------------------------------------------------------------------
-
-const ImageBackground: React.FC<{ story: Story }> = ({ story }) => {
-  const { src } = story.background;
-  if (!src) return <Placeholder kind="image" story={story} />;
-  return (
-    <AbsoluteFill style={{ background: story.bgColor }}>
-      <Img
-        src={src}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      />
-    </AbsoluteFill>
-  );
-};
-
-const VideoBackground: React.FC<{ story: Story }> = ({ story }) => {
-  const { src } = story.background;
-  if (!src) return <Placeholder kind="video" story={story} />;
-  return (
-    <AbsoluteFill style={{ background: story.bgColor }}>
-      <OffthreadVideo
-        src={src}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        muted
-      />
-    </AbsoluteFill>
-  );
-};
-
-const Placeholder: React.FC<{ kind: string; story: Story }> = ({
-  kind,
-  story,
-}) => (
-  <AbsoluteFill
-    style={{
-      background: `linear-gradient(135deg, ${story.bgColor}, ${story.bgColor2})`,
-      alignItems: "center",
-      justifyContent: "center",
-    }}
-  >
-    <div
-      style={{
-        color: "#ffffff55",
-        fontSize: 36,
-        fontFamily: "monospace",
-        textAlign: "center",
-        padding: 40,
-      }}
-    >
-      {kind} background
-      <br />
-      <span style={{ fontSize: 22 }}>set background.src to an asset</span>
-    </div>
-  </AbsoluteFill>
-);

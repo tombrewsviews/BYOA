@@ -1,487 +1,153 @@
 /**
- * The kinetic story editor — app shell.
+ * Platform router — the compiled, immutable outer shell.
  *
- * Layout: <Player> live preview on the left, the design-properties Panel
- * on the right. Loads story.json, holds it in state, feeds it to the
- * Player as memoized inputProps, and POSTs it back to story.json on save
- * (via the dev-server plugin in vite.config.ts).
+ * Two routes:
+ *   • The Square (default) — the marketplace home, owned by the
+ *     platform. Users cannot modify it.
+ *   • An app — the platform mounts the chosen app's Root component
+ *     and hands it an onExit callback. Everything inside the app
+ *     (its own top bar, onboarding, panels, tabs, custom flows) is
+ *     the app's business; the platform stays out of its way.
  *
- * Player best practices applied (remotion.dev/docs/player/best-practices):
- *  - inputProps is useMemo'd so panel edits don't thrash the Player tree
- *  - the <Player> is isolated in its own component from the panel
- *  - playback is driven via playerRef
+ * The PLATFORM CHROME — the title bar at the top of the window —
+ * lives here and only here. It carries the macOS traffic lights, a
+ * draggable region, the "back to The Square" button, and the current
+ * app's name. The app gets the full content area below it.
+ *
+ * Selection of the open app is persisted in localStorage so a reload
+ * doesn't dump the user back at The Square mid-edit.
  */
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { type PlayerRef } from "@remotion/player";
-import { PlayerStage, Transport } from "./player";
-import {
-  storySchema,
-  storyDurationInFrames,
-  type Story,
-} from "../src/kinetic/schema";
-import { Panel } from "./panel";
-import { Timeline } from "./timeline";
-import { Terminal } from "./terminal";
-import { isTauri } from "./runtime";
-import { diffFields, applyFields, fieldLabel, readField, type FieldKey } from "./diff";
-import { getActivePtyId } from "./terminal";
-import { beginColumnDrag, usePersistedColumnWidth } from "./resize";
-import { ProjectsView, type ProjectMeta } from "./ProjectsView";
+import React, { useEffect, useState } from "react";
+import { APPS, findApp, type AppManifest } from "./platform/apps";
+import { Square } from "./platform/Square";
 
-const FPS = 30;
+const CURRENT_APP_KEY = "platform.currentApp";
 
-export type Selection =
-  | { kind: "story" }
-  | { kind: "beat"; index: number };
-
-const EditorView: React.FC<{
-  project: ProjectMeta;
-  onClose: () => void;
-}> = ({ project, onClose }) => {
-  const [story, setStory] = useState<Story | null>(null);
-  const [savedJson, setSavedJson] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-  const playerRef = useRef<PlayerRef>(null);
-  const [selection, setSelection] = useState<Selection>({ kind: "story" });
-
-  const storyRef = useRef<typeof story>(null);
-  const savedJsonRef = useRef("");
-
-  usePersistedColumnWidth({
-    side: "left",
-    storageKey: "studio.col.terminal",
-    cssVar: "--col-terminal",
-    defaultPx: 360,
-    minPx: 200,
-    maxPx: 800,
-  });
-  usePersistedColumnWidth({
-    side: "right",
-    storageKey: "studio.col.properties",
-    cssVar: "--col-properties",
-    defaultPx: 320,
-    minPx: 200,
-    maxPx: 600,
-  });
-
-  useEffect(() => {
-    storyRef.current = story;
-  }, [story]);
-
-  useEffect(() => {
-    savedJsonRef.current = savedJson;
-  }, [savedJson]);
-
-  // load story.json on mount (served by Vite from the project root)
-  useEffect(() => {
-    const load = async () => {
-      try {
-        let raw: unknown;
-        if (isTauri()) {
-          const { invoke } = await import("@tauri-apps/api/core");
-          const text = await invoke<string>("load_story");
-          raw = JSON.parse(text);
-        } else {
-          const res = await fetch("/story.json");
-          raw = await res.json();
-        }
-        const parsed = storySchema.parse(raw);
-        setStory(parsed);
-        setSavedJson(JSON.stringify(parsed));
-      } catch (e) {
-        setError(`Failed to load story.json: ${(e as Error).message}`);
-      }
-    };
-    void load();
-  }, []);
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    let unlisten: undefined | (() => void);
-
-    void (async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const { listen } = await import("@tauri-apps/api/event");
-      const off = await listen<void>("story://changed", async () => {
-        if (!storyRef.current) return;
-        try {
-          const text = await invoke<string>("load_story");
-          const fresh = storySchema.parse(JSON.parse(text));
-          const inMem = storyRef.current;
-          const saved = JSON.parse(savedJsonRef.current) as typeof fresh;
-
-          const userChanges = diffFields(saved, inMem);
-          const agentChanges = diffFields(saved, fresh);
-
-          if (userChanges.size === 0) {
-            setStory(fresh);
-            setSavedJson(JSON.stringify(fresh));
-            return;
-          }
-
-          const conflicts = new Set<FieldKey>();
-          const nonConflicting = new Set<FieldKey>();
-          for (const f of userChanges) {
-            if (agentChanges.has(f)) conflicts.add(f);
-            else nonConflicting.add(f);
-          }
-
-          const merged = applyFields(fresh, inMem, nonConflicting);
-          setStory(merged);
-
-          // Flush merged result so non-conflicting user edits are on disk.
-          const mergedJson = JSON.stringify(merged, null, 2);
-          try {
-            await invoke("save_story", { json: mergedJson });
-            setSavedJson(JSON.stringify(merged));
-          } catch (e) {
-            setError(`Auto-merge save failed: ${(e as Error).message}`);
-          }
-
-          if (conflicts.size > 0) {
-            const lines = [...conflicts].map((f) => {
-              const a = JSON.stringify(readField(merged, f));
-              const b = JSON.stringify(readField(inMem, f));
-              return `  - ${fieldLabel(f)}: ${a} → ${b}`;
-            });
-            const prompt =
-              "Apply my changes on top of yours:\n" + lines.join("\n") + "\n";
-
-            const ptyId = getActivePtyId();
-            if (ptyId) {
-              await invoke("pty_paste_prompt", { id: ptyId, text: prompt });
-            } else {
-              setError(
-                "Conflicts detected but terminal is not open — copy from console: " +
-                  prompt,
-              );
-              console.warn("[merge] no active pty for prompt:", prompt);
-            }
-          }
-        } catch (e) {
-          setError(`External reload failed: ${(e as Error).message}`);
-        }
-      });
-      unlisten = () => off();
-    })();
-
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!story) return;
-    if (selection.kind === "beat" && selection.index >= story.beats.length) {
-      setSelection({ kind: "story" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [story]);
-
-  const durationInFrames = useMemo(
-    () => (story ? storyDurationInFrames(story, FPS) : 1),
-    [story],
-  );
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.matches("input, textarea, [contenteditable='true']") ||
-          t.closest("[data-terminal-root]"))
-      ) {
-        return;
-      }
-      const p = playerRef.current;
-      if (!p) return;
-      const clamp = (f: number) =>
-        Math.max(0, Math.min(durationInFrames - 1, f));
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (p.isPlaying()) p.pause();
-        else
-          p.play(
-            // play() accepts SyntheticEvent | undefined; passing the
-            // KeyboardEvent works at runtime and preserves user-gesture
-            // context for autoplay rules.
-            e as unknown as React.SyntheticEvent,
-          );
-      } else if (e.code === "ArrowLeft") {
-        e.preventDefault();
-        p.seekTo(clamp(p.getCurrentFrame() - FPS));
-      } else if (e.code === "ArrowRight") {
-        e.preventDefault();
-        p.seekTo(clamp(p.getCurrentFrame() + FPS));
-      } else if (e.code === "Home") {
-        e.preventDefault();
-        p.seekTo(0);
-      } else if (e.code === "End") {
-        e.preventDefault();
-        p.seekTo(clamp(durationInFrames - 1));
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [durationInFrames]);
-
-  const dirty = useMemo(
-    () => (story ? JSON.stringify(story) !== savedJson : false),
-    [story, savedJson],
-  );
-
-  const handleSave = useCallback(async () => {
-    if (!story) return;
-    const json = JSON.stringify(story, null, 2);
-    try {
-      if (isTauri()) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("save_story", { json });
-      } else {
-        const res = await fetch("/__save-story", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: json,
-        });
-        if (!res.ok) throw new Error(await res.text());
-      }
-      setSavedJson(JSON.stringify(story));
-    } catch (e) {
-      setError(`Save failed: ${(e as Error).message}`);
-    }
-  }, [story]);
-
-  if (error) {
-    return (
-      <div style={{ ...fill, color: "#ff8b8b", padding: 40 }}>{error}</div>
-    );
+const loadCurrentApp = (): string | null => {
+  try {
+    const id = localStorage.getItem(CURRENT_APP_KEY);
+    if (!id) return null;
+    const app = findApp(id);
+    if (!app || app.status !== "available" || !app.Root) return null;
+    return id;
+  } catch {
+    return null;
   }
-  if (!story) {
-    return <div style={{ ...fill, color: "#6b6b80", padding: 40 }}>Loading…</div>;
-  }
+};
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", width: "100vw", height: "100vh" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 12px",
-          background: "#0a0a10",
-          borderBottom: "1px solid #232330",
-          fontSize: 12,
-          color: "#8b8b9a",
-          flex: "0 0 auto",
-        }}
-      >
+const saveCurrentApp = (id: string | null) => {
+  try {
+    if (id) localStorage.setItem(CURRENT_APP_KEY, id);
+    else localStorage.removeItem(CURRENT_APP_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
+const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
+
+/** Height of the platform title bar in CSS pixels. macOS's traffic
+ *  lights sit ~28px from window top; 36 gives them a hair of breathing
+ *  room and keeps the bar slim. */
+const CHROME_HEIGHT = 36;
+/** Left padding on macOS to clear the traffic lights (lights end at
+ *  ~70px including the right edge of the green button). 84px gives
+ *  ~14px gap before our content starts. */
+const MAC_LEFT_PAD = 84;
+
+const PlatformChrome: React.FC<{
+  app: AppManifest | null;
+  onExit: () => void;
+}> = ({ app, onExit }) => (
+  <div
+    data-tauri-drag-region
+    style={{
+      height: CHROME_HEIGHT,
+      flex: "0 0 auto",
+      background: "#0a0a10",
+      borderBottom: "1px solid #232330",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      paddingLeft: isMac ? MAC_LEFT_PAD : 12,
+      paddingRight: 12,
+      color: "#e4e4ee",
+      fontSize: 12,
+      // The bar itself is a drag region; specific buttons opt out
+      // below via `data-tauri-drag-region={false}` so click works.
+      userSelect: "none",
+      WebkitUserSelect: "none",
+    }}
+  >
+    {app ? (
+      <>
         <button
-          onClick={onClose}
+          data-tauri-drag-region={false}
+          onClick={onExit}
+          title="Back to The Square"
           style={{
             background: "transparent",
             border: "1px solid #2e2e3c",
-            borderRadius: 4,
+            borderRadius: 6,
             color: "#e4e4ee",
             fontSize: 11,
-            padding: "3px 8px",
+            fontWeight: 600,
+            padding: "4px 10px",
             cursor: "pointer",
-          }}
-        >
-          ← Projects
-        </button>
-        <span style={{ color: "#e4e4ee", fontWeight: 600 }}>{project.name}</span>
-        <span style={{ marginLeft: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.path}</span>
-      </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "var(--col-terminal, 360px) 1fr var(--col-properties, 320px)",
-          gridTemplateRows: "1fr auto",
-          flex: 1,
-          minHeight: 0,
-          background: "#08080c",
-          color: "#e4e4ee",
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-        }}
-      >
-        {/* TERMINAL: left column, full height. */}
-        <div
-          style={{
-            gridColumn: "1",
-            gridRow: "1 / span 2",
-            background: "#0a0a10",
-            borderRight: "1px solid #232330",
-            overflow: "hidden",
-            position: "relative",
-          }}
-        >
-          <div
-            onMouseDown={(e) =>
-              beginColumnDrag(e, {
-                side: "left",
-                storageKey: "studio.col.terminal",
-                cssVar: "--col-terminal",
-                defaultPx: 360,
-                minPx: 200,
-                maxPx: 800,
-              })
-            }
-            style={{
-              position: "absolute",
-              top: 0,
-              bottom: 0,
-              right: -2,
-              width: 4,
-              cursor: "col-resize",
-              zIndex: 10,
-            }}
-          />
-          <Terminal />
-        </div>
-
-        {/* PREVIEW: center-top */}
-        <div
-          style={{
-            gridColumn: "2",
-            gridRow: "1",
-            display: "flex",
-            flexDirection: "column",
+            display: "inline-flex",
             alignItems: "center",
-            justifyContent: "center",
-            padding: 24,
-            gap: 12,
-            minWidth: 0,
-            overflow: "hidden",
+            gap: 6,
           }}
         >
-          <PlayerStage
-            inputProps={story}
-            durationInFrames={durationInFrames}
-            fps={FPS}
-            playerRef={playerRef}
-          />
-          <div style={{ fontSize: 11, color: "#4b4b5a" }}>
-            {story.beats.length} beats ·{" "}
-            {(durationInFrames / FPS).toFixed(1)}s · 1080×1920
-          </div>
-          <Transport
-            playerRef={playerRef}
-            durationInFrames={durationInFrames}
-          />
-        </div>
+          <span style={{ fontSize: 13, lineHeight: 1 }}>⊞</span>
+          The Square
+        </button>
+        <span style={{ color: "#fafafa", fontWeight: 600 }}>{app.name}</span>
+        <span style={{ color: "#5a5a6e", fontSize: 11 }}>v{app.version}</span>
+      </>
+    ) : (
+      // On The Square itself: no button (it's already home). Just a
+      // wordmark so the bar isn't empty.
+      <span style={{ color: "#fafafa", fontWeight: 700, letterSpacing: -0.2 }}>
+        The Square
+      </span>
+    )}
+  </div>
+);
 
-        {/* TIMELINE: center-bottom */}
-        <div style={{ gridColumn: "2", gridRow: "2", minWidth: 0 }}>
-          <Timeline
-            story={story}
-            selection={selection}
-            onSelect={setSelection}
-            playerRef={playerRef}
-            durationInFrames={durationInFrames}
-            fps={FPS}
-          />
-        </div>
+export const App: React.FC = () => {
+  const [currentId, setCurrentId] = useState<string | null>(() => loadCurrentApp());
 
-        {/* PROPERTIES: right column, full height */}
-        <div style={{ gridColumn: "3", gridRow: "1 / span 2", minWidth: 0, position: "relative" }}>
-          <div
-            onMouseDown={(e) =>
-              beginColumnDrag(e, {
-                side: "right",
-                storageKey: "studio.col.properties",
-                cssVar: "--col-properties",
-                defaultPx: 320,
-                minPx: 200,
-                maxPx: 600,
-              })
-            }
-            style={{
-              position: "absolute",
-              top: 0,
-              bottom: 0,
-              left: -2,
-              width: 4,
-              cursor: "col-resize",
-              zIndex: 10,
+  useEffect(() => {
+    saveCurrentApp(currentId);
+  }, [currentId]);
+
+  const currentApp = currentId ? findApp(currentId) ?? null : null;
+  const Root = currentApp?.Root ?? null;
+
+  return (
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <PlatformChrome app={currentApp} onExit={() => setCurrentId(null)} />
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        {Root ? (
+          <Root key={currentApp!.id} onExit={() => setCurrentId(null)} />
+        ) : (
+          <Square
+            onOpen={(id) => {
+              const app = APPS.find((a) => a.id === id);
+              if (app?.status === "available" && app.Root) setCurrentId(id);
             }}
           />
-          <Panel
-            story={story}
-            selection={selection}
-            onSelect={setSelection}
-            onChange={setStory}
-            dirty={dirty}
-            onSave={handleSave}
-          />
-        </div>
+        )}
       </div>
     </div>
   );
-};
-
-const fill: React.CSSProperties = {
-  width: "100vw",
-  height: "100vh",
-  margin: 0,
-};
-
-export const App: React.FC = () => {
-  const [project, setProject] = useState<ProjectMeta | null>(null);
-
-  // Listen for project events emitted by Rust.
-  useEffect(() => {
-    if (!isTauri()) return;
-    let off: undefined | (() => void);
-    void (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      const unOpened = await listen<ProjectMeta>("project://opened", (e) => {
-        setProject(e.payload);
-      });
-      const unClosed = await listen<null>("project://closed", () => {
-        setProject(null);
-      });
-      off = () => {
-        unOpened();
-        unClosed();
-      };
-    })();
-    return () => {
-      if (off) off();
-    };
-  }, []);
-
-  if (!isTauri()) {
-    // Browser mode keeps a single-project behaviour for fast UI iteration.
-    return (
-      <EditorView
-        project={{
-          name: "Browser dev",
-          path: "(browser mode)",
-          beats: 0,
-          lastOpened: new Date().toISOString(),
-        }}
-        onClose={() => undefined}
-      />
-    );
-  }
-
-  if (project) {
-    return (
-      <EditorView
-        key={project.path}
-        project={project}
-        onClose={async () => {
-          const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("project_close");
-        }}
-      />
-    );
-  }
-  return <ProjectsView />;
 };

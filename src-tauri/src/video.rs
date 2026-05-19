@@ -1,0 +1,296 @@
+//! Video import + YouTube download.
+//!
+//! Two commands:
+//!   - `import_local_video`: copies a user-picked file into the project's
+//!     `assets/` folder and returns the new absolute path. Studio then
+//!     adds a `videoClip` beat that references the path.
+//!
+//!   - `download_youtube`: shells out to yt-dlp (system or bundled) to
+//!     fetch a URL down to a single MP4 in `assets/`. Emits progress
+//!     events on `video://yt-progress`.
+//!
+//! yt-dlp resolution: prefer the system `yt-dlp` on PATH (lets power
+//! users `brew upgrade yt-dlp` to dodge YouTube breakage), fall back
+//! to the bundled binary at `<app resources>/resources/bin/yt-dlp`.
+
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::thread;
+
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::AppState;
+
+fn active_path(state: &AppState) -> Result<PathBuf, String> {
+    state
+        .active_project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .map(|p| p.path.clone())
+        .ok_or_else(|| "no active project".into())
+}
+
+/// Where imported media lands. Now == project root, so users browsing
+/// the project folder in Finder see everything together (story.json,
+/// imported videos, imported images) without nested folders. The
+/// .kinetic-studio/ and .claude/ subdirs keep config out of the way.
+fn assets_dir(state: &AppState) -> Result<PathBuf, String> {
+    active_path(state)
+}
+
+/// Find a yt-dlp executable. Prefer system `yt-dlp` on PATH because
+/// users can `brew upgrade yt-dlp` to recover from YouTube changes
+/// without rebuilding the app. Falls back to the bundled binary
+/// shipped with the .app under `resources/bin/yt-dlp`.
+fn find_ytdlp(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(out) = Command::new("which").arg("yt-dlp").output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return Ok(PathBuf::from(p));
+            }
+        }
+    }
+    let resource = app
+        .path()
+        .resolve("resources/bin/yt-dlp", tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("resolve yt-dlp resource: {}", e))?;
+    if !resource.exists() {
+        return Err(format!(
+            "yt-dlp not found on PATH or at bundled resource: {}",
+            resource.display()
+        ));
+    }
+    Ok(resource)
+}
+
+fn unique_assets_path(dir: &Path, basename: &str) -> PathBuf {
+    let mut target = dir.join(basename);
+    if !target.exists() {
+        return target;
+    }
+    let stem = Path::new(basename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
+    let ext = Path::new(basename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mp4");
+    for n in 2..1000 {
+        target = dir.join(format!("{}-{}.{}", stem, n, ext));
+        if !target.exists() {
+            return target;
+        }
+    }
+    target
+}
+
+#[tauri::command]
+pub fn import_local_video(
+    source: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let src = PathBuf::from(&source);
+    if !src.exists() {
+        return Err(format!("source not found: {}", source));
+    }
+    let assets = assets_dir(&state)?;
+    let basename = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("video.mp4")
+        .to_string();
+    let dest = unique_assets_path(&assets, &basename);
+    fs::copy(&src, &dest).map_err(|e| format!("copy: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn import_local_image(
+    source: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let src = PathBuf::from(&source);
+    if !src.exists() {
+        return Err(format!("source not found: {}", source));
+    }
+    let assets = assets_dir(&state)?;
+    let basename = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image")
+        .to_string();
+    let dest = unique_assets_path(&assets, &basename);
+    fs::copy(&src, &dest).map_err(|e| format!("copy: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct YtProgress {
+    pub id: String,
+    pub line: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct YtDone {
+    pub id: String,
+    pub path: String,
+}
+
+/// Spawn yt-dlp asynchronously. Returns immediately with a job id; the
+/// caller listens to `video://yt-progress` / `video://yt-done` /
+/// `video://yt-error` for streaming output and completion.
+#[tauri::command]
+pub fn download_youtube(
+    url: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let assets = assets_dir(&state)?;
+    let ytdlp = find_ytdlp(&app)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let id_for_thread = id.clone();
+    let app_for_thread = app.clone();
+
+    // Use yt-dlp's --output template so we always know where the file
+    // lands. %(id)s = YouTube video id, %(ext)s = chosen extension.
+    let out_template = assets.join("yt-%(id)s.%(ext)s");
+
+    thread::spawn(move || {
+        let mut child = match Command::new(&ytdlp)
+            .arg("--no-playlist")
+            .arg("--restrict-filenames")
+            .arg("--merge-output-format=mp4")
+            // Permissive format selector: prefer the best video+audio
+            // combo ffmpeg can remux into mp4, but fall back through
+            // any single best format if that fails. Strict mp4-only
+            // selectors break on YouTube videos that ship in webm.
+            .arg("-f")
+            .arg("bv*+ba/b")
+            .arg("--print")
+            .arg("after_move:%(filepath)s")
+            .arg("-o")
+            .arg(out_template.to_string_lossy().to_string())
+            .arg(&url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://yt-error",
+                    YtProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("spawn failed: {}", e),
+                    },
+                );
+                return;
+            }
+        };
+
+        // Streaming stdout — last line is the resolved filepath thanks
+        // to --print after_move:%(filepath)s. We also relay every line
+        // back to the UI as progress so users see something happen.
+        let stdout = child.stdout.take().expect("piped");
+        let stderr = child.stderr.take().expect("piped");
+        let app_stdout = app_for_thread.clone();
+        let id_stdout = id_for_thread.clone();
+        let app_stderr = app_for_thread.clone();
+        let id_stderr = id_for_thread.clone();
+
+        // Track the last non-empty stdout line — that's the resolved
+        // filepath after merge. We can't trust the file existing at the
+        // template-derived path because yt-dlp may pick a different
+        // extension when merge fails.
+        let stdout_handle = thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            let mut last_path = String::new();
+            for line in reader.lines().map_while(Result::ok) {
+                let trimmed = line.trim().to_string();
+                if !trimmed.is_empty() {
+                    // Heuristic: yt-dlp's after_move print emits the
+                    // absolute path, no prefix. Anything starting with
+                    // a slash and ending in .mp4 is the answer.
+                    if trimmed.starts_with('/') && trimmed.ends_with(".mp4") {
+                        last_path = trimmed.clone();
+                    }
+                }
+                let _ = app_stdout.emit(
+                    "video://yt-progress",
+                    YtProgress {
+                        id: id_stdout.clone(),
+                        line,
+                    },
+                );
+            }
+            last_path
+        });
+        let stderr_handle = thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = app_stderr.emit(
+                    "video://yt-progress",
+                    YtProgress {
+                        id: id_stderr.clone(),
+                        line,
+                    },
+                );
+            }
+        });
+
+        let last_path = stdout_handle.join().unwrap_or_default();
+        let _ = stderr_handle.join();
+        let status = child.wait();
+
+        match status {
+            Ok(s) if s.success() => {
+                if last_path.is_empty() || !Path::new(&last_path).exists() {
+                    let _ = app_for_thread.emit(
+                        "video://yt-error",
+                        YtProgress {
+                            id: id_for_thread.clone(),
+                            line: "yt-dlp succeeded but final path is unknown"
+                                .into(),
+                        },
+                    );
+                    return;
+                }
+                let _ = app_for_thread.emit(
+                    "video://yt-done",
+                    YtDone {
+                        id: id_for_thread,
+                        path: last_path,
+                    },
+                );
+            }
+            Ok(s) => {
+                let _ = app_for_thread.emit(
+                    "video://yt-error",
+                    YtProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("yt-dlp exited {}", s),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://yt-error",
+                    YtProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("yt-dlp wait failed: {}", e),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(id)
+}
