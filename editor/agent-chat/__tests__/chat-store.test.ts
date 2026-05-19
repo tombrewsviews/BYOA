@@ -69,4 +69,19 @@ describe("ChatStore", () => {
     store.applyEvent({ kind: "turn-end", turnId: "t1", endedAt: 1 });
     expect(count).toBe(2);
   });
+
+  it("ignores duplicate turn-start with the same turnId", () => {
+    const store = createChatStore();
+    store.applyEvent({ kind: "turn-start", turnId: "t1", startedAt: 0 });
+    store.applyEvent({ kind: "message-delta", turnId: "t1", text: "first" });
+    // A duplicate turn-start should NOT create a second turn or
+    // overwrite the accumulated text.
+    store.applyEvent({ kind: "turn-start", turnId: "t1", startedAt: 5 });
+    store.applyEvent({ kind: "message-delta", turnId: "t1", text: " more" });
+    const s = store.getState();
+    expect(s.turns).toHaveLength(1);
+    expect(s.turns[0].assistantText).toBe("first more");
+    // Original startedAt preserved:
+    expect(s.turns[0].startedAt).toBe(0);
+  });
 });

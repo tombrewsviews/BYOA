@@ -65,6 +65,10 @@ export const createChatStore = (): ChatStore => {
     applyEvent: (e) => {
       switch (e.kind) {
         case "turn-start": {
+          // Defend against duplicate turn-start for the same turnId.
+          // A protocol bug or reconnect could re-emit; we treat the first
+          // as authoritative rather than orphaning the partial turn.
+          if (state.turns.some((t) => t.turnId === e.turnId)) break;
           state = {
             ...state,
             turns: [
@@ -149,7 +153,12 @@ export const createChatStore = (): ChatStore => {
         }
         case "error": {
           const t = currentTurn();
-          if (t && (!e.turnId || t.turnId === e.turnId)) {
+          // Error applies to the current turn IF the error is session-wide
+          // (no turnId) OR explicitly targets the current turn. Errors that
+          // target a past turn are silently ignored — by the time they
+          // arrive, that turn has already been finalized.
+          const matchesCurrent = !!t && (!e.turnId || t.turnId === e.turnId);
+          if (matchesCurrent) {
             const updated: TurnRecord = {
               ...t,
               status: e.recoverable ? t.status : "errored",
