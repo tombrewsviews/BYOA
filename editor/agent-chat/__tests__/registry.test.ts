@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { getAdapter } from "../adapters/registry";
 
 describe("adapter registry", () => {
-  it("returns null for unsupported agents in v1", () => {
+  it("returns non-null adapters for registered stubs", () => {
     expect(getAdapter("codex")).not.toBeNull();
     expect(getAdapter("gemini")).not.toBeNull();
     // claude adapter lands in Task 4 — until then, registry returns

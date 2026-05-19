@@ -8,5 +8,5 @@ const adapters: Partial<Record<AgentId, AgentAdapter>> = {
   // claude added in the next task
 };
 
-export const getAdapter = (id: string): AgentAdapter | null =>
-  adapters[id as AgentId] ?? null;
+export const getAdapter = (id: AgentId): AgentAdapter | null =>
+  adapters[id] ?? null;
