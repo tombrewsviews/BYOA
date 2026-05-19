@@ -8,6 +8,13 @@
  * `input` and `output` are `unknown` deliberately. The UI inspects
  * them for known shapes (e.g. file paths in Edit calls) but treats
  * unknown shapes as opaque JSON to render.
+ *
+ * Design notes:
+ *   - `tool-result` carries only `callId`, not `turnId`. The UI resolves
+ *     the parent turn through the matching tool-call's callId, keeping
+ *     result routing trivial and adapter-agnostic.
+ *   - `error.turnId` is optional: session-level errors (e.g. spawn failure
+ *     before any turn begins) have no turn to attach to.
  */
 export type ChatEvent =
   | { kind: "turn-start"; turnId: string; startedAt: number }
@@ -47,6 +54,14 @@ export type ChatEvent =
   | { kind: "turn-end"; turnId: string; endedAt: number };
 
 export type ChatEventKind = ChatEvent["kind"];
+
+export const isTurnStart = (
+  e: ChatEvent,
+): e is Extract<ChatEvent, { kind: "turn-start" }> => e.kind === "turn-start";
+
+export const isError = (
+  e: ChatEvent,
+): e is Extract<ChatEvent, { kind: "error" }> => e.kind === "error";
 
 export const isMessageDelta = (
   e: ChatEvent,
