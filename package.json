@@ -1,7 +1,27 @@
 {
-  "name": "remotion-tests",
-  "version": "1.0.0",
-  "description": "Testing interactive Remotion video generation with Claude",
+  "name": "kinetictype",
+  "version": "0.1.0",
+  "description": "Kinetic-typography video editor — the first reference app built on BYOA (Bring Your Own Agent). Tauri 2 + React 19 + Remotion.",
+  "license": "MIT",
+  "author": "Tom Brews Views",
+  "homepage": "https://github.com/tombrewsviews/BYOA",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tombrewsviews/BYOA.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tombrewsviews/BYOA/issues"
+  },
+  "keywords": [
+    "byoa",
+    "bring-your-own-agent",
+    "kinetic-typography",
+    "tauri",
+    "remotion",
+    "claude-code",
+    "agent-native",
+    "desktop-app"
+  ],
   "scripts": {
     "dev": "remotion studio",
     "studio": "remotion studio",
@@ -9,12 +29,14 @@
     "editor": "vite --config vite.editor.config.ts",
     "build:editor": "vite build --config vite.editor.config.ts",
     "kinetic": "tsx scripts/kinetic.ts",
+    "library:previews": "tsx scripts/library-previews.ts",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.3",
+    "@remotion/animation-utils": "^4.0.461",
     "@remotion/cli": "^4.0.461",
     "@remotion/google-fonts": "^4.0.461",
     "@remotion/player": "^4.0.461",
@@ -24,10 +46,13 @@
     "dotenv": "^17.4.2",
     "flubber": "^0.4.2",
     "opentype.js": "^2.0.0",
+    "paper": "^0.12.18",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "remotion": "^4.0.461",
+    "svg-path-properties": "^2.0.2",
     "xterm": "^5.3.0",
+    "xterm-addon-canvas": "^0.5.0",
     "xterm-addon-fit": "^0.8.0",
     "xterm-addon-web-links": "^0.9.0",
     "zod": "^4.3.6"

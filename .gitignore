@@ -1,6 +1,55 @@
+# Dependencies
 node_modules/
+
+# Build outputs
 out/
 dist/
-.DS_Store
+src-tauri/target/
+editor/dist/
+
+# Environment + secrets
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Claude Code local state (per-developer; NEVER commit — settings.local.json
+# can hold session cookies, custom permissions, and other private context)
+.claude/settings.local.json
+.claude/memory/
+.claude/hooks/
+
+# Editor + OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Benchmark / generated artifacts
 benchmark-result.json
+
+# Tauri / Rust local
+src-tauri/Cargo.lock.bak
+*.dSYM/
+
+# Renderer test output (mp4s under public/fonts/ etc. stay tracked)
+*.mp4
+!public/**/*.mp4
+!editor/library/previews/*.mp4
+
+# Per-project metadata (legacy directory name; still in use by KineticType)
+.kinetic-studio/
+
+# BYOA per-project (spec'd directory name; coexists with .kinetic-studio/)
+.byoa/
+
+# Reference material — local-only inspiration captures (large binaries)
+kinetic type/
+
+# Design mockup exports (large standalone HTMLs; check in selectively if needed)
+design/
+
+# Internal session handoffs (developer-only; go stale fast)
+docs/HANDOFF-*.md
