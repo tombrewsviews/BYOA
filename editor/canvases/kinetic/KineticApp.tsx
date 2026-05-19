@@ -33,7 +33,7 @@ import { perf, PerfOverlay } from "../../PerfOverlay";
 import { isTauri } from "../../runtime";
 import { beginColumnDrag, usePersistedColumnWidth } from "../../resize";
 import { ProjectsView, type ProjectMeta } from "./ProjectsView";
-import { useHistory } from "../../history";
+import { useHistory } from "./history";
 import { UndoMenu } from "../../UndoMenu";
 import { FirstRun } from "../../FirstRun";
 import { activeCanvas } from "../../canvas";
