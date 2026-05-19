@@ -21,6 +21,10 @@ import type { AgentAdapter, SpawnArgs } from "./types";
  *     Tauri backend; the adapter does not propagate it.
  */
 
+// TODO: when Claude's stream-json shape for permission_request and
+// permission_decision stabilizes, convert ClaudeStreamLine into a
+// discriminated union by `type` so permission-only fields aren't
+// ambient on every line variant.
 interface ClaudeStreamLine {
   type: string;
   subtype?: string;
@@ -139,18 +143,18 @@ const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
     return;
   }
 
-  if (evt.type === "permission_request" && evt.prompt_id && evt.tool) {
+  if (evt.type === "permission_request" && evt.prompt_id != null && evt.tool != null) {
     emit({
       kind: "permission-request",
       promptId: evt.prompt_id,
       tool: evt.tool,
       args: evt.args ?? {},
-      scope: evt.scope ?? "unknown",
+      scope: evt.scope ?? "unknown", // older Claude versions may omit scope
     });
     return;
   }
 
-  if (evt.type === "permission_decision" && evt.prompt_id && evt.decision) {
+  if (evt.type === "permission_decision" && evt.prompt_id != null && evt.decision != null) {
     emit({
       kind: "permission-decided",
       promptId: evt.prompt_id,

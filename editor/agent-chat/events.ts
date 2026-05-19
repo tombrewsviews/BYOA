@@ -81,6 +81,11 @@ export const isPermissionRequest = (
 ): e is Extract<ChatEvent, { kind: "permission-request" }> =>
   e.kind === "permission-request";
 
+export const isPermissionDecided = (
+  e: ChatEvent,
+): e is Extract<ChatEvent, { kind: "permission-decided" }> =>
+  e.kind === "permission-decided";
+
 export const isTurnEnd = (
   e: ChatEvent,
 ): e is Extract<ChatEvent, { kind: "turn-end" }> => e.kind === "turn-end";

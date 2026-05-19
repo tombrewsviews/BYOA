@@ -6,7 +6,12 @@ import {
   __resetClaudeAdapterStateForTesting,
 } from "../adapters/claude";
 import type { ChatEvent } from "../events";
-import { isToolCall, isToolResult } from "../events";
+import {
+  isToolCall,
+  isToolResult,
+  isPermissionRequest,
+  isPermissionDecided,
+} from "../events";
 
 beforeEach(() => {
   __resetClaudeAdapterStateForTesting();
@@ -84,17 +89,19 @@ describe("claudeAdapter.parseChunk — tool calls", () => {
 describe("claudeAdapter.parseChunk — permissions", () => {
   it("emits permission-request and permission-decided for allow flow", () => {
     const events = collect(fixture("claude-permission-allow.jsonl"));
-    const req = events.find((e) => e.kind === "permission-request");
+    const req = events.find(isPermissionRequest);
     expect(req).toBeDefined();
-    expect((req as { tool: string }).tool).toBe("Edit");
-    const decided = events.find((e) => e.kind === "permission-decided");
-    expect((decided as { decision: string }).decision).toBe("allow");
+    expect(req!.tool).toBe("Edit");
+    const decided = events.find(isPermissionDecided);
+    expect(decided).toBeDefined();
+    expect(decided!.decision).toBe("allow");
   });
 
   it("emits permission-decided=deny for deny flow", () => {
     const events = collect(fixture("claude-permission-deny.jsonl"));
-    const decided = events.find((e) => e.kind === "permission-decided");
-    expect((decided as { decision: string }).decision).toBe("deny");
+    const decided = events.find(isPermissionDecided);
+    expect(decided).toBeDefined();
+    expect(decided!.decision).toBe("deny");
   });
 });
 
