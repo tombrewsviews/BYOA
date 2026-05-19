@@ -23,6 +23,21 @@ import {
   EasingPicker,
   TextInput,
 } from "./controls";
+import { writeState } from "./state";
+
+/**
+ * Pillar 3 tracer toggle. When true, beat-color changes route
+ * through state.writeState (JSON Patch + content-addressed
+ * history). When false (default), the legacy full-doc save path
+ * runs unchanged.
+ *
+ * Toggle by setting localStorage.PILLAR3="1" in devtools (and
+ * reloading). Default off so the existing save path remains the
+ * kill switch until the tracer is manually verified.
+ */
+const PILLAR3_PATCH_MODE =
+  typeof window !== "undefined" &&
+  window.localStorage.getItem("PILLAR3") === "1";
 
 const KINDS = ["reveal", "morph", "generativeFill", "tile", "oscillate", "cinema", "shape", "videoClip", "imageClip"] as const;
 const DIRECTIONS = ["up", "down", "left", "right", "scale", "vertical-roll"] as const;
@@ -331,7 +346,7 @@ const BeatEditor: React.FC<{
   index: number;
   fallbackTextColor: string;
   onChange: (patch: Partial<Beat>) => void;
-}> = ({ beat, fallbackTextColor, onChange }) => {
+}> = ({ beat, index, fallbackTextColor, onChange }) => {
   if (!beat) {
     return (
       <div style={{ fontSize: 11, color: "#8b8b9a", padding: "10px 0" }}>
@@ -454,7 +469,21 @@ const BeatEditor: React.FC<{
       <Row label="color">
         <ColorControl
           value={beat.color ?? fallbackTextColor}
-          onChange={(v) => onChange({ color: v })}
+          onChange={(v) => {
+            if (PILLAR3_PATCH_MODE) {
+              void writeState(
+                [{ op: "replace", path: `/beats/${index}/color`, value: v }],
+                "user",
+              ).catch((e: unknown) => {
+                // Pillar 3 tracer failures are non-fatal in the spike —
+                // the legacy path stays the kill switch. Log so the user
+                // sees what broke in devtools.
+                console.error("[pillar3] apply_patch failed:", e);
+              });
+              return; // Don't run the legacy path; the watcher will pick up the new doc.
+            }
+            onChange({ color: v });
+          }}
         />
       </Row>
       {beat.kind === "morph" && (
