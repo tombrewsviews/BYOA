@@ -66,6 +66,12 @@ pub fn load_doc(state: State<'_, AppState>) -> Result<String, String> {
 /// `author` is recorded in the history log; the spec convention is
 /// `"user"` for UI-triggered patches, `"agent"` for agent-driven
 /// patches, or the verb name when verbs land.
+///
+/// **Failure ordering note:** the on-disk doc is updated (via tmp +
+/// rename) before the history entry is appended. If history append
+/// fails after the rename succeeds, the doc is current but the log
+/// lacks an entry. For the spike this is acceptable (local-fs append
+/// rarely fails); a production version should make the two atomic.
 #[tauri::command]
 pub fn apply_patch(
     patch_json: String,
@@ -149,5 +155,10 @@ mod tests {
 
         let result = apply_json_patch(&mut doc, &patch);
         assert!(result.is_err(), "invalid path must error");
+        assert_eq!(
+            doc,
+            json!({ "bgColor": "#000000" }),
+            "failed patch must not mutate doc"
+        );
     }
 }
