@@ -39,6 +39,7 @@ import { FirstRun } from "../../FirstRun";
 import { activeCanvas } from "../../canvas";
 import type { Story } from "../../../src/kinetic/schema";
 import type { Selection } from "../../selection";
+import { color, focusRing, font, secondaryBtn, tabBtn } from "../../platform/theme";
 
 const FPS = 30;
 
@@ -50,25 +51,6 @@ const fill: React.CSSProperties = {
   height: "100%",
   margin: 0,
 };
-
-const TopBarBtn: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({
-  style,
-  ...rest
-}) => (
-  <button
-    {...rest}
-    style={{
-      background: "transparent",
-      border: "1px solid #2e2e3c",
-      borderRadius: 4,
-      color: "#e4e4ee",
-      fontSize: 11,
-      padding: "3px 8px",
-      cursor: "pointer",
-      ...style,
-    }}
-  />
-);
 
 const EditorView: React.FC<{
   project: ProjectMeta;
@@ -446,10 +428,10 @@ const EditorView: React.FC<{
   );
 
   if (!doc && error) {
-    return <div style={{ ...fill, color: "#ff8b8b", padding: 40 }}>{error}</div>;
+    return <div style={{ ...fill, color: color.danger.text, padding: 40 }}>{error}</div>;
   }
   if (!doc) {
-    return <div style={{ ...fill, color: "#6b6b80", padding: 40 }}>Loading…</div>;
+    return <div style={{ ...fill, color: color.text.dim, padding: 40 }}>Loading…</div>;
   }
 
   const LeftPrelude = canvas.LeftColumnPrelude;
@@ -466,16 +448,17 @@ const EditorView: React.FC<{
             alignItems: "center",
             gap: 8,
             padding: "6px 12px",
-            background: "#0a0a10",
-            borderBottom: "1px solid #232330",
-            fontSize: 12,
-            color: "#8b8b9a",
+            background: color.bg.surface,
+            borderBottom: `1px solid ${color.border.line}`,
+            fontSize: font.size.md,
+            color: color.text.muted,
+            fontFamily: font.family,
             flex: "0 0 auto",
           }}
         >
-          <TopBarBtn onClick={onCloseProject}>← Projects</TopBarBtn>
+          <button onClick={onCloseProject} style={secondaryBtn()}>← Projects</button>
           <UndoMenu history={history} />
-          <span style={{ color: "#e4e4ee", fontWeight: 600 }}>{project.name}</span>
+          <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
           <span
             style={{
               marginLeft: "auto",
@@ -494,10 +477,10 @@ const EditorView: React.FC<{
               alignItems: "flex-start",
               gap: 8,
               padding: "8px 12px",
-              background: "#3a1414",
-              borderBottom: "1px solid #5a2020",
-              color: "#ffb4b4",
-              fontSize: 11,
+              background: color.danger.bg,
+              borderBottom: `1px solid ${color.danger.border}`,
+              color: color.danger.text,
+              fontSize: font.size.sm,
               lineHeight: 1.4,
               flex: "0 0 auto",
             }}
@@ -509,7 +492,7 @@ const EditorView: React.FC<{
               style={{
                 background: "transparent",
                 border: 0,
-                color: "#ffb4b4",
+                color: color.danger.text,
                 cursor: "pointer",
                 fontSize: 14,
                 lineHeight: 1,
@@ -528,24 +511,24 @@ const EditorView: React.FC<{
             gridTemplateRows: "1fr auto",
             flex: 1,
             minHeight: 0,
-            background: "#08080c",
-            color: "#e4e4ee",
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            background: color.bg.canvas,
+            color: color.text.secondary,
+            fontFamily: font.family,
           }}
         >
           <div
             style={{
               gridColumn: "1",
               gridRow: "1 / span 2",
-              background: "#0a0a10",
-              borderRight: "1px solid #232330",
+              background: color.bg.surface,
+              borderRight: `1px solid ${color.border.line}`,
               overflow: "hidden",
               position: "relative",
               display: "flex",
               flexDirection: "column",
               boxShadow:
                 focusedZone === "terminal"
-                  ? "inset 0 0 0 2px #7c5cff"
+                  ? focusRing
                   : "none",
               transition: "box-shadow 120ms ease",
             }}
@@ -578,8 +561,8 @@ const EditorView: React.FC<{
                   display: "flex",
                   gap: 2,
                   padding: "4px 4px 0",
-                  borderBottom: "1px solid #232330",
-                  background: "#08080c",
+                  borderBottom: `1px solid ${color.border.line}`,
+                  background: color.bg.canvas,
                   flex: "0 0 auto",
                 }}
               >
@@ -588,24 +571,7 @@ const EditorView: React.FC<{
                     key={t}
                     onClick={() => setLeftTab(t)}
                     title={t === "terminal" ? "Focus from anywhere: Option+C" : undefined}
-                    style={{
-                      flex: 1,
-                      padding: "6px 8px",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      background: leftTab === t ? "#0a0a10" : "transparent",
-                      border: "1px solid",
-                      borderColor: leftTab === t ? "#232330" : "transparent",
-                      borderBottomColor: leftTab === t ? "#0a0a10" : "transparent",
-                      borderRadius: "6px 6px 0 0",
-                      color: leftTab === t ? "#fafafa" : "#6b6b80",
-                      cursor: "pointer",
-                      textTransform: "capitalize",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                    }}
+                    style={tabBtn(leftTab === t)}
                   >
                     {t === "secondary" ? (
                       SecondaryTab.label
@@ -617,9 +583,8 @@ const EditorView: React.FC<{
                             fontSize: 9,
                             fontWeight: 600,
                             letterSpacing: 0.3,
-                            color: leftTab === "terminal" ? "#8b8b9a" : "#4b4b5a",
-                            border: "1px solid",
-                            borderColor: leftTab === "terminal" ? "#2e2e3c" : "#1a1a24",
+                            color: leftTab === "terminal" ? color.text.muted : color.text.faint,
+                            border: `1px solid ${leftTab === "terminal" ? color.border.strong : color.border.faint}`,
                             borderRadius: 3,
                             padding: "1px 4px",
                             textTransform: "none",
@@ -680,7 +645,7 @@ const EditorView: React.FC<{
                 <RendererOverlay doc={doc} projectPath={project.path} />
               )}
             </div>
-            <div style={{ fontSize: 11, color: "#4b4b5a" }}>
+            <div style={{ fontSize: 11, color: color.text.faint }}>
               {doc.beats.length} beats · {(durationInFrames / FPS).toFixed(1)}s · 1080×1920
             </div>
             <Transport playerRef={playerRef} loop={loop} onLoopChange={onLoopChange} />
@@ -694,7 +659,7 @@ const EditorView: React.FC<{
               minWidth: 0,
               boxShadow:
                 focusedZone === "timeline"
-                  ? "inset 0 0 0 2px #7c5cff"
+                  ? focusRing
                   : "none",
               transition: "box-shadow 120ms ease",
             }}
@@ -721,7 +686,7 @@ const EditorView: React.FC<{
               position: "relative",
               boxShadow:
                 focusedZone === "panel"
-                  ? "inset 0 0 0 2px #7c5cff"
+                  ? focusRing
                   : "none",
               transition: "box-shadow 120ms ease",
             }}
@@ -868,7 +833,7 @@ export const KineticApp: React.FC<{ onExit: () => void }> = () => {
   }
 
   if (onboarded === null) {
-    return <div style={{ ...fill, color: "#6b6b80", padding: 40 }}>Loading…</div>;
+    return <div style={{ ...fill, color: color.text.dim, padding: 40 }}>Loading…</div>;
   }
 
   if (!onboarded) {
