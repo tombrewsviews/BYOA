@@ -8,6 +8,10 @@ interface Props {
   onDecide: (promptId: string, decision: Decision) => void;
 }
 
+// v1 coverage: handles Write/Edit (file_path), Bash (command), WebFetch
+// (url). Tools with other arg shapes (Glob, Grep, TodoWrite…) fall back
+// to the tool name, which is acceptable for v1 but a latent UX gap to
+// improve later.
 const summarize = (tool: string, args: unknown): string => {
   if (args && typeof args === "object") {
     const a = args as Record<string, unknown>;
@@ -37,7 +41,7 @@ export const PermissionDialog: React.FC<Props> = ({ pending, onDecide }) => {
         position: "absolute",
         left: 16,
         right: 16,
-        bottom: 80,
+        bottom: 80, // assumes parent is position:relative with ≥80px composer below
         background: "#15151c",
         border: "1px solid #2a2a36",
         borderRadius: 10,

@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PermissionDialog } from "../PermissionDialog";
@@ -12,8 +13,8 @@ describe("PermissionDialog", () => {
 
   it("renders tool name and args summary", () => {
     render(<PermissionDialog pending={pending} onDecide={() => {}} />);
-    expect(screen.getByText(/Edit/)).toBeTruthy();
-    expect(screen.getByText(/story\.json/)).toBeTruthy();
+    expect(screen.getByText(/Edit/)).toBeInTheDocument();
+    expect(screen.getByText(/story\.json/)).toBeInTheDocument();
   });
 
   it("calls onDecide('allow') when Allow once is clicked", () => {
