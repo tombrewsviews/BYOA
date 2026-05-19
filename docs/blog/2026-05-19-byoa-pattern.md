@@ -340,7 +340,7 @@ Concretely, the help that would move BYOA forward the fastest:
 
 The full repo (KineticType plus the BYOA spec, plan, and validation
 docs) is open source at
-[github.com/parandykt/KineticType](https://github.com/parandykt/KineticType).
+[github.com/tombrewsviews/BYOA](https://github.com/tombrewsviews/BYOA).
 Issues and PRs welcome. The spec is the contract; the audit is the
 map; the rest is execution.
 
