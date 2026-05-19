@@ -8,6 +8,7 @@
  */
 import React from "react";
 import { resolveEasing, type EasingName } from "../src/typography/easings";
+import { color } from "./platform/theme";
 
 // --- shared row scaffold ----------------------------------------------------
 
@@ -27,7 +28,7 @@ export const Row: React.FC<{ label: string; children: React.ReactNode }> = ({
       style={{
         width: 78,
         fontSize: 11,
-        color: "#8b8b9a",
+        color: color.text.muted,
         flexShrink: 0,
         textTransform: "lowercase",
       }}
@@ -56,10 +57,10 @@ export const TextInput: React.FC<{
     onChange={(e) => onChange(e.target.value)}
     style={{
       width: "100%",
-      background: "#08080c",
-      border: "1px solid #232330",
+      background: color.bg.canvas,
+      border: `1px solid ${color.border.line}`,
       borderRadius: 4,
-      color: "#fafafa",
+      color: color.text.primary,
       fontSize: 12,
       padding: "5px 8px",
       fontFamily: "inherit",
@@ -85,7 +86,7 @@ export const Slider: React.FC<{
       step={step}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
-      style={{ flex: 1, accentColor: "#7c5cff", height: 4 }}
+      style={{ flex: 1, accentColor: color.text.primary, height: 4 }}
     />
     <input
       type="number"
@@ -96,10 +97,10 @@ export const Slider: React.FC<{
       onChange={(e) => onChange(Number(e.target.value))}
       style={{
         width: 52,
-        background: "#1c1c26",
-        border: "1px solid #2e2e3c",
+        background: color.bg.selected,
+        border: `1px solid ${color.border.strong}`,
         borderRadius: 5,
-        color: "#e4e4ee",
+        color: color.text.secondary,
         fontSize: 11,
         padding: "3px 5px",
         textAlign: "right",
@@ -120,10 +121,10 @@ export const Dropdown: React.FC<{
     onChange={(e) => onChange(e.target.value)}
     style={{
       flex: 1,
-      background: "#1c1c26",
-      border: "1px solid #2e2e3c",
+      background: color.bg.selected,
+      border: `1px solid ${color.border.strong}`,
       borderRadius: 5,
-      color: "#e4e4ee",
+      color: color.text.secondary,
       fontSize: 11,
       padding: "4px 6px",
     }}
@@ -152,7 +153,7 @@ export const ColorControl: React.FC<{
         style={{
           width: 22,
           height: 22,
-          border: "1px solid #2e2e3c",
+          border: `1px solid ${color.border.strong}`,
           borderRadius: 4,
           padding: 0,
           background: "transparent",
@@ -165,10 +166,10 @@ export const ColorControl: React.FC<{
         spellCheck={false}
         style={{
           flex: 1,
-          background: "#1c1c26",
-          border: "1px solid #2e2e3c",
+          background: color.bg.selected,
+          border: `1px solid ${color.border.strong}`,
           borderRadius: 5,
-          color: "#e4e4ee",
+          color: color.text.secondary,
           fontSize: 11,
           padding: "3px 6px",
           fontFamily: "ui-monospace, Menlo, monospace",
@@ -202,8 +203,8 @@ const CurveThumb: React.FC<{
       onClick={onSelect}
       title={easing}
       style={{
-        background: selected ? "#241f3d" : "#1c1c26",
-        border: `1px solid ${selected ? "#7c5cff" : "#2e2e3c"}`,
+        background: selected ? color.bg.selected : color.bg.selected,
+        border: `1px solid ${selected ? color.border.strong : color.border.strong}`,
         borderRadius: 6,
         padding: 4,
         cursor: "pointer",
@@ -220,19 +221,19 @@ const CurveThumb: React.FC<{
           y1={CURVE_SIZE}
           x2={CURVE_SIZE}
           y2={0}
-          stroke="#2e2e3c"
+          stroke={color.border.strong}
           strokeWidth={1}
         />
         <polyline
           points={pts.join(" ")}
           fill="none"
-          stroke={selected ? "#9d83ff" : "#6b6b80"}
+          stroke={selected ? color.text.primary : color.text.dim}
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
       </svg>
-      <span style={{ fontSize: 9, color: selected ? "#9d83ff" : "#8b8b9a" }}>
+      <span style={{ fontSize: 9, color: selected ? color.text.primary : color.text.muted }}>
         {easing.replace("power", "p")}
       </span>
     </button>

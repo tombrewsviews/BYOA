@@ -14,6 +14,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { isTauri } from "./runtime";
+import { color, secondaryBtn } from "./platform/theme";
 
 export type PromptMode = "replace" | "append" | "insert";
 const MODES: PromptMode[] = ["replace", "append", "insert"];
@@ -69,10 +70,10 @@ export const PromptModeBar: React.FC = () => {
         alignItems: "center",
         gap: 6,
         padding: "4px 6px",
-        background: "#08080c",
-        borderBottom: "1px solid #232330",
+        background: color.bg.canvas,
+        borderBottom: `1px solid ${color.border.line}`,
         fontSize: 10,
-        color: "#6b6b80",
+        color: color.text.dim,
         flex: "0 0 auto",
       }}
       title="How agent prompts modify the story. Default: append at end."
@@ -86,14 +87,9 @@ export const PromptModeBar: React.FC = () => {
           onClick={() => void choose(m)}
           aria-pressed={mode === m}
           style={{
+            ...secondaryBtn({ active: mode === m }),
             padding: "2px 8px",
             fontSize: 10,
-            borderRadius: 4,
-            border: "1px solid",
-            borderColor: mode === m ? "#7c5cff" : "#2e2e3c",
-            background: mode === m ? "#7c5cff" : "transparent",
-            color: mode === m ? "white" : "#8b8b9a",
-            cursor: "pointer",
           }}
         >
           {LABELS[m]}

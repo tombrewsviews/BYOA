@@ -19,6 +19,7 @@ import React, { useState } from "react";
 import { isTauri } from "./runtime";
 import { getActivePtyId } from "./terminal";
 import type { Story } from "../src/kinetic/schema";
+import { color, primaryBtn, ghostBtn } from "./platform/theme";
 
 const HEADLINE_PROMPT =
   "Animate the words 'launch your idea' as a 3-beat sequence — each word lands vertically with a small overshoot, holds readable for a beat, then exits rotating gently.";
@@ -98,11 +99,11 @@ export const StarterCard: React.FC<{
         style={{
           pointerEvents: "auto",
           background: "rgba(20, 20, 28, 0.92)",
-          border: "1px solid #2e2e3c",
+          border: `1px solid ${color.border.strong}`,
           borderRadius: 12,
           padding: 18,
           maxWidth: 380,
-          color: "#fafafa",
+          color: color.text.primary,
           boxShadow: "0 16px 64px rgba(0,0,0,0.6)",
           backdropFilter: "blur(8px)",
           display: "flex",
@@ -117,10 +118,7 @@ export const StarterCard: React.FC<{
           <button
             onClick={dismiss}
             style={{
-              background: "transparent",
-              border: 0,
-              color: "#6b6b80",
-              cursor: "pointer",
+              ...ghostBtn(),
               fontSize: 16,
               lineHeight: 1,
               padding: 0,
@@ -131,18 +129,18 @@ export const StarterCard: React.FC<{
             ×
           </button>
         </div>
-        <div style={{ fontSize: 11, color: "#8b8b9a", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
           Send a prompt to the agent in the terminal and it will write the
           story. Try this:
         </div>
         <div
           style={{
-            background: "#08080c",
-            border: "1px solid #232330",
+            background: color.bg.canvas,
+            border: `1px solid ${color.border.line}`,
             borderRadius: 6,
             padding: 10,
             fontSize: 11,
-            color: "#e4e4ee",
+            color: color.text.secondary,
             fontFamily: "ui-monospace, SFMono-Regular, monospace",
             lineHeight: 1.5,
           }}
@@ -152,19 +150,12 @@ export const StarterCard: React.FC<{
         <button
           onClick={() => void copyPrompt(HEADLINE_PROMPT)}
           style={{
-            background: "#7c5cff",
-            border: 0,
-            borderRadius: 6,
-            color: "white",
-            fontSize: 12,
-            fontWeight: 600,
-            padding: "8px 10px",
-            cursor: "pointer",
+            ...primaryBtn({ size: "sm" }),
           }}
         >
           Copy prompt
         </button>
-        <div style={{ fontSize: 10, color: "#6b6b80", marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: color.text.dim, marginTop: 4 }}>
           Other ideas:
         </div>
         {ALT_PROMPTS.map((p, i) => (
@@ -174,9 +165,9 @@ export const StarterCard: React.FC<{
             style={{
               textAlign: "left",
               background: "transparent",
-              border: "1px solid #2e2e3c",
+              border: `1px solid ${color.border.strong}`,
               borderRadius: 6,
-              color: "#8b8b9a",
+              color: color.text.muted,
               fontSize: 11,
               padding: "8px 10px",
               cursor: "pointer",
@@ -186,7 +177,7 @@ export const StarterCard: React.FC<{
             {p}
           </button>
         ))}
-        <div style={{ fontSize: 10, color: "#4b4b5a", marginTop: 6 }}>
+        <div style={{ fontSize: 10, color: color.text.faint, marginTop: 6 }}>
           Or browse the prompt library tab (left panel) for techniques with
           live previews.
         </div>
@@ -198,9 +189,9 @@ export const StarterCard: React.FC<{
             bottom: 24,
             left: "50%",
             transform: "translateX(-50%)",
-            background: "#1c1c26",
-            border: "1px solid #2e2e3c",
-            color: "#fafafa",
+            background: color.bg.selected,
+            border: `1px solid ${color.border.strong}`,
+            color: color.text.primary,
             fontSize: 11,
             padding: "6px 12px",
             borderRadius: 6,

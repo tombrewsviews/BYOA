@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { color, primaryBtn } from "./platform/theme";
 
 type EBState = { err: Error | null; info: string | null };
 
@@ -23,8 +24,8 @@ class RootErrorBoundary extends React.Component<
         style={{
           width: "100vw",
           height: "100vh",
-          background: "#08080c",
-          color: "#ffb4b4",
+          background: color.bg.canvas,
+          color: color.danger.text,
           padding: 24,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
           fontSize: 12,
@@ -36,13 +37,13 @@ class RootErrorBoundary extends React.Component<
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>
           Editor crashed
         </div>
-        <div style={{ color: "#ff8b8b", marginBottom: 12 }}>
+        <div style={{ color: color.danger.text, marginBottom: 12 }}>
           {this.state.err.message}
         </div>
         <pre
           style={{
             whiteSpace: "pre-wrap",
-            color: "#8b8b9a",
+            color: color.text.muted,
             fontSize: 11,
             margin: 0,
           }}
@@ -53,7 +54,7 @@ class RootErrorBoundary extends React.Component<
           <pre
             style={{
               whiteSpace: "pre-wrap",
-              color: "#6b6b80",
+              color: color.text.dim,
               fontSize: 10,
               marginTop: 12,
             }}
@@ -65,14 +66,7 @@ class RootErrorBoundary extends React.Component<
           onClick={() => this.setState({ err: null, info: null })}
           style={{
             marginTop: 16,
-            background: "#7c5cff",
-            border: 0,
-            borderRadius: 6,
-            color: "white",
-            fontSize: 12,
-            fontWeight: 600,
-            padding: "8px 14px",
-            cursor: "pointer",
+            ...primaryBtn({ size: "sm" }),
           }}
         >
           Reset

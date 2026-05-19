@@ -12,6 +12,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { isTauri } from "./runtime";
+import { color, primaryBtn, secondaryBtn } from "./platform/theme";
 
 type Props = {
   onImported: (absolutePath: string) => void;
@@ -186,9 +187,9 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
           padding: "4px 12px",
           fontSize: 11,
           borderRadius: 4,
-          border: "1px dashed #3a3a4c",
+          border: `1px dashed ${color.border.hover}`,
           background: "transparent",
-          color: "#8b8b9a",
+          color: color.text.muted,
           cursor: "pointer",
         }}
       >
@@ -201,14 +202,14 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
             bottom: "100%",
             left: 0,
             marginBottom: 6,
-            background: "#0a0a10",
-            border: "1px solid #2e2e3c",
+            background: color.bg.surface,
+            border: `1px solid ${color.border.strong}`,
             borderRadius: 6,
             padding: 12,
             minWidth: 280,
             zIndex: 100,
             boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-            color: "#e4e4ee",
+            color: color.text.secondary,
             fontSize: 11,
             display: "flex",
             flexDirection: "column",
@@ -236,7 +237,7 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
           )}
           {mode === "youtube" && (
             <>
-              <div style={{ fontWeight: 600, color: "#fafafa" }}>
+              <div style={{ fontWeight: 600, color: color.text.primary }}>
                 Paste a YouTube URL
               </div>
               <input
@@ -248,10 +249,10 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                   if (e.key === "Enter" && !busy) void startYoutube();
                 }}
                 style={{
-                  background: "#1c1c26",
-                  border: "1px solid #2e2e3c",
+                  background: color.bg.selected,
+                  border: `1px solid ${color.border.strong}`,
                   borderRadius: 5,
-                  color: "#e4e4ee",
+                  color: color.text.secondary,
                   fontSize: 11,
                   padding: "5px 8px",
                   outline: "none",
@@ -263,14 +264,7 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                   disabled={busy}
                   style={{
                     flex: 1,
-                    background: busy ? "#232330" : "#7c5cff",
-                    color: busy ? "#6b6b80" : "white",
-                    border: 0,
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: "5px 8px",
-                    cursor: busy ? "default" : "pointer",
+                    ...primaryBtn({ size: "sm", disabled: busy }),
                   }}
                 >
                   {busy ? "Downloading…" : "Download"}
@@ -284,13 +278,7 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                   }}
                   disabled={busy}
                   style={{
-                    background: "transparent",
-                    border: "1px solid #2e2e3c",
-                    color: "#8b8b9a",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    padding: "5px 8px",
-                    cursor: busy ? "default" : "pointer",
+                    ...secondaryBtn({ disabled: busy }),
                   }}
                 >
                   Back
@@ -305,7 +293,7 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                       justifyContent: "space-between",
                       alignItems: "center",
                       fontSize: 10,
-                      color: "#8b8b9a",
+                      color: color.text.muted,
                     }}
                   >
                     <span style={{ textTransform: "capitalize" }}>
@@ -320,7 +308,7 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                   <div
                     style={{
                       height: 4,
-                      background: "#1c1c26",
+                      background: color.bg.selected,
                       borderRadius: 2,
                       overflow: "hidden",
                     }}
@@ -329,7 +317,7 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                       style={{
                         height: "100%",
                         width: percent >= 0 ? `${percent}%` : "30%",
-                        background: "#7c5cff",
+                        background: color.text.primary,
                         transition:
                           percent >= 0
                             ? "width 200ms ease-out"
@@ -347,14 +335,14 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
                   {logLines.length > 0 && (
                     <div
                       style={{
-                        color: "#6b6b80",
+                        color: color.text.dim,
                         fontFamily: "ui-monospace, monospace",
                         fontSize: 9.5,
                         lineHeight: 1.4,
                         maxHeight: 90,
                         overflow: "auto",
-                        background: "#08080c",
-                        border: "1px solid #1c1c26",
+                        background: color.bg.canvas,
+                        border: `1px solid ${color.bg.selected}`,
                         borderRadius: 4,
                         padding: 6,
                       }}
