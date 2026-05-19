@@ -199,7 +199,7 @@ const spawnArgs = (opts: {
 }): SpawnArgs => {
   const args = ["--output-format", "stream-json", "--verbose"];
   if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
-  return { cmd: "claude", args, env: {} };
+  return { cmd: "claude", args, env: {}, cwd: opts.cwd };
 };
 
 const encodeUserInput = (text: string, attachments: string[]): Uint8Array => {

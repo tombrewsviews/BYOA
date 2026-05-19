@@ -685,25 +685,23 @@ const EditorView: React.FC<{
               >
                 <Terminal />
               </div>
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display:
-                    (leftTab === "terminal" || !SecondaryTab) &&
-                    viewMode === "chat"
-                      ? "block"
-                      : "none",
-                }}
-              >
-                <Chat
-                  agentId="claude"
-                  agentLabel="Claude Code"
-                  cwd={project.path}
-                  skipPermissions={false}
-                  onSwitchToTerminal={() => persistViewMode("terminal")}
-                />
-              </div>
+              {(leftTab === "terminal" || !SecondaryTab) &&
+              viewMode === "chat" ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                  }}
+                >
+                  <Chat
+                    agentId="claude"
+                    agentLabel="Claude Code"
+                    cwd={project.path}
+                    skipPermissions={false}
+                    onSwitchToTerminal={() => persistViewMode("terminal")}
+                  />
+                </div>
+              ) : null}
               {SecondaryTab && leftTab === "secondary" && (
                 <div style={{ position: "absolute", inset: 0 }}>
                   <SecondaryTab.Component />

@@ -6,6 +6,7 @@ export interface SpawnArgs {
   cmd: string;
   args: string[];
   env: Record<string, string>;
+  cwd: string;
 }
 
 export interface AgentAdapter {

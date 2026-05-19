@@ -44,17 +44,17 @@ export const Chat: React.FC<Props> = ({
   );
   const storeRef = useRef(createChatStore());
   const store = storeRef.current;
+  const userClosedRef = useRef(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [userBubbles, setUserBubbles] = useState<{ id: number; text: string }[]>(
     [],
   );
-  const [running, setRunning] = useState(false);
-
   const state = useSyncExternalStore(
     store.subscribe,
     () => store.getState(),
     () => store.getState(),
   );
+  const running = state.turns.at(-1)?.status === "streaming";
 
   // Mount: spawn agent.
   useEffect(() => {
@@ -69,7 +69,7 @@ export const Chat: React.FC<Props> = ({
     void (async () => {
       try {
         const id = await invoke<string>("agent_chat_open", {
-          spawn: { ...spawn, cwd },
+          spawn,
         });
         if (aborted) {
           void invoke("agent_chat_close", { id });
@@ -93,6 +93,7 @@ export const Chat: React.FC<Props> = ({
             });
           }),
           listen<null>(`agent-chat://${id}/closed`, () => {
+            if (userClosedRef.current) return; // user-initiated; expected.
             store.applyEvent({
               kind: "error",
               message: "agent process exited",
@@ -117,12 +118,6 @@ export const Chat: React.FC<Props> = ({
       if (openedId) void invoke("agent_chat_close", { id: openedId });
     };
   }, [adapter, spawn, store]);
-
-  // Track running state based on turn status.
-  useEffect(() => {
-    const last = state.turns[state.turns.length - 1];
-    setRunning(!!last && last.status === "streaming");
-  }, [state.turns]);
 
   const send = useCallback(
     (text: string, attachments: string[]) => {
@@ -160,6 +155,7 @@ export const Chat: React.FC<Props> = ({
 
   const endSession = useCallback(() => {
     if (!sessionId) return;
+    userClosedRef.current = true;
     void invoke("agent_chat_close", { id: sessionId });
     setSessionId(null);
   }, [sessionId]);
@@ -206,7 +202,7 @@ export const Chat: React.FC<Props> = ({
       <SessionToolbar
         agentLabel={agentLabel}
         cwd={cwd}
-        sessionAlive={state.sessionAlive}
+        sessionAlive={state.sessionAlive && sessionId !== null}
         onSwitchToTerminal={onSwitchToTerminal}
         onEndSession={endSession}
       />
