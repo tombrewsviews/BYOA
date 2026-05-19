@@ -62,3 +62,19 @@ describe("claudeAdapter.parseChunk — prose", () => {
     expect(events.some((e) => e.kind === "turn-end")).toBe(true);
   });
 });
+
+describe("claudeAdapter.parseChunk — tool calls", () => {
+  it("emits tool-call with name + input, then tool-result", () => {
+    const events = collect(fixture("claude-tool-call.jsonl"));
+    const call = events.find((e) => e.kind === "tool-call");
+    expect(call).toBeDefined();
+    expect((call as { name: string }).name).toBe("Read");
+    expect((call as { input: { file_path: string } }).input.file_path).toBe(
+      "/x/story.json",
+    );
+
+    const result = events.find((e) => e.kind === "tool-result");
+    expect(result).toBeDefined();
+    expect((result as { ok: boolean }).ok).toBe(true);
+  });
+});
