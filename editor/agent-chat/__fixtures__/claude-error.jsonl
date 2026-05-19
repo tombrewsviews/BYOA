@@ -1,5 +1,5 @@
 {"type":"system","subtype":"init","session_id":"sess-5"}
 {"type":"assistant","message":{"id":"msg_5","role":"assistant","content":[{"type":"text","text":"trying"}]}}
 not valid json at all
-{"type":"assistant","message":{"id":"msg_5","role":"assistant","content":[{"type":"text","text":"trying again"}]}}
+{"type":"assistant","message":{"id":"msg_5b","role":"assistant","content":[{"type":"text","text":"trying again"}]}}
 {"type":"result","subtype":"success","session_id":"sess-5","is_error":false}

@@ -130,9 +130,15 @@ describe("claudeAdapter.parseChunk — error recovery", () => {
     const err = events.find(isError);
     expect(err).toBeDefined();
     expect(err!.recoverable).toBe(true);
-    // The line after the bad one still produces a message-delta:
+
+    // The bad line sits between two valid assistant lines with DIFFERENT
+    // message ids, so each produces its own complete delta. Verify the
+    // line AFTER the bad one is parsed (proves recovery, not just
+    // first-line success).
     const deltas = events.filter(isMessageDelta);
-    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.length).toBe(2);
+    expect(deltas[0].text).toBe("trying");
+    expect(deltas[1].text).toBe("trying again");
   });
 });
 
@@ -143,5 +149,6 @@ describe("claudeAdapter.parseChunk — multi-turn", () => {
     const ends = events.filter(isTurnEnd);
     expect(starts.length).toBe(2);
     expect(ends.length).toBe(2);
+    expect(starts[0].turnId).not.toBe(starts[1].turnId);
   });
 });
