@@ -28,6 +28,7 @@ import React, {
 import { type PlayerRef } from "@remotion/player";
 import { Transport } from "../../player";
 import { Terminal, focusActiveTerminal, getActivePtyId } from "../../terminal";
+import { Chat } from "../../agent-chat/Chat";
 import { ShellActionsContext, type ShellActions } from "../../shell";
 import { perf, PerfOverlay } from "../../PerfOverlay";
 import { isTauri } from "../../runtime";
@@ -63,6 +64,37 @@ const EditorView: React.FC<{
   const playerRef = useRef<PlayerRef>(null);
   const [selection, setSelection] = useState<Selection>({ kind: "story" });
   const [leftTab, setLeftTab] = useState<"terminal" | "secondary">("terminal");
+
+  const [viewMode, setViewMode] = useState<"terminal" | "chat">("terminal");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const m = await invoke<string>("get_view_mode", {
+          projectPath: project.path,
+        });
+        if (m === "chat") setViewMode("chat");
+      } catch {
+        /* ignore — default to terminal */
+      }
+    })();
+  }, [project.path]);
+
+  const persistViewMode = useCallback(
+    (m: "terminal" | "chat") => {
+      setViewMode(m);
+      void (async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("set_view_mode", { projectPath: project.path, mode: m });
+        } catch {
+          /* ignore */
+        }
+      })();
+    },
+    [project.path],
+  );
 
   const loopKey = `studio.loop.${project.path}`;
   const [loop, setLoop] = useState<boolean>(() => {
@@ -602,11 +634,75 @@ const EditorView: React.FC<{
               <div
                 style={{
                   position: "absolute",
+                  top: 4,
+                  right: 8,
+                  zIndex: 10,
+                  display: "flex",
+                  gap: 4,
+                }}
+              >
+                <button
+                  onClick={() => persistViewMode("terminal")}
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    border: "1px solid #2a2a36",
+                    background:
+                      viewMode === "terminal" ? "#2a2a36" : "transparent",
+                    color: "#e4e4ee",
+                    cursor: "pointer",
+                  }}
+                >
+                  Terminal
+                </button>
+                <button
+                  onClick={() => persistViewMode("chat")}
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    border: "1px solid #2a2a36",
+                    background:
+                      viewMode === "chat" ? "#2a2a36" : "transparent",
+                    color: "#e4e4ee",
+                    cursor: "pointer",
+                  }}
+                >
+                  Chat
+                </button>
+              </div>
+              <div
+                style={{
+                  position: "absolute",
                   inset: 0,
-                  display: leftTab === "terminal" || !SecondaryTab ? "block" : "none",
+                  display:
+                    (leftTab === "terminal" || !SecondaryTab) &&
+                    viewMode === "terminal"
+                      ? "block"
+                      : "none",
                 }}
               >
                 <Terminal />
+              </div>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display:
+                    (leftTab === "terminal" || !SecondaryTab) &&
+                    viewMode === "chat"
+                      ? "block"
+                      : "none",
+                }}
+              >
+                <Chat
+                  agentId="claude"
+                  agentLabel="Claude Code"
+                  cwd={project.path}
+                  skipPermissions={false}
+                  onSwitchToTerminal={() => persistViewMode("terminal")}
+                />
               </div>
               {SecondaryTab && leftTab === "secondary" && (
                 <div style={{ position: "absolute", inset: 0 }}>
