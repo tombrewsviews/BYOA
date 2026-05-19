@@ -4,10 +4,12 @@
 //! <project>/.kinetic-studio/history/<sha>.json. An index file
 //! (history/index.json) lists versions in insertion order:
 //!
-//!     [
-//!       { "sha": "...", "parent": null,    "author": "user",  "ts": "2026-05-19T12:34:56.789012Z" },
-//!       { "sha": "...", "parent": "<sha>", "author": "agent", "ts": "2026-05-19T12:34:57.123456Z" }
-//!     ]
+//! ```text
+//! [
+//!   { "sha": "...", "parent": null,    "author": "user",  "ts": "2026-05-19T12:34:56.789012Z" },
+//!   { "sha": "...", "parent": "<sha>", "author": "agent", "ts": "2026-05-19T12:34:57.123456Z" }
+//! ]
+//! ```
 //!
 //! Reads return the most recent version's sha and contents. Reverts
 //! append a new entry pointing at an older sha's content (so the
