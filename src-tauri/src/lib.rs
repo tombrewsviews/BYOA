@@ -71,6 +71,8 @@ pub fn run() {
             video::import_local_image,
             video::download_youtube,
             window_state::save_window_state,
+            window_state::get_view_mode,
+            window_state::set_view_mode,
             agents::detect_agents,
             settings::get_settings,
             settings::set_default_agent,
