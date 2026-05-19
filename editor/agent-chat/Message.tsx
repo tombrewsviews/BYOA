@@ -19,6 +19,10 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
   >
     {text}
     {streaming ? (
+      // TODO: `agentchat-pulse` @keyframes is not yet defined globally —
+      // until then, the cursor renders as a static block. Add the
+      // keyframe in Task 16 (KineticApp integration) if visible polish
+      // is desired.
       <span
         aria-hidden
         style={{

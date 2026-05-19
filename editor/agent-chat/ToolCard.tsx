@@ -18,6 +18,7 @@ const summary = (call: ToolCallRecord): string => {
 
 export const ToolCard: React.FC<Props> = ({ call }) => {
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   const sub = summary(call);
   const status = call.result == null ? "running" : call.result.ok ? "ok" : "err";
   const badge =
@@ -40,6 +41,8 @@ export const ToolCard: React.FC<Props> = ({ call }) => {
     >
       <button
         onClick={() => setOpen((v) => !v)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         style={{
           all: "unset",
           cursor: "pointer",
@@ -47,6 +50,11 @@ export const ToolCard: React.FC<Props> = ({ call }) => {
           gap: 8,
           width: "100%",
           alignItems: "center",
+          // Restore a focus ring for keyboard users since `all: unset`
+          // stripped the default.
+          outline: focused ? "2px solid #7c5cff" : "none",
+          outlineOffset: 2,
+          borderRadius: 4,
         }}
       >
         <span style={{ color: badgeColor, fontWeight: 600 }}>{badge}</span>
