@@ -7,5 +7,6 @@ export default defineConfig({
     environment: "jsdom",
     include: ["editor/agent-chat/__tests__/**/*.test.{ts,tsx}"],
     globals: false,
+    setupFiles: ["./vitest.setup.ts"],
   },
 });
