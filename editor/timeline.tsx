@@ -45,6 +45,7 @@ import {
 import type { Selection } from "./selection";
 import { AddVideo } from "./AddVideo";
 import { AddImage } from "./AddImage";
+import { color, font } from "./platform/theme";
 
 type TimelineProps = {
   story: Story;
@@ -432,8 +433,8 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
     return (
       <div
         style={{
-          background: "#0a0a10",
-          borderTop: "1px solid #232330",
+          background: color.bg.surface,
+          borderTop: `1px solid ${color.border.line}`,
           padding: "10px 12px 12px",
           display: "flex",
           flexDirection: "column",
@@ -454,9 +455,9 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
               height: 22,
               borderRadius: 6,
               padding: 0,
-              border: "1px solid #232330",
-              background: "#14141c",
-              color: "#8b8b9a",
+              border: `1px solid ${color.border.line}`,
+              background: color.bg.hover,
+              color: color.text.muted,
               fontSize: 14,
               lineHeight: 1,
               cursor: "pointer",
@@ -481,12 +482,12 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
               fontSize: 10,
               letterSpacing: 0.5,
               textTransform: "uppercase",
-              color: selection.kind === "story" ? "white" : "#8b8b9a",
-              background: selection.kind === "story" ? "#7c5cff" : "#14141c",
+              color: selection.kind === "story" ? "white" : color.text.muted,
+              background: selection.kind === "story" ? "#7c5cff" : color.bg.hover,
               border:
                 selection.kind === "story"
                   ? "1px solid #9d83ff"
-                  : "1px solid #232330",
+                  : `1px solid ${color.border.line}`,
             }}
           >
             Story
@@ -556,8 +557,8 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
                 right: 0,
                 top: (trackCount - 1 - t) * (ROW_HEIGHT + ROW_GAP),
                 height: ROW_HEIGHT,
-                background: "#0e0e16",
-                border: "1px solid #1c1c26",
+                background: color.bg.raised,
+                border: `1px solid ${color.border.faint}`,
                 borderRadius: 4,
                 pointerEvents: "none",
               }}
@@ -667,7 +668,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
                   borderRadius: 6,
                   border: clipBorder,
                   background: clipBg,
-                  color: isSelected ? "white" : "#e4e4ee",
+                  color: isSelected ? "white" : color.text.secondary,
                   fontSize: 11,
                   fontWeight: 600,
                   padding: "0 12px 0 14px",
@@ -753,7 +754,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: 10,
-                color: "#4b4b5a",
+                color: color.text.faint,
                 letterSpacing: 0.5,
                 textTransform: "uppercase",
                 pointerEvents: "none",
@@ -788,9 +789,9 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
               padding: "4px 12px",
               fontSize: 11,
               borderRadius: 4,
-              border: "1px dashed #3a3a4c",
+              border: `1px dashed ${color.border.hover}`,
               background: "transparent",
-              color: "#8b8b9a",
+              color: color.text.muted,
               cursor: "pointer",
             }}
           >
@@ -798,7 +799,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
           </button>
           <AddVideo onImported={onAddVideo} />
           <AddImage onImported={onAddImage} />
-          <span style={{ fontSize: 10, color: "#4b4b5a" }}>
+          <span style={{ fontSize: 10, color: color.text.faint }}>
             Drag clip to move/retime · drag edges to resize/trim · drag
             vertically to change layer
           </span>
@@ -855,9 +856,9 @@ const TrackGutter: React.FC<{
     height: 14,
     padding: 0,
     background: "transparent",
-    border: "1px solid #2e2e3c",
+    border: `1px solid ${color.border.strong}`,
     borderRadius: 2,
-    color: "#8b8b9a",
+    color: color.text.muted,
     fontSize: 10,
     lineHeight: 1,
     cursor: "pointer",
@@ -880,14 +881,14 @@ const TrackGutter: React.FC<{
         alignItems: "center",
         justifyContent: "space-between",
         padding: "0 4px",
-        background: hover ? "#14141c" : "transparent",
+        background: hover ? color.bg.hover : "transparent",
         borderRadius: 4,
       }}
     >
       <span
         style={{
           fontSize: 9,
-          color: "#4b4b5a",
+          color: color.text.faint,
           fontFamily: "ui-monospace, monospace",
           flex: "0 0 auto",
         }}
@@ -930,7 +931,7 @@ const TrackGutter: React.FC<{
                 ? `Delete track ${trackIndex} (has beats — will confirm)`
                 : `Delete empty track ${trackIndex}`
             }
-            style={{ ...btnStyle, color: "#ff8b8b" }}
+            style={{ ...btnStyle, color: color.danger.text }}
           >
             ×
           </button>
@@ -1041,7 +1042,7 @@ const Scrubber: React.FC<{
           marginLeft: -7,
           borderRadius: "50%",
           background: "#facc15",
-          border: "2px solid #0a0a10",
+          border: `2px solid ${color.bg.surface}`,
           cursor: "ew-resize",
           boxShadow: "0 0 6px rgba(250,204,21,0.7)",
           zIndex: 7,
