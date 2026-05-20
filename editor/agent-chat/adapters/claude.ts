@@ -1,5 +1,41 @@
-import type { ChatEvent } from "../events";
+import type { AgentQuestion, ChatEvent } from "../events";
 import type { AgentAdapter, SpawnArgs, TurnSpawnOpts } from "./types";
+
+/**
+ * Validate/normalize the AskUserQuestion tool input into our AgentQuestion
+ * shape. Returns null if the payload doesn't look like questions, so the
+ * caller falls back to rendering a plain tool card.
+ */
+const parseAskUserQuestion = (input: unknown): AgentQuestion[] | null => {
+  if (!input || typeof input !== "object") return null;
+  const raw = (input as { questions?: unknown }).questions;
+  if (!Array.isArray(raw)) return null;
+  const questions: AgentQuestion[] = [];
+  for (const q of raw) {
+    if (!q || typeof q !== "object") continue;
+    const qo = q as Record<string, unknown>;
+    if (typeof qo.question !== "string") continue;
+    const opts = Array.isArray(qo.options) ? qo.options : [];
+    const options = opts
+      .filter(
+        (o): o is Record<string, unknown> =>
+          !!o && typeof o === "object" && typeof o.label === "string",
+      )
+      .map((o) => ({
+        label: o.label as string,
+        description:
+          typeof o.description === "string" ? o.description : undefined,
+      }));
+    if (options.length === 0) continue;
+    questions.push({
+      question: qo.question,
+      header: typeof qo.header === "string" ? qo.header : undefined,
+      multiSelect: qo.multiSelect === true,
+      options,
+    });
+  }
+  return questions.length ? questions : null;
+};
 
 /**
  * Single-session-only by design. `state` is module-scoped because each
@@ -116,6 +152,16 @@ const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
     // tool_use (and, later, others). Text is handled above.
     for (const c of evt.message.content ?? []) {
       if (c.type === "tool_use") {
+        // AskUserQuestion is special: render it as answerable buttons, not
+        // a plain tool card. In the per-turn model the agent process exits
+        // after asking; the user's choice becomes the next turn.
+        if (c.name === "AskUserQuestion") {
+          const questions = parseAskUserQuestion(c.input);
+          if (questions) {
+            emit({ kind: "question", turnId, callId: c.id, questions });
+            continue;
+          }
+        }
         emit({
           kind: "tool-call",
           turnId,
@@ -198,7 +244,6 @@ const parseChunk = (
 // a y/n dialog, so a prompting mode (default) would silently block.
 const CLI_PERMISSION_MODE: Record<string, string> = {
   full: "bypassPermissions",
-  edits: "acceptEdits",
   plan: "plan",
 };
 

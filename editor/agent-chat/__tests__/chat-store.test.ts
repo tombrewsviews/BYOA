@@ -97,4 +97,28 @@ describe("ChatStore", () => {
     // Original startedAt preserved:
     expect(s.turns[0].startedAt).toBe(0);
   });
+
+  it("tracks a pending question and clears it on the next turn", () => {
+    const store = createChatStore();
+    store.applyEvent({ kind: "turn-start", turnId: "t1", startedAt: 0 });
+    store.applyEvent({
+      kind: "question",
+      turnId: "t1",
+      callId: "c1",
+      questions: [
+        {
+          question: "Tea or coffee?",
+          header: "Beverage",
+          options: [{ label: "Tea" }, { label: "Coffee" }],
+        },
+      ],
+    });
+    expect(store.getState().pendingQuestion?.callId).toBe("c1");
+    expect(store.getState().pendingQuestion?.questions[0].options).toHaveLength(
+      2,
+    );
+    // Answering = a new turn; the question is superseded.
+    store.applyEvent({ kind: "turn-start", turnId: "t2", startedAt: 1 });
+    expect(store.getState().pendingQuestion).toBeNull();
+  });
 });

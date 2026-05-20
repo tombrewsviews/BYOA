@@ -14,6 +14,7 @@ import { createChatStore } from "./ChatStore";
 import { Message } from "./Message";
 import { UserMessage } from "./UserMessage";
 import { ToolCard } from "./ToolCard";
+import { QuestionCard } from "./QuestionCard";
 import { Composer } from "./Composer";
 import { SessionToolbar } from "./SessionToolbar";
 
@@ -302,6 +303,13 @@ export const Chat: React.FC<Props> = ({
             hasn't arrived yet (keeps the UI responsive on send). */}
         {userBubbles.length > state.turns.length ? (
           <UserMessage text={userBubbles[userBubbles.length - 1].text} />
+        ) : null}
+        {state.pendingQuestion && !running ? (
+          <QuestionCard
+            questions={state.pendingQuestion.questions}
+            disabled={running}
+            onAnswer={(answer) => send(answer, [])}
+          />
         ) : null}
       </div>
       <Composer

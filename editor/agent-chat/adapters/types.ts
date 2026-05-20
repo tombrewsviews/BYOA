@@ -3,14 +3,16 @@ import type { ChatEvent } from "../events";
 export type AgentId = "claude" | "codex" | "gemini";
 
 /**
- * Permission posture for a chat turn. Only modes that never need an
- * interactive prompt are offered — non-interactive `-p` mode cannot
- * surface a y/n dialog, so a prompting mode would silently block.
- *   - "full"  → bypassPermissions: read, edit, run anything.
- *   - "edits" → acceptEdits: auto-approve edits; reads/bash still blocked.
- *   - "plan"  → plan: read-only, no writes (planning/analysis).
+ * Permission posture for a chat turn. Only modes that behave intuitively
+ * in non-interactive `-p` mode are offered:
+ *   - "full" → bypassPermissions: read, edit, run anything.
+ *   - "plan" → plan: read-only, no writes (planning/analysis).
+ *
+ * acceptEdits is intentionally NOT offered: it auto-approves edits but
+ * still BLOCKS file reads, which surfaces as a confusing mid-turn denial
+ * with no way to approve (a y/n prompt can't render in -p mode).
  */
-export type PermissionMode = "full" | "edits" | "plan";
+export type PermissionMode = "full" | "plan";
 
 export const PERMISSION_MODES: ReadonlyArray<{
   value: PermissionMode;
@@ -18,8 +20,7 @@ export const PERMISSION_MODES: ReadonlyArray<{
   hint: string;
 }> = [
   { value: "full", label: "Full access", hint: "read, edit, run anything" },
-  { value: "edits", label: "Edits only", hint: "auto-approve edits" },
-  { value: "plan", label: "Plan (read-only)", hint: "no writes" },
+  { value: "plan", label: "Plan (read-only)", hint: "analyze, no changes" },
 ];
 
 export interface SpawnArgs {

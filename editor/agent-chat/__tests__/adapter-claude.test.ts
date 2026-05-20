@@ -15,6 +15,7 @@ import {
   isMessageDelta,
   isTurnStart,
   isTurnEnd,
+  isQuestion,
 } from "../events";
 
 beforeEach(() => {
@@ -67,9 +68,8 @@ describe("claudeAdapter.turnSpawnArgs", () => {
   });
 
   it("maps permissionMode to the right claude --permission-mode value", () => {
-    const cases: Array<[("full" | "edits" | "plan"), string]> = [
+    const cases: Array<[("full" | "plan"), string]> = [
       ["full", "bypassPermissions"],
-      ["edits", "acceptEdits"],
       ["plan", "plan"],
     ];
     for (const [mode, cli] of cases) {
@@ -171,5 +171,71 @@ describe("claudeAdapter.parseChunk — multi-turn", () => {
     expect(starts.length).toBe(2);
     expect(ends.length).toBe(2);
     expect(starts[0].turnId).not.toBe(starts[1].turnId);
+  });
+});
+
+describe("claudeAdapter.parseChunk — AskUserQuestion", () => {
+  it("emits a question event with parsed options, not a tool-call", () => {
+    const line =
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_q",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_q",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    question: "Tea or coffee?",
+                    header: "Beverage",
+                    multiSelect: false,
+                    options: [
+                      { label: "Tea", description: "A cup of tea" },
+                      { label: "Coffee", description: "A cup of coffee" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }) + "\n";
+    const events = collect(new TextEncoder().encode(line));
+    const q = events.find(isQuestion);
+    expect(q).toBeDefined();
+    expect(q!.callId).toBe("toolu_q");
+    expect(q!.questions[0].question).toBe("Tea or coffee?");
+    expect(q!.questions[0].options.map((o) => o.label)).toEqual([
+      "Tea",
+      "Coffee",
+    ]);
+    // It should NOT also appear as a generic tool-call.
+    expect(events.find(isToolCall)).toBeUndefined();
+  });
+
+  it("falls back to a tool-call if the input isn't shaped like questions", () => {
+    const line =
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_q2",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_q2",
+              name: "AskUserQuestion",
+              input: { garbage: true },
+            },
+          ],
+        },
+      }) + "\n";
+    const events = collect(new TextEncoder().encode(line));
+    expect(events.find(isQuestion)).toBeUndefined();
+    expect(events.find(isToolCall)).toBeDefined();
   });
 });

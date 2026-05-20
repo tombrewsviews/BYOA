@@ -16,6 +16,20 @@
  *   - `error.turnId` is optional: session-level errors (e.g. spawn failure
  *     before any turn begins) have no turn to attach to.
  */
+/** One option in an agent-asked question. */
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** One question the agent asked via its AskUserQuestion tool. */
+export interface AgentQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: QuestionOption[];
+}
+
 export type ChatEvent =
   | { kind: "turn-start"; turnId: string; startedAt: number }
   | { kind: "message-delta"; turnId: string; text: string }
@@ -26,6 +40,15 @@ export type ChatEvent =
       callId: string;
       name: string;
       input: unknown;
+    }
+  | {
+      // The agent invoked AskUserQuestion. In the per-turn model the agent
+      // process has already exited, so answering means sending the chosen
+      // label(s) as the next turn (which --resumes the conversation).
+      kind: "question";
+      turnId: string;
+      callId: string;
+      questions: AgentQuestion[];
     }
   | {
       kind: "tool-result";
@@ -89,3 +112,7 @@ export const isPermissionDecided = (
 export const isTurnEnd = (
   e: ChatEvent,
 ): e is Extract<ChatEvent, { kind: "turn-end" }> => e.kind === "turn-end";
+
+export const isQuestion = (
+  e: ChatEvent,
+): e is Extract<ChatEvent, { kind: "question" }> => e.kind === "question";

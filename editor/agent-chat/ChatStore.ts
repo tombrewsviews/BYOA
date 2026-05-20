@@ -1,4 +1,4 @@
-import type { ChatEvent } from "./events";
+import type { AgentQuestion, ChatEvent } from "./events";
 
 export interface ToolCallRecord {
   callId: string;
@@ -24,6 +24,12 @@ export interface PendingPermission {
   scope: string;
 }
 
+/** An unanswered question the agent asked via AskUserQuestion. */
+export interface PendingQuestion {
+  callId: string;
+  questions: AgentQuestion[];
+}
+
 export interface ChatState {
   turns: TurnRecord[];
   pendingPermission: PendingPermission | null;
@@ -31,6 +37,9 @@ export interface ChatState {
   /** Session-level error not associated with any turn (e.g. spawn failure
    *  before any turn started, agent process killed at startup). */
   sessionError: string | null;
+  /** The agent's most recent unanswered question, or null. Cleared when
+   *  the user answers (which sends the next turn) or a new turn starts. */
+  pendingQuestion: PendingQuestion | null;
 }
 
 export interface ChatStore {
@@ -45,6 +54,7 @@ const initialState = (): ChatState => ({
   pendingPermission: null,
   sessionAlive: true,
   sessionError: null,
+  pendingQuestion: null,
 });
 
 export const createChatStore = (): ChatStore => {
@@ -75,6 +85,8 @@ export const createChatStore = (): ChatStore => {
           if (state.turns.some((t) => t.turnId === e.turnId)) break;
           state = {
             ...state,
+            // A new turn supersedes any unanswered question.
+            pendingQuestion: null,
             turns: [
               ...state.turns,
               {
@@ -86,6 +98,13 @@ export const createChatStore = (): ChatStore => {
                 status: "streaming",
               },
             ],
+          };
+          break;
+        }
+        case "question": {
+          state = {
+            ...state,
+            pendingQuestion: { callId: e.callId, questions: e.questions },
           };
           break;
         }
