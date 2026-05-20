@@ -9,32 +9,45 @@ export interface SpawnArgs {
   cwd: string;
 }
 
+/** Options for building a per-turn spawn command. */
+export interface TurnSpawnOpts {
+  cwd: string;
+  skipPermissions: boolean;
+  /** The user's prompt for this turn (with @path refs already inlined). */
+  prompt: string;
+  /**
+   * Stable conversation id. Turn 1 passes a fresh UUID via --session-id
+   * to establish the session; turn 2+ passes the same id via --resume so
+   * conversation history carries over. The caller owns the UUID.
+   */
+  sessionId: string;
+  /** True for turn 1 (--session-id), false for subsequent turns (--resume). */
+  isFirstTurn: boolean;
+}
+
 export interface AgentAdapter {
   /** Stable id matching src-tauri/src/agents.rs AgentKind::id(). */
   readonly id: AgentId;
 
   /**
-   * Command + args to launch the agent in structured-output mode.
-   * Returning null means "this agent cannot run in structured mode" —
-   * the chat-view toggle will be disabled for it.
+   * True if this agent supports chat-view in v1. When false, the
+   * chat-view surface shows an "unsupported" state. (Codex/Gemini are
+   * stubbed in v1.)
    */
-  spawnArgs(opts: { cwd: string; skipPermissions: boolean }): SpawnArgs | null;
+  readonly supportsChat: boolean;
+
+  /**
+   * Build the command to run ONE turn to completion. Claude's
+   * structured-output mode is non-interactive: each turn spawns a fresh
+   * `claude -p ... "<prompt>"` that emits its event stream and exits.
+   * Conversation continuity is via --session-id / --resume, not a
+   * persistent process. Returns null if the agent can't run this way.
+   */
+  turnSpawnArgs(opts: TurnSpawnOpts): SpawnArgs | null;
 
   /**
    * Parse a chunk of raw bytes from the agent's stdout into zero or
    * more normalized events. Adapter is stateful (line buffering, etc.).
    */
   parseChunk(chunk: Uint8Array, emit: (e: ChatEvent) => void): void;
-
-  /** Encode a user prose message for the agent's stdin. */
-  encodeUserInput(text: string, attachments: string[]): Uint8Array;
-
-  /**
-   * Encode a permission decision for the agent's stdin. Returns null
-   * if this agent's permission flow uses an out-of-band channel.
-   */
-  encodePermissionDecision(
-    promptId: string,
-    decision: "allow" | "allow-always" | "deny",
-  ): Uint8Array | null;
 }

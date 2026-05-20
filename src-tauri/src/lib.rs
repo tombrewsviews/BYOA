@@ -24,7 +24,7 @@ use dashmap::DashMap;
 pub struct AppState {
     pub active_project: Mutex<Option<projects::ActiveProject>>,
     pub ptys: DashMap<String, pty::PtySession>,
-    pub agent_chats: DashMap<String, agent_chat::AgentChatSession>,
+    pub agent_chats: DashMap<String, agent_chat::AgentChatTurn>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -61,9 +61,8 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_close,
             pty::pty_paste_prompt,
-            agent_chat::agent_chat_open,
-            agent_chat::agent_chat_write,
-            agent_chat::agent_chat_close,
+            agent_chat::agent_chat_run_turn,
+            agent_chat::agent_chat_cancel,
             prompt_mode::get_prompt_mode,
             prompt_mode::set_prompt_mode,
             selection::set_selection,

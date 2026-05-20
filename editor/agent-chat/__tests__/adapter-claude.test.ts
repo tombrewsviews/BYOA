@@ -32,19 +32,53 @@ const collect = (bytes: Uint8Array): ChatEvent[] => {
   return events;
 };
 
-describe("claudeAdapter.spawnArgs", () => {
-  it("returns claude with stream-json flags", () => {
-    const s = claudeAdapter.spawnArgs({ cwd: "/x", skipPermissions: false });
+describe("claudeAdapter.turnSpawnArgs", () => {
+  const base = {
+    cwd: "/x",
+    skipPermissions: false,
+    prompt: "hello",
+    sessionId: "sess-uuid",
+  };
+
+  it("returns claude -p with stream-json flags and the prompt last", () => {
+    const s = claudeAdapter.turnSpawnArgs({ ...base, isFirstTurn: true });
     expect(s).not.toBeNull();
     expect(s!.cmd).toBe("claude");
+    expect(s!.args).toContain("-p");
     expect(s!.args).toContain("--output-format");
     expect(s!.args).toContain("stream-json");
     expect(s!.args).toContain("--verbose");
+    // Prompt is the final positional argument.
+    expect(s!.args[s!.args.length - 1]).toBe("hello");
+  });
+
+  it("uses --session-id on the first turn", () => {
+    const s = claudeAdapter.turnSpawnArgs({ ...base, isFirstTurn: true });
+    expect(s!.args).toContain("--session-id");
+    expect(s!.args).toContain("sess-uuid");
+    expect(s!.args).not.toContain("--resume");
+  });
+
+  it("uses --resume on subsequent turns", () => {
+    const s = claudeAdapter.turnSpawnArgs({ ...base, isFirstTurn: false });
+    expect(s!.args).toContain("--resume");
+    expect(s!.args).toContain("sess-uuid");
+    expect(s!.args).not.toContain("--session-id");
   });
 
   it("adds --dangerously-skip-permissions when requested", () => {
-    const s = claudeAdapter.spawnArgs({ cwd: "/x", skipPermissions: true });
+    const s = claudeAdapter.turnSpawnArgs({
+      ...base,
+      isFirstTurn: true,
+      skipPermissions: true,
+    });
     expect(s!.args).toContain("--dangerously-skip-permissions");
+  });
+
+  it("uses acceptEdits permission mode when not skipping", () => {
+    const s = claudeAdapter.turnSpawnArgs({ ...base, isFirstTurn: true });
+    expect(s!.args).toContain("--permission-mode");
+    expect(s!.args).toContain("acceptEdits");
   });
 });
 
@@ -106,21 +140,6 @@ describe("claudeAdapter.parseChunk — permissions", () => {
     const decided = events.find(isPermissionDecided);
     expect(decided).toBeDefined();
     expect(decided!.decision).toBe("deny");
-  });
-});
-
-describe("claudeAdapter.encodePermissionDecision", () => {
-  it("returns 'y' for allow", () => {
-    const bytes = claudeAdapter.encodePermissionDecision("p", "allow");
-    expect(new TextDecoder().decode(bytes!)).toBe("y\n");
-  });
-  it("returns 'n' for deny", () => {
-    const bytes = claudeAdapter.encodePermissionDecision("p", "deny");
-    expect(new TextDecoder().decode(bytes!)).toBe("n\n");
-  });
-  it("returns 'a' for allow-always", () => {
-    const bytes = claudeAdapter.encodePermissionDecision("p", "allow-always");
-    expect(new TextDecoder().decode(bytes!)).toBe("a\n");
   });
 });
 

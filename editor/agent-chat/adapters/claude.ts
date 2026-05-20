@@ -1,5 +1,5 @@
 import type { ChatEvent } from "../events";
-import type { AgentAdapter, SpawnArgs } from "./types";
+import type { AgentAdapter, SpawnArgs, TurnSpawnOpts } from "./types";
 
 /**
  * Single-session-only by design. `state` is module-scoped because each
@@ -193,35 +193,36 @@ const parseChunk = (
   }
 };
 
-const spawnArgs = (opts: {
-  cwd: string;
-  skipPermissions: boolean;
-}): SpawnArgs => {
-  const args = ["--output-format", "stream-json", "--verbose"];
-  if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
+// Claude's structured-output mode is one-shot: `claude -p ... "<prompt>"`
+// reads the prompt, streams its JSON event log to stdout, and exits. Each
+// turn is a fresh process. Conversation continuity is via --session-id
+// (turn 1, establishes the id we generate) and --resume (turn 2+).
+const turnSpawnArgs = (opts: TurnSpawnOpts): SpawnArgs => {
+  const args = ["-p", "--output-format", "stream-json", "--verbose"];
+  if (opts.isFirstTurn) {
+    args.push("--session-id", opts.sessionId);
+  } else {
+    args.push("--resume", opts.sessionId);
+  }
+  if (opts.skipPermissions) {
+    args.push("--dangerously-skip-permissions");
+  } else {
+    // Non-interactive mode can't surface a y/n prompt. Without skip,
+    // claude denies tool use that needs approval. v1 chat-view defaults
+    // to skip so the agent can actually act; interactive permission
+    // dialogs are a v2 concern (needs --input-format stream-json).
+    args.push("--permission-mode", "acceptEdits");
+  }
+  // Prompt is the final positional argument.
+  args.push(opts.prompt);
   return { cmd: "claude", args, env: {}, cwd: opts.cwd };
 };
 
-const encodeUserInput = (text: string, attachments: string[]): Uint8Array => {
-  const refs = attachments.map((p) => `@${p}`).join(" ");
-  const composed = refs ? `${refs}\n\n${text}` : text;
-  return new TextEncoder().encode(composed + "\n");
-};
-
-const encodePermissionDecision = (
-  _promptId: string,
-  decision: "allow" | "allow-always" | "deny",
-): Uint8Array =>
-  new TextEncoder().encode(
-    decision === "deny" ? "n\n" : decision === "allow-always" ? "a\n" : "y\n",
-  );
-
 export const claudeAdapter: AgentAdapter = {
   id: "claude",
-  spawnArgs,
+  supportsChat: true,
+  turnSpawnArgs,
   parseChunk,
-  encodeUserInput,
-  encodePermissionDecision,
 };
 
 /**
