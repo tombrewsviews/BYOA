@@ -2,6 +2,26 @@ import type { ChatEvent } from "../events";
 
 export type AgentId = "claude" | "codex" | "gemini";
 
+/**
+ * Permission posture for a chat turn. Only modes that never need an
+ * interactive prompt are offered — non-interactive `-p` mode cannot
+ * surface a y/n dialog, so a prompting mode would silently block.
+ *   - "full"  → bypassPermissions: read, edit, run anything.
+ *   - "edits" → acceptEdits: auto-approve edits; reads/bash still blocked.
+ *   - "plan"  → plan: read-only, no writes (planning/analysis).
+ */
+export type PermissionMode = "full" | "edits" | "plan";
+
+export const PERMISSION_MODES: ReadonlyArray<{
+  value: PermissionMode;
+  label: string;
+  hint: string;
+}> = [
+  { value: "full", label: "Full access", hint: "read, edit, run anything" },
+  { value: "edits", label: "Edits only", hint: "auto-approve edits" },
+  { value: "plan", label: "Plan (read-only)", hint: "no writes" },
+];
+
 export interface SpawnArgs {
   cmd: string;
   args: string[];
@@ -12,7 +32,7 @@ export interface SpawnArgs {
 /** Options for building a per-turn spawn command. */
 export interface TurnSpawnOpts {
   cwd: string;
-  skipPermissions: boolean;
+  permissionMode: PermissionMode;
   /** The user's prompt for this turn (with @path refs already inlined). */
   prompt: string;
   /**

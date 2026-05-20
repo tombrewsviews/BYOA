@@ -20,7 +20,7 @@ describe("adapter registry", () => {
     expect(
       codex!.turnSpawnArgs({
         cwd: "/tmp",
-        skipPermissions: false,
+        permissionMode: "full",
         prompt: "hi",
         sessionId: "x",
         isFirstTurn: true,

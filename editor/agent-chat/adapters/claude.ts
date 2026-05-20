@@ -193,6 +193,15 @@ const parseChunk = (
   }
 };
 
+// Map our UI-facing PermissionMode to claude's --permission-mode value.
+// Only non-prompting modes are offered: non-interactive -p mode can't show
+// a y/n dialog, so a prompting mode (default) would silently block.
+const CLI_PERMISSION_MODE: Record<string, string> = {
+  full: "bypassPermissions",
+  edits: "acceptEdits",
+  plan: "plan",
+};
+
 // Claude's structured-output mode is one-shot: `claude -p ... "<prompt>"`
 // reads the prompt, streams its JSON event log to stdout, and exits. Each
 // turn is a fresh process. Conversation continuity is via --session-id
@@ -204,14 +213,10 @@ const turnSpawnArgs = (opts: TurnSpawnOpts): SpawnArgs => {
   } else {
     args.push("--resume", opts.sessionId);
   }
-  // Non-interactive -p mode cannot surface a y/n permission prompt, so any
-  // mode short of full bypass leaves Reads/Bash blocked with no way to
-  // approve them (acceptEdits only auto-approves Edits/Writes — Reads still
-  // get denied). v1 chat-view therefore runs with bypassPermissions so the
-  // agent can actually act. Interactive permission dialogs are a v2 concern
-  // (needs bidirectional --input-format stream-json). `skipPermissions` is
-  // accepted for parity but bypassPermissions already covers it.
-  args.push("--permission-mode", "bypassPermissions");
+  args.push(
+    "--permission-mode",
+    CLI_PERMISSION_MODE[opts.permissionMode] ?? "bypassPermissions",
+  );
   // Prompt is the final positional argument.
   args.push(opts.prompt);
   return { cmd: "claude", args, env: {}, cwd: opts.cwd };

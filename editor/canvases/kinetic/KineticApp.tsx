@@ -730,7 +730,6 @@ const EditorView: React.FC<{
                     agentId={defaultAgentId ?? "claude"}
                     agentLabel={agentLabelFor(defaultAgentId ?? "claude")}
                     cwd={project.path}
-                    skipPermissions={false}
                     onSwitchToTerminal={() => persistViewMode("terminal")}
                   />
                 </div>

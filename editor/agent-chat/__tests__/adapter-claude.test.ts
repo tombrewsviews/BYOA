@@ -35,7 +35,7 @@ const collect = (bytes: Uint8Array): ChatEvent[] => {
 describe("claudeAdapter.turnSpawnArgs", () => {
   const base = {
     cwd: "/x",
-    skipPermissions: false,
+    permissionMode: "full" as const,
     prompt: "hello",
     sessionId: "sess-uuid",
   };
@@ -66,18 +66,20 @@ describe("claudeAdapter.turnSpawnArgs", () => {
     expect(s!.args).not.toContain("--session-id");
   });
 
-  it("runs with bypassPermissions (non-interactive -p can't show y/n)", () => {
-    // Both skip on and off use bypassPermissions in v1 — non-interactive
-    // mode has no way to surface a permission prompt, and anything less
-    // than full bypass leaves Reads/Bash blocked.
-    for (const skipPermissions of [false, true]) {
+  it("maps permissionMode to the right claude --permission-mode value", () => {
+    const cases: Array<[("full" | "edits" | "plan"), string]> = [
+      ["full", "bypassPermissions"],
+      ["edits", "acceptEdits"],
+      ["plan", "plan"],
+    ];
+    for (const [mode, cli] of cases) {
       const s = claudeAdapter.turnSpawnArgs({
         ...base,
         isFirstTurn: true,
-        skipPermissions,
+        permissionMode: mode,
       });
       expect(s!.args).toContain("--permission-mode");
-      expect(s!.args).toContain("bypassPermissions");
+      expect(s!.args).toContain(cli);
     }
   });
 });

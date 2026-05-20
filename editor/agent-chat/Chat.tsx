@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AgentAdapter, AgentId } from "./adapters/types";
+import type { AgentAdapter, AgentId, PermissionMode } from "./adapters/types";
 import { getAdapter } from "./adapters/registry";
 import { createChatStore } from "./ChatStore";
 import { Message } from "./Message";
@@ -21,7 +21,6 @@ interface Props {
   agentId: AgentId;
   agentLabel: string;
   cwd: string;
-  skipPermissions: boolean;
   onSwitchToTerminal: () => void;
 }
 
@@ -44,7 +43,6 @@ export const Chat: React.FC<Props> = ({
   agentId,
   agentLabel,
   cwd,
-  skipPermissions,
   onSwitchToTerminal,
 }) => {
   const adapter: AgentAdapter | null = useMemo(
@@ -68,6 +66,11 @@ export const Chat: React.FC<Props> = ({
     [],
   );
 
+  // Permission posture for the next turn, controlled by the dropdown.
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("full");
+  const permissionModeRef = useRef<PermissionMode>(permissionMode);
+  permissionModeRef.current = permissionMode;
+
   const state = useSyncExternalStore(
     store.subscribe,
     () => store.getState(),
@@ -89,7 +92,7 @@ export const Chat: React.FC<Props> = ({
       if (!adapter || activeTurnIdRef.current) return;
       const spawn = adapter.turnSpawnArgs({
         cwd,
-        skipPermissions,
+        permissionMode: permissionModeRef.current,
         prompt: composePrompt(text, attachments),
         sessionId: sessionIdRef.current,
         isFirstTurn: isFirstTurnRef.current,
@@ -151,7 +154,7 @@ export const Chat: React.FC<Props> = ({
         }
       })();
     },
-    [adapter, cwd, skipPermissions, store],
+    [adapter, cwd, store],
   );
 
   const stop = useCallback(() => {
@@ -306,6 +309,8 @@ export const Chat: React.FC<Props> = ({
         onSubmit={send}
         onStop={stop}
         running={running}
+        permissionMode={permissionMode}
+        onPermissionModeChange={setPermissionMode}
       />
     </div>
   );
