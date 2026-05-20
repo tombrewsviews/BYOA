@@ -16,8 +16,7 @@
  * to type.
  */
 import React, { useState } from "react";
-import { isTauri } from "./runtime";
-import { getActivePtyId } from "./terminal";
+import { useShellActions } from "./shell";
 import type { Story } from "../src/kinetic/schema";
 import { color, primaryBtn, ghostBtn } from "./platform/theme";
 
@@ -46,6 +45,8 @@ export const StarterCard: React.FC<{
     }
   });
   const [toast, setToast] = useState<string | null>(null);
+  // Hook must run before any early return below.
+  const { copyPromptToAgent } = useShellActions();
 
   if (dismissed) return null;
   if (!seemsUntouched(story)) return null;
@@ -60,24 +61,18 @@ export const StarterCard: React.FC<{
   };
 
   const copyPrompt = async (prompt: string) => {
-    if (isTauri()) {
-      const ptyId = getActivePtyId();
-      if (ptyId) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("pty_paste_prompt", { id: ptyId, text: prompt });
-        setToast("Pasted into terminal");
-        setTimeout(() => setToast(null), 1600);
-        return;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setToast("Copied to clipboard");
-      setTimeout(() => setToast(null), 1600);
-    } catch {
-      setToast("Copy failed");
-      setTimeout(() => setToast(null), 1600);
-    }
+    // The shell routes to chat composer / terminal / clipboard by mode.
+    const where = await copyPromptToAgent(prompt);
+    const msg =
+      where === "chat"
+        ? "Added to chat"
+        : where === "terminal"
+          ? "Pasted into terminal"
+          : where === "clipboard"
+            ? "Copied to clipboard"
+            : "Copy failed";
+    setToast(msg);
+    setTimeout(() => setToast(null), 1600);
   };
 
   return (

@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-4-7","tools":["Read","Edit","Bash"]}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"Hello"}]}}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"Hello, world"}]}}
+{"type":"result","subtype":"success","session_id":"sess-1","total_cost_usd":0.01,"is_error":false}

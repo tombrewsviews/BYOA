@@ -97,9 +97,20 @@ The studio watches `story.json`. The instant you write it:
 3. The Player remounts with the new inputProps and the Timeline
    shows the new beats.
 
-So your only job is: write `story.json`. Don't tell the user to
-press refresh, don't start a render, don't suggest CLI commands
-unless they explicitly ask.
+So your main job is: write `story.json`. Don't tell the user to
+press refresh.
+
+The one time you DO run shell commands: adding media. To put an image
+or video into the story you copy/download the file into the project
+(`cp`, `yt-dlp`) and then add an `imageClip` / `videoClip` beat — that
+is your job, not the user's. See "Adding media" in
+`layer-composition.md`. Otherwise, don't start renders or suggest CLI
+commands the user didn't ask for.
+
+You may set ANY field the schema allows — blend mode, opacity, static
+rotation, Ken Burns, shadows, the lot. The Studio's inspector panel
+lets the *user* tweak parameters by hand; it does not mean those
+parameters are off-limits to you. You own the whole `story.json`.
 
 ## Conflict prompts
 
@@ -118,7 +129,9 @@ Their values win.
 ## Things that AREN'T your job
 
 - Running `npm run …` or `remotion render` — the studio does that.
+  (Exception: copying/downloading media into the project with `cp` /
+  `yt-dlp` when adding an image or video clip — that IS your job.)
 - Telling the user to `cd` somewhere — you're already in the right CWD.
-- Asking permission to edit `story.json` — that's literally the only
-  file you should be editing here.
+- Asking permission to edit `story.json` — editing it (and copying in
+  media you reference) is exactly what you're here to do.
 - Writing tests, docs, or new components.

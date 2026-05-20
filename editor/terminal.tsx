@@ -82,12 +82,15 @@ const TerminalInner: React.FC = () => {
         "[terminal requires desktop app — run `npm run tauri:dev`]",
       );
     } else {
+      // Captured by the async wiring below and read by the drag-drop
+      // handler, which is registered after the pty opens. Null until then.
+      let sessionId: string | null = null;
+
       // Async wiring; ignore the returned promise (cleanup uses cleanupFns).
       void (async () => {
         const { invoke } = await import("@tauri-apps/api/core");
         const { listen } = await import("@tauri-apps/api/event");
 
-        let sessionId: string;
         try {
           sessionId = await invoke<string>("pty_open", {
             cols: term.cols,
@@ -115,7 +118,41 @@ const TerminalInner: React.FC = () => {
           void invoke("pty_resize", { id: sessionId, cols, rows });
         });
 
+        // Drag-drop: dropping files onto the terminal types their paths at
+        // the cursor (single-quoted, space-separated), like macOS Terminal.
+        // No newline — the user finishes the command.
+        //
+        // onDragDropEvent is webview-GLOBAL, not element-scoped: a drop
+        // anywhere in the window fires this. The Terminal stays mounted
+        // (display:none) even in Chat view, where Chat's Composer has its
+        // own drop listener. So we gate on actual visibility — an element
+        // under a display:none ancestor has a null offsetParent — to avoid
+        // both handlers firing on the same drop.
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+        const unlistenDrop = await getCurrentWebview().onDragDropEvent(
+          (event) => {
+            const payload = event.payload as {
+              type: string;
+              paths?: string[];
+            };
+            if (payload.type !== "drop") return;
+            if (!sessionId) return;
+            if (!hostRef.current || hostRef.current.offsetParent === null) {
+              return; // terminal not the visible view — let Chat handle it
+            }
+            const paths = payload.paths ?? [];
+            if (!paths.length) return;
+            // Single-quote each path; a literal ' inside a path becomes the
+            // POSIX-safe '\'' sequence. Trailing space separates multiple.
+            const quoted = paths
+              .map((p) => `'${p.replace(/'/g, "'\\''")}'`)
+              .join(" ");
+            void invoke("pty_write", { id: sessionId, data: quoted });
+          },
+        );
+
         cleanupFns.push(
+          () => unlistenDrop(),
           () => unlistenData(),
           () => unlistenClosed(),
           () => dataDisp.dispose(),

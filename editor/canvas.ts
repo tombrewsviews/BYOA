@@ -85,7 +85,9 @@ export interface CanvasPlugin<Doc = unknown> {
    *  card overlay). Receives the doc and the project path. */
   RendererOverlay?: React.FC<{ doc: Doc; projectPath: string }>;
   /** Optional second tab next to "terminal" in the left column.
-   *  Kinetic uses this for the Library. */
+   *  Kinetic uses this for the Library. The component routes prompt
+   *  copies via `useShellActions().copyPromptToAgent`, so no prop is
+   *  needed here. */
   LeftColumnSecondaryTab?: {
     label: string;
     Component: React.FC;

@@ -1,0 +1,290 @@
+import type { AgentQuestion, ChatEvent } from "../events";
+import type { AgentAdapter, SpawnArgs, TurnSpawnOpts } from "./types";
+
+/**
+ * Validate/normalize the AskUserQuestion tool input into our AgentQuestion
+ * shape. Returns null if the payload doesn't look like questions, so the
+ * caller falls back to rendering a plain tool card.
+ */
+const parseAskUserQuestion = (input: unknown): AgentQuestion[] | null => {
+  if (!input || typeof input !== "object") return null;
+  const raw = (input as { questions?: unknown }).questions;
+  if (!Array.isArray(raw)) return null;
+  const questions: AgentQuestion[] = [];
+  for (const q of raw) {
+    if (!q || typeof q !== "object") continue;
+    const qo = q as Record<string, unknown>;
+    if (typeof qo.question !== "string") continue;
+    const opts = Array.isArray(qo.options) ? qo.options : [];
+    const options = opts
+      .filter(
+        (o): o is Record<string, unknown> =>
+          !!o && typeof o === "object" && typeof o.label === "string",
+      )
+      .map((o) => ({
+        label: o.label as string,
+        description:
+          typeof o.description === "string" ? o.description : undefined,
+      }));
+    if (options.length === 0) continue;
+    questions.push({
+      question: qo.question,
+      header: typeof qo.header === "string" ? qo.header : undefined,
+      multiSelect: qo.multiSelect === true,
+      options,
+    });
+  }
+  return questions.length ? questions : null;
+};
+
+/**
+ * Single-session-only by design. `state` is module-scoped because each
+ * renderer holds exactly one Chat surface, and the renderer lifetime
+ * is the session lifetime. Tests must call
+ * `__resetClaudeAdapterStateForTesting` between cases.
+ *
+ * Protocol assumptions (Claude `--output-format stream-json --verbose`):
+ *   - Lines are LF-delimited (no CRLF handling).
+ *   - For a given assistant message id, accumulated text grows
+ *     monotonically; we emit only the suffix that hasn't been emitted
+ *     yet. A shrinking re-send would be silently swallowed — that's
+ *     not in the protocol today.
+ *   - `turn-end` is terminal for the turn; we don't emit `message-end`
+ *     separately. UIs that need a per-message finalizer should treat
+ *     `turn-end` (or the next `tool-call`) as the boundary.
+ *   - `cwd` is supplied to `spawnArgs` for future use (e.g. setting
+ *     env hints) but Claude itself is spawned with the cwd by the
+ *     Tauri backend; the adapter does not propagate it.
+ */
+
+// TODO: when Claude's stream-json shape for permission_request and
+// permission_decision stabilizes, convert ClaudeStreamLine into a
+// discriminated union by `type` so permission-only fields aren't
+// ambient on every line variant.
+interface ClaudeStreamLine {
+  type: string;
+  subtype?: string;
+  session_id?: string;
+  message?: {
+    id: string;
+    role: string;
+    content?: Array<
+      | { type: "text"; text: string }
+      | { type: "tool_use"; id: string; name: string; input: unknown }
+      | {
+          type: "tool_result";
+          tool_use_id: string;
+          content: unknown;
+          is_error?: boolean;
+        }
+    >;
+  };
+  is_error?: boolean;
+  prompt_id?: string;
+  tool?: string;
+  args?: unknown;
+  scope?: string;
+  decision?: "allow" | "allow-always" | "deny";
+}
+
+interface AdapterState {
+  buf: string;
+  decoder: TextDecoder;
+  turnId: string | null;
+  emittedText: Map<string, string>;
+}
+
+const state: AdapterState = {
+  buf: "",
+  decoder: new TextDecoder(),
+  turnId: null,
+  emittedText: new Map(),
+};
+
+const startTurnIfNeeded = (emit: (e: ChatEvent) => void): string => {
+  if (state.turnId) return state.turnId;
+  const id = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  state.turnId = id;
+  emit({ kind: "turn-start", turnId: id, startedAt: Date.now() });
+  return id;
+};
+
+const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
+  if (!line.trim()) return;
+  let evt: ClaudeStreamLine;
+  try {
+    evt = JSON.parse(line);
+  } catch {
+    emit({
+      kind: "error",
+      message: `claude adapter: invalid JSON line (${line.slice(0, 80)})`,
+      recoverable: true,
+    });
+    return;
+  }
+
+  if (evt.type === "system" && evt.subtype === "init") {
+    return; // session start metadata — nothing to emit
+  }
+
+  if (evt.type === "assistant" && evt.message) {
+    const turnId = startTurnIfNeeded(emit);
+    const msgId = evt.message.id;
+
+    // Walk the content blocks IN ORDER so the UI can interleave text and
+    // tool calls exactly as the agent produced them (text → tool → text →
+    // tool …) instead of bucketing all tools above all text.
+    //
+    // Text dedup: Claude re-sends the complete accumulated text for each
+    // content block on every line, and a single message can hold MORE THAN
+    // ONE text block (e.g. when split by a tool_use). So we key the
+    // already-emitted text by (msgId, block index) — a stable per-slot key —
+    // and emit only each slot's new suffix. We pass a stable per-block
+    // `deltaKey` as the delta's `msgId` so the store groups a block's deltas
+    // into one text item while keeping separate blocks (and separate
+    // messages) as separate items.
+    let blockIdx = -1;
+    for (const c of evt.message.content ?? []) {
+      blockIdx += 1;
+      if (c.type === "text") {
+        const deltaKey = `${msgId}:${blockIdx}`;
+        const previous = state.emittedText.get(deltaKey) ?? "";
+        if (c.text.length > previous.length) {
+          const delta = c.text.slice(previous.length);
+          state.emittedText.set(deltaKey, c.text);
+          emit({ kind: "message-delta", turnId, msgId: deltaKey, text: delta });
+        }
+      } else if (c.type === "tool_use") {
+        // AskUserQuestion is special: render it as answerable buttons, not
+        // a plain tool card. In the per-turn model the agent process exits
+        // after asking; the user's choice becomes the next turn.
+        if (c.name === "AskUserQuestion") {
+          const questions = parseAskUserQuestion(c.input);
+          if (questions) {
+            emit({ kind: "question", turnId, callId: c.id, questions });
+            continue;
+          }
+        }
+        emit({
+          kind: "tool-call",
+          turnId,
+          callId: c.id,
+          name: c.name,
+          input: c.input,
+        });
+      }
+    }
+    return;
+  }
+
+  // tool_result payloads arrive in user-role messages, before the `result` line
+  if (evt.type === "user" && evt.message) {
+    for (const c of evt.message.content ?? []) {
+      if (c.type === "tool_result") {
+        emit({
+          kind: "tool-result",
+          callId: c.tool_use_id,
+          ok: !c.is_error, // undefined is_error → not an error → ok: true
+          output: c.content,
+        });
+      }
+    }
+    return;
+  }
+
+  if (evt.type === "permission_request" && evt.prompt_id != null && evt.tool != null) {
+    emit({
+      kind: "permission-request",
+      promptId: evt.prompt_id,
+      tool: evt.tool,
+      args: evt.args ?? {},
+      scope: evt.scope ?? "unknown", // older Claude versions may omit scope
+    });
+    return;
+  }
+
+  if (evt.type === "permission_decision" && evt.prompt_id != null && evt.decision != null) {
+    emit({
+      kind: "permission-decided",
+      promptId: evt.prompt_id,
+      decision: evt.decision,
+    });
+    return;
+  }
+
+  if (evt.type === "result") {
+    const turnId = state.turnId ?? startTurnIfNeeded(emit);
+    if (evt.is_error) {
+      emit({
+        kind: "error",
+        turnId,
+        message: "claude reported error result",
+        recoverable: false,
+      });
+    }
+    emit({ kind: "turn-end", turnId, endedAt: Date.now() });
+    state.turnId = null;
+    state.emittedText.clear();
+    return;
+  }
+};
+
+const parseChunk = (
+  chunk: Uint8Array,
+  emit: (e: ChatEvent) => void,
+): void => {
+  state.buf += state.decoder.decode(chunk, { stream: true });
+  let nl: number;
+  while ((nl = state.buf.indexOf("\n")) >= 0) {
+    const line = state.buf.slice(0, nl);
+    state.buf = state.buf.slice(nl + 1);
+    handleLine(line, emit);
+  }
+};
+
+// Map our UI-facing PermissionMode to claude's --permission-mode value.
+// Only non-prompting modes are offered: non-interactive -p mode can't show
+// a y/n dialog, so a prompting mode (default) would silently block.
+const CLI_PERMISSION_MODE: Record<string, string> = {
+  full: "bypassPermissions",
+  plan: "plan",
+};
+
+// Claude's structured-output mode is one-shot: `claude -p ... "<prompt>"`
+// reads the prompt, streams its JSON event log to stdout, and exits. Each
+// turn is a fresh process. Conversation continuity is via --session-id
+// (turn 1, establishes the id we generate) and --resume (turn 2+).
+const turnSpawnArgs = (opts: TurnSpawnOpts): SpawnArgs => {
+  const args = ["-p", "--output-format", "stream-json", "--verbose"];
+  if (opts.isFirstTurn) {
+    args.push("--session-id", opts.sessionId);
+  } else {
+    args.push("--resume", opts.sessionId);
+  }
+  args.push(
+    "--permission-mode",
+    CLI_PERMISSION_MODE[opts.permissionMode] ?? "bypassPermissions",
+  );
+  // Prompt is the final positional argument.
+  args.push(opts.prompt);
+  return { cmd: "claude", args, env: {}, cwd: opts.cwd };
+};
+
+export const claudeAdapter: AgentAdapter = {
+  id: "claude",
+  supportsChat: true,
+  turnSpawnArgs,
+  parseChunk,
+};
+
+/**
+ * Reset adapter state for tests. NOT for production use — production
+ * has exactly one Chat session per renderer, so state lifetime equals
+ * the page lifetime. Tests that drive the adapter sequentially need
+ * this hook to avoid cross-test pollution.
+ */
+export const __resetClaudeAdapterStateForTesting = (): void => {
+  state.buf = "";
+  state.turnId = null;
+  state.emittedText.clear();
+};

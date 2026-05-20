@@ -24,14 +24,17 @@ these three in order.
 
 ## Background
 
-`background.kind`:
+`background.kind` — ONLY two values:
 
 - `"gradient"` — linear from `bgColor` to `bgColor2`. The default,
   cheapest, most flexible.
 - `"shader"` — animated GPU effect (`shaderStyle: "aurora" |
   "flowField" | "mesh"`) with `motion: 0..1` and `grain: 0..1`.
-- `"image"` / `"video"` — user-supplied asset; you do NOT create these
-  beats (see render-pipeline.md for the ownership rule).
+
+There is no `"image"` or `"video"` background kind, and no
+`background.src`. For a full-frame photo or video, add an `imageClip` /
+`videoClip` beat on track 0 sized to fill the canvas — see "Adding
+media" in `layer-composition.md`.
 
 ## Per-beat color overrides
 

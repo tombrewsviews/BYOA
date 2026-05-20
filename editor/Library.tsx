@@ -13,14 +13,11 @@
  * The library is data-driven from editor/library/entries.ts. To add an
  * entry, edit that file and run `npm run library:previews`.
  *
- * Pasting into the terminal: when running inside Tauri we use the
- * pty_paste_prompt command (same path the merge-conflict flow uses) so
- * the prompt lands in the agent's terminal directly. In the browser we
- * fall back to clipboard.writeText().
+ * Copy prompt routing: handled by the shell's `copyPromptToAgent` — it
+ * lands in the chat composer in chat view, the terminal pty in terminal
+ * view, or the clipboard in the browser, and reveals the target panel.
  */
 import React, { useMemo, useState } from "react";
-import { isTauri } from "./runtime";
-import { getActivePtyId } from "./terminal";
 import { useShellActions } from "./shell";
 import { ENTRIES, type LibraryEntry } from "./library/entries";
 import {
@@ -53,13 +50,11 @@ const PREVIEW_URLS = import.meta.glob("./library/previews/*.mp4", {
 const previewUrl = (slug: string): string | undefined =>
   PREVIEW_URLS[`./library/previews/${slug}.mp4`];
 
-export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
-  onCopy,
-}) => {
+export const Library: React.FC = () => {
   const [filter, setFilter] = useState<LibraryEntry["category"] | "All">("All");
   const [focused, setFocused] = useState<LibraryEntry | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const { focusTerminal } = useShellActions();
+  const { copyPromptToAgent } = useShellActions();
 
   const filtered = useMemo(
     () => (filter === "All" ? ENTRIES : ENTRIES.filter((e) => e.category === filter)),
@@ -67,25 +62,23 @@ export const Library: React.FC<{ onCopy?: (prompt: string) => void }> = ({
   );
 
   const copyPrompt = async (entry: LibraryEntry) => {
-    onCopy?.(entry.prompt);
-    if (isTauri()) {
-      const ptyId = getActivePtyId();
-      if (ptyId) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("pty_paste_prompt", { id: ptyId, text: entry.prompt });
-        // Hand keyboard control back: switch to the terminal tab and
-        // focus xterm so the user can hit Enter immediately.
-        focusTerminal();
-        setToast("Pasted into terminal");
-        setTimeout(() => setToast(null), 1600);
-        return;
-      }
+    // The shell decides where it lands (chat composer / terminal /
+    // clipboard) based on the current view mode, and reveals the panel.
+    const where = await copyPromptToAgent(entry.prompt);
+    if (where === "chat") {
+      setToast("Added to chat");
+      setTimeout(() => setToast(null), 1600);
+      return;
     }
-    try {
-      await navigator.clipboard.writeText(entry.prompt);
+    if (where === "terminal") {
+      setToast("Pasted into terminal");
+      setTimeout(() => setToast(null), 1600);
+      return;
+    }
+    if (where === "clipboard") {
       setToast("Copied to clipboard");
       setTimeout(() => setToast(null), 1600);
-    } catch {
+    } else {
       setToast("Copy failed — select the prompt manually");
       setTimeout(() => setToast(null), 2400);
     }

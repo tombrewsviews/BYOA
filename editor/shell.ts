@@ -11,15 +11,25 @@
  */
 import { createContext, useContext } from "react";
 
+/** Where a copied prompt ended up. Lets callers tailor their toast. */
+export type PromptCopyResult = "chat" | "terminal" | "clipboard" | "failed";
+
 export type ShellActions = {
   /** Switch the left-column tab to the terminal and focus it. Use
    *  this after any action that should hand keyboard control back to
    *  the agent (paste-prompt from Library, dismiss a modal, etc). */
   focusTerminal: () => void;
+  /** Route a prompt to the active agent input: the chat composer when
+   *  in chat view, the terminal pty when in terminal view, falling back
+   *  to the clipboard in the browser. Owns the tab switch so the target
+   *  panel is revealed. The single entry point for "copy prompt" so the
+   *  routing decision lives in one place (the shell). */
+  copyPromptToAgent: (prompt: string) => Promise<PromptCopyResult>;
 };
 
 const noop: ShellActions = {
   focusTerminal: () => {},
+  copyPromptToAgent: async () => "failed",
 };
 
 export const ShellActionsContext = createContext<ShellActions>(noop);
