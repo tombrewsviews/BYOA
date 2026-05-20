@@ -38,10 +38,12 @@ agent should never be surprised by export.
   `Composition.tsx` in the project — the studio owns it. Creating
   `.tsx` files in the project root is a no-op.
 - **fps / width / height.** Not your knobs.
-- **`videoClip` / `imageClip` beats.** The user owns these — they
-  import via the studio's `+ Video` / `+ Image` buttons. You may
-  reference them and retime them, but never invent `videoSrc` /
-  `imageSrc` paths. See `layer-composition.md` for the retime rules.
+
+(Adding `videoClip` / `imageClip` media beats IS your job — copy/download
+the file into the project, then point `videoSrc` / `imageSrc` at it. See
+"Adding media" in `layer-composition.md`. The only rule is that the file
+must really exist on disk; don't invent a path to a file you didn't put
+there.)
 
 ## Project preview
 
