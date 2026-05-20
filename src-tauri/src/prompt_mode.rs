@@ -52,6 +52,23 @@ pub fn get_prompt_mode(state: State<'_, AppState>) -> Result<String, String> {
     }
 }
 
+/// Seed `<project>/.kinetic-studio/prompt-mode` with the default if it
+/// doesn't exist yet. Called on project open so the agent's skill — which
+/// reads this file FIRST on every turn — never hits a missing-file error
+/// on a fresh project. (The mode is otherwise only written when the user
+/// clicks a prompt-mode button.) Best-effort: a failure here is non-fatal,
+/// the agent falls back to the same "append" default.
+pub fn ensure_seeded(project_path: &std::path::Path) {
+    let file = project_path.join(".kinetic-studio").join("prompt-mode");
+    if file.exists() {
+        return;
+    }
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&file, format!("{}\n", DEFAULT_MODE));
+}
+
 #[tauri::command]
 pub fn set_prompt_mode(
     mode: String,

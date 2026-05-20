@@ -154,6 +154,7 @@ pub fn projects_create(name: String) -> Result<ProjectMeta, String> {
         .map_err(|e| format!("mkdir meta: {}", e))?;
     crate::skill::write(&dir, canvas.skill_bundle())
         .map_err(|e| format!("write skill: {}", e))?;
+    crate::prompt_mode::ensure_seeded(&dir);
 
     let display_name = if name.trim().is_empty() {
         "Untitled".into()
@@ -192,6 +193,7 @@ pub fn project_open(
         .map_err(|e| format!("watcher: {}", e))?;
     crate::skill::write(&path_buf, canvas.skill_bundle())
         .map_err(|e| format!("write skill: {}", e))?;
+    crate::prompt_mode::ensure_seeded(&path_buf);
 
     let mut active = state.active_project.lock().unwrap();
     *active = Some(ActiveProject {
