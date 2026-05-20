@@ -1,8 +1,53 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   type PermissionMode,
   PERMISSION_MODES,
 } from "./adapters/types";
+
+/**
+ * The mounted chat input, exposed module-side so app-level shortcuts
+ * (e.g. Opt+C in chat mode) can focus it programmatically — mirrors
+ * `focusActiveTerminal` in terminal.tsx. Single composer at a time, so
+ * a module mutable is fine. Set on mount, cleared on unmount.
+ */
+let _activeChatInput: HTMLTextAreaElement | null = null;
+export const focusActiveChatInput = (): void => {
+  _activeChatInput?.focus();
+};
+
+/**
+ * Append text into the chat composer (e.g. when the user copies a prompt
+ * from the Library while in chat view — the chat analog of
+ * `pty_paste_prompt`). Appends rather than replaces so an in-progress
+ * draft isn't clobbered.
+ *
+ * The composer is NOT always mounted: switching to the Library tab
+ * unmounts it. So when no composer is live we stash the text in a pending
+ * buffer that the next-mounted composer drains. This always "handles" the
+ * prompt (returns nothing) — the caller is expected to also reveal the
+ * chat panel so the buffer gets consumed.
+ */
+let _appendActiveChatInput: ((text: string) => void) | null = null;
+let _pendingChatPrompt: string | null = null;
+
+export const queueChatPrompt = (text: string): void => {
+  if (_appendActiveChatInput) {
+    _appendActiveChatInput(text);
+    _activeChatInput?.focus();
+  } else {
+    // No live composer (Library tab is showing). Buffer for next mount.
+    _pendingChatPrompt = _pendingChatPrompt
+      ? `${_pendingChatPrompt}\n${text}`
+      : text;
+  }
+};
+
+/** Test-only: reset module state between cases. */
+export const __resetComposerModuleStateForTesting = (): void => {
+  _activeChatInput = null;
+  _appendActiveChatInput = null;
+  _pendingChatPrompt = null;
+};
 
 interface Props {
   disabled: boolean;
@@ -24,6 +69,28 @@ export const Composer: React.FC<Props> = ({
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [dropActive, setDropActive] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Expose this composer's textarea + an append-text setter for app-level
+  // actions (Opt+C focus, Library "copy prompt" paste), and drain any
+  // prompt that was queued while this composer was unmounted (the user
+  // copied from the Library tab, which swaps the chat panel out).
+  useEffect(() => {
+    _activeChatInput = inputRef.current;
+    _appendActiveChatInput = (incoming: string) =>
+      setText((prev) => (prev ? `${prev}\n${incoming}` : incoming));
+    if (_pendingChatPrompt) {
+      const queued = _pendingChatPrompt;
+      _pendingChatPrompt = null;
+      setText((prev) => (prev ? `${prev}\n${queued}` : queued));
+      // Focus once the textarea has the queued text.
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+    return () => {
+      if (_activeChatInput === inputRef.current) _activeChatInput = null;
+      _appendActiveChatInput = null;
+    };
+  }, []);
 
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
@@ -170,6 +237,7 @@ export const Composer: React.FC<Props> = ({
         </div>
       ) : null}
       <textarea
+        ref={inputRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
@@ -202,53 +270,43 @@ export const Composer: React.FC<Props> = ({
         <button
           onClick={() => void openFilePicker()}
           title="Attach files"
+          aria-label="Attach files"
           style={{
-            padding: "6px 10px",
+            padding: "6px 12px",
             borderRadius: 6,
             border: "1px solid #2a2a36",
             background: "transparent",
             color: "#cdcdd8",
             cursor: "pointer",
-            fontSize: 13,
+            fontSize: 16,
+            lineHeight: 1,
           }}
         >
-          Attach
+          +
         </button>
 
-        <label
+        <select
+          value={permissionMode}
+          onChange={(e) =>
+            onPermissionModeChange(e.target.value as PermissionMode)
+          }
+          title="What the agent is allowed to do this turn"
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
+            background: "#13131a",
+            border: "1px solid #2a2a36",
+            borderRadius: 6,
+            color: "#e4e4ee",
             fontSize: 12,
-            color: "#a4a4b4",
+            padding: "4px 6px",
+            cursor: "pointer",
           }}
         >
-          <span>Mode</span>
-          <select
-            value={permissionMode}
-            onChange={(e) =>
-              onPermissionModeChange(e.target.value as PermissionMode)
-            }
-            title="What the agent is allowed to do this turn"
-            style={{
-              background: "#13131a",
-              border: "1px solid #2a2a36",
-              borderRadius: 6,
-              color: "#e4e4ee",
-              fontSize: 12,
-              padding: "4px 6px",
-              cursor: "pointer",
-            }}
-          >
-            {PERMISSION_MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label} — {m.hint}
-              </option>
-            ))}
-          </select>
-        </label>
+          {PERMISSION_MODES.map((m) => (
+            <option key={m.value} value={m.value} title={m.hint}>
+              {m.label}
+            </option>
+          ))}
+        </select>
 
         <div style={{ flex: 1 }} />
 
@@ -258,29 +316,30 @@ export const Composer: React.FC<Props> = ({
             style={{
               padding: "6px 12px",
               borderRadius: 6,
-              border: "1px solid #ef4444",
+              border: "1px solid #2a2a36",
               background: "transparent",
-              color: "#ef4444",
+              color: "#cdcdd8",
               cursor: "pointer",
             }}
           >
             Stop
           </button>
-        ) : null}
-        <button
-          onClick={submit}
-          disabled={!canSend}
-          style={{
-            padding: "6px 14px",
-            borderRadius: 6,
-            border: "none",
-            background: canSend ? "#7c5cff" : "#3a3a48",
-            color: "#fff",
-            cursor: canSend ? "pointer" : "not-allowed",
-          }}
-        >
-          Send
-        </button>
+        ) : (
+          <button
+            onClick={submit}
+            disabled={!canSend}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 6,
+              border: "none",
+              background: canSend ? "#7c5cff" : "#3a3a48",
+              color: "#fff",
+              cursor: canSend ? "pointer" : "not-allowed",
+            }}
+          >
+            Send
+          </button>
+        )}
       </div>
     </div>
   );

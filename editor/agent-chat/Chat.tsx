@@ -17,6 +17,7 @@ import { ToolCard } from "./ToolCard";
 import { QuestionCard } from "./QuestionCard";
 import { Composer } from "./Composer";
 import { SessionToolbar } from "./SessionToolbar";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 
 interface Props {
   agentId: AgentId;
@@ -177,6 +178,17 @@ export const Chat: React.FC<Props> = ({
 
   const running = activeTurnId !== null;
 
+  // Show the "thinking" loader while a turn is in flight but isn't
+  // actively streaming text right now: the gap after send (before the
+  // first event), an empty turn, or the pause between a tool call/result
+  // and the agent's next message. Hidden while text is streaming, since
+  // the live-typing cursor is feedback enough.
+  const lastTurn = state.turns[state.turns.length - 1];
+  const lastItem = lastTurn?.items[lastTurn.items.length - 1];
+  const streamingText =
+    lastTurn?.status === "streaming" && lastItem?.type === "text";
+  const showThinking = running && !streamingText;
+
   if (!supported) {
     return (
       <div
@@ -220,7 +232,6 @@ export const Chat: React.FC<Props> = ({
         agentLabel={agentLabel}
         cwd={cwd}
         sessionAlive={state.turns.length > 0 || running}
-        onSwitchToTerminal={onSwitchToTerminal}
         onEndSession={endSession}
       />
       <div
@@ -275,15 +286,19 @@ export const Chat: React.FC<Props> = ({
           return (
             <React.Fragment key={t.turnId}>
               {userBubble ? <UserMessage text={userBubble.text} /> : null}
-              {t.toolCalls.map((c) => (
-                <ToolCard key={c.callId} call={c} />
-              ))}
-              {t.assistantText ? (
-                <Message
-                  text={t.assistantText}
-                  streaming={t.status === "streaming"}
-                />
-              ) : null}
+              {t.items.map((item, i) =>
+                item.type === "tool" ? (
+                  <ToolCard key={item.call.callId} call={item.call} />
+                ) : (
+                  <Message
+                    key={`${item.msgId}-${i}`}
+                    text={item.text}
+                    streaming={
+                      t.status === "streaming" && i === t.items.length - 1
+                    }
+                  />
+                ),
+              )}
               {t.errorMessage ? (
                 <div
                   style={{
@@ -304,6 +319,7 @@ export const Chat: React.FC<Props> = ({
         {userBubbles.length > state.turns.length ? (
           <UserMessage text={userBubbles[userBubbles.length - 1].text} />
         ) : null}
+        {showThinking ? <ThinkingIndicator /> : null}
         {state.pendingQuestion && !running ? (
           <QuestionCard
             questions={state.pendingQuestion.questions}

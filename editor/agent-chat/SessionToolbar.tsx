@@ -3,7 +3,6 @@ import React from "react";
 interface Props {
   agentLabel: string;
   cwd: string;
-  onSwitchToTerminal: () => void;
   onEndSession: () => void;
   sessionAlive: boolean;
 }
@@ -11,7 +10,6 @@ interface Props {
 export const SessionToolbar: React.FC<Props> = ({
   agentLabel,
   cwd,
-  onSwitchToTerminal,
   onEndSession,
   sessionAlive,
 }) => (
@@ -55,21 +53,8 @@ export const SessionToolbar: React.FC<Props> = ({
           cursor: "pointer",
         }}
       >
-        End
+        Clear
       </button>
     ) : null}
-    <button
-      onClick={onSwitchToTerminal}
-      style={{
-        padding: "3px 8px",
-        borderRadius: 4,
-        border: "1px solid #3a3a48",
-        background: "transparent",
-        color: "#cdcdd8",
-        cursor: "pointer",
-      }}
-    >
-      Terminal
-    </button>
   </div>
 );

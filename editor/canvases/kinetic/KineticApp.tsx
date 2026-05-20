@@ -29,6 +29,10 @@ import { type PlayerRef } from "@remotion/player";
 import { Transport } from "../../player";
 import { Terminal, focusActiveTerminal, getActivePtyId } from "../../terminal";
 import { Chat } from "../../agent-chat/Chat";
+import {
+  focusActiveChatInput,
+  queueChatPrompt,
+} from "../../agent-chat/Composer";
 import { ShellActionsContext, type ShellActions } from "../../shell";
 import { perf, PerfOverlay } from "../../PerfOverlay";
 import { isTauri } from "../../runtime";
@@ -79,6 +83,11 @@ const EditorView: React.FC<{
   const [leftTab, setLeftTab] = useState<"terminal" | "secondary">("terminal");
 
   const [viewMode, setViewMode] = useState<"terminal" | "chat">("terminal");
+  // Mirror of viewMode for the global keydown listener, whose effect does
+  // NOT depend on viewMode (re-subscribing on every toggle is wasteful).
+  // Opt+C reads this ref to decide terminal-vs-chat focus.
+  const viewModeRef = useRef<"terminal" | "chat">(viewMode);
+  viewModeRef.current = viewMode;
   const [defaultAgentId, setDefaultAgentId] = useState<
     "claude" | "codex" | "gemini" | null
   >(null);
@@ -336,7 +345,9 @@ const EditorView: React.FC<{
       // Both call stopImmediatePropagation so downstream consumers
       // (xterm, native inputs) never see them.
 
-      // Opt+C — jump focus to the terminal.
+      // Opt+C — jump focus to the agent input. Mode-aware: focuses the
+      // terminal in terminal view, or the chat composer in chat view.
+      // Works globally regardless of where focus currently is.
       if (
         e.code === "KeyC" &&
         e.altKey &&
@@ -346,8 +357,12 @@ const EditorView: React.FC<{
       ) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        setLeftTab("terminal");
-        requestAnimationFrame(() => focusActiveTerminal());
+        setLeftTab("terminal"); // the terminal/chat panel lives in this tab
+        if (viewModeRef.current === "chat") {
+          requestAnimationFrame(() => focusActiveChatInput());
+        } else {
+          requestAnimationFrame(() => focusActiveTerminal());
+        }
         return;
       }
 
@@ -487,6 +502,32 @@ const EditorView: React.FC<{
       focusTerminal: () => {
         setLeftTab("terminal");
         requestAnimationFrame(() => focusActiveTerminal());
+      },
+      copyPromptToAgent: async (prompt) => {
+        // Reveal the agent panel (Library tab swaps it out) regardless of
+        // mode, then route by the current view mode.
+        setLeftTab("terminal");
+        if (viewModeRef.current === "chat") {
+          // The Chat/Composer may be mounting this tick; queueChatPrompt
+          // buffers the text and the composer drains it on mount.
+          queueChatPrompt(prompt);
+          return "chat";
+        }
+        if (isTauri()) {
+          const ptyId = getActivePtyId();
+          if (ptyId) {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("pty_paste_prompt", { id: ptyId, text: prompt });
+            requestAnimationFrame(() => focusActiveTerminal());
+            return "terminal";
+          }
+        }
+        try {
+          await navigator.clipboard.writeText(prompt);
+          return "clipboard";
+        } catch {
+          return "failed";
+        }
       },
     }),
     [],
@@ -663,15 +704,24 @@ const EditorView: React.FC<{
                 ))}
               </div>
             )}
-            <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* Terminal/Chat toggle on its OWN row so it never overlaps
+                  the chat session toolbar / project path below it. */}
               <div
                 style={{
-                  position: "absolute",
-                  top: 4,
-                  right: 8,
-                  zIndex: 10,
                   display: "flex",
+                  justifyContent: "flex-start",
                   gap: 4,
+                  padding: "4px 8px",
+                  borderBottom: "1px solid #1c1c26",
+                  flex: "0 0 auto",
                 }}
               >
                 <button
@@ -705,40 +755,43 @@ const EditorView: React.FC<{
                   Chat
                 </button>
               </div>
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display:
-                    (leftTab === "terminal" || !SecondaryTab) &&
-                    viewMode === "terminal"
-                      ? "block"
-                      : "none",
-                }}
-              >
-                <Terminal />
-              </div>
-              {(leftTab === "terminal" || !SecondaryTab) &&
-              viewMode === "chat" ? (
+              {/* Content area: the absolutely-positioned panels stack here. */}
+              <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
                 <div
                   style={{
                     position: "absolute",
                     inset: 0,
+                    display:
+                      (leftTab === "terminal" || !SecondaryTab) &&
+                      viewMode === "terminal"
+                        ? "block"
+                        : "none",
                   }}
                 >
-                  <Chat
-                    agentId={defaultAgentId ?? "claude"}
-                    agentLabel={agentLabelFor(defaultAgentId ?? "claude")}
-                    cwd={project.path}
-                    onSwitchToTerminal={() => persistViewMode("terminal")}
-                  />
+                  <Terminal />
                 </div>
-              ) : null}
-              {SecondaryTab && leftTab === "secondary" && (
-                <div style={{ position: "absolute", inset: 0 }}>
-                  <SecondaryTab.Component />
-                </div>
-              )}
+                {(leftTab === "terminal" || !SecondaryTab) &&
+                viewMode === "chat" ? (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                    }}
+                  >
+                    <Chat
+                      agentId={defaultAgentId ?? "claude"}
+                      agentLabel={agentLabelFor(defaultAgentId ?? "claude")}
+                      cwd={project.path}
+                      onSwitchToTerminal={() => persistViewMode("terminal")}
+                    />
+                  </div>
+                ) : null}
+                {SecondaryTab && leftTab === "secondary" && (
+                  <div style={{ position: "absolute", inset: 0 }}>
+                    <SecondaryTab.Component />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

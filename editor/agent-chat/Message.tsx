@@ -71,21 +71,23 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
       {text}
     </ReactMarkdown>
     {streaming ? (
-      // TODO: `agentchat-pulse` @keyframes is not yet defined globally —
-      // until then, the cursor renders as a static block. Add the
-      // keyframe in a global stylesheet if visible polish is desired.
-      <span
-        aria-hidden
-        style={{
-          display: "inline-block",
-          width: 8,
-          height: 14,
-          background: "#7c5cff",
-          marginLeft: 3,
-          verticalAlign: "text-bottom",
-          animation: "agentchat-pulse 1s steps(2) infinite",
-        }}
-      />
+      <>
+        <style>{`
+          @keyframes agentchat-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+        `}</style>
+        <span
+          aria-hidden
+          style={{
+            display: "inline-block",
+            width: 8,
+            height: 14,
+            background: "#7c5cff",
+            marginLeft: 3,
+            verticalAlign: "text-bottom",
+            animation: "agentchat-pulse 1s steps(2) infinite",
+          }}
+        />
+      </>
     ) : null}
   </div>
 );
