@@ -32,7 +32,7 @@ export interface AgentQuestion {
 
 export type ChatEvent =
   | { kind: "turn-start"; turnId: string; startedAt: number }
-  | { kind: "message-delta"; turnId: string; text: string }
+  | { kind: "message-delta"; turnId: string; msgId: string; text: string }
   | { kind: "message-end"; turnId: string }
   | {
       kind: "tool-call";

@@ -13,6 +13,7 @@ describe("ChatEvent guards", () => {
     const e: ChatEvent = {
       kind: "message-delta",
       turnId: "t1",
+      msgId: "m1",
       text: "hi",
     };
     expect(isMessageDelta(e)).toBe(true);
@@ -25,6 +26,7 @@ describe("ChatEvent guards", () => {
     const e: ChatEvent = {
       kind: "message-delta",
       turnId: "t1",
+      msgId: "m1",
       text: "hi",
     };
     expect(isToolCall(e)).toBe(false);

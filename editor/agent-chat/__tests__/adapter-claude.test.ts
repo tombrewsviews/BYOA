@@ -239,3 +239,56 @@ describe("claudeAdapter.parseChunk — AskUserQuestion", () => {
     expect(events.find(isToolCall)).toBeDefined();
   });
 });
+
+describe("claudeAdapter.parseChunk — interleaving order", () => {
+  it("emits text and tool blocks in content order, not tools-first", () => {
+    // One assistant message whose content is text → tool_use → text.
+    // The adapter must emit them in that order so the UI can interleave
+    // them; the old behaviour emitted all text first, then all tools.
+    const line =
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_mix",
+          role: "assistant",
+          content: [
+            { type: "text", text: "Let me read it." },
+            {
+              type: "tool_use",
+              id: "toolu_1",
+              name: "Read",
+              input: { file_path: "/x" },
+            },
+            { type: "text", text: " Done." },
+          ],
+        },
+      }) + "\n";
+    const events = collect(new TextEncoder().encode(line));
+    // Drop the synthetic turn-start so we compare only content emissions.
+    const content = events.filter((e) => e.kind !== "turn-start");
+    expect(content.map((e) => e.kind)).toEqual([
+      "message-delta",
+      "tool-call",
+      "message-delta",
+    ]);
+    expect((content[0] as { text: string }).text).toBe("Let me read it.");
+    expect((content[2] as { text: string }).text).toBe(" Done.");
+  });
+
+  it("carries msgId on message-delta for store-side text grouping", () => {
+    const line =
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_id_check",
+          role: "assistant",
+          content: [{ type: "text", text: "hi" }],
+        },
+      }) + "\n";
+    const events = collect(new TextEncoder().encode(line));
+    const delta = events.find(isMessageDelta);
+    expect(delta).toBeDefined();
+    // Per-block key: messageId:blockIndex (first block → :0).
+    expect(delta!.msgId).toBe("msg_id_check:0");
+  });
+});

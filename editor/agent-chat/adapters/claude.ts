@@ -131,27 +131,30 @@ const handleLine = (line: string, emit: (e: ChatEvent) => void): void => {
     const turnId = startTurnIfNeeded(emit);
     const msgId = evt.message.id;
 
-    // Aggregate all text blocks at once (Claude re-sends complete
-    // accumulated text on each line). Emit the unseen suffix as a
-    // single message-delta keyed by message id.
-    const fullText =
-      evt.message.content
-        ?.filter(
-          (x): x is { type: "text"; text: string } => x.type === "text",
-        )
-        .map((x) => x.text)
-        .join("") ?? "";
-    const previous = state.emittedText.get(msgId) ?? "";
-    if (fullText.length > previous.length) {
-      const delta = fullText.slice(previous.length);
-      state.emittedText.set(msgId, fullText);
-      emit({ kind: "message-delta", turnId, text: delta });
-    }
-
-    // Loop for the heterogeneous content blocks that ARE per-block:
-    // tool_use (and, later, others). Text is handled above.
+    // Walk the content blocks IN ORDER so the UI can interleave text and
+    // tool calls exactly as the agent produced them (text → tool → text →
+    // tool …) instead of bucketing all tools above all text.
+    //
+    // Text dedup: Claude re-sends the complete accumulated text for each
+    // content block on every line, and a single message can hold MORE THAN
+    // ONE text block (e.g. when split by a tool_use). So we key the
+    // already-emitted text by (msgId, block index) — a stable per-slot key —
+    // and emit only each slot's new suffix. We pass a stable per-block
+    // `deltaKey` as the delta's `msgId` so the store groups a block's deltas
+    // into one text item while keeping separate blocks (and separate
+    // messages) as separate items.
+    let blockIdx = -1;
     for (const c of evt.message.content ?? []) {
-      if (c.type === "tool_use") {
+      blockIdx += 1;
+      if (c.type === "text") {
+        const deltaKey = `${msgId}:${blockIdx}`;
+        const previous = state.emittedText.get(deltaKey) ?? "";
+        if (c.text.length > previous.length) {
+          const delta = c.text.slice(previous.length);
+          state.emittedText.set(deltaKey, c.text);
+          emit({ kind: "message-delta", turnId, msgId: deltaKey, text: delta });
+        }
+      } else if (c.type === "tool_use") {
         // AskUserQuestion is special: render it as answerable buttons, not
         // a plain tool card. In the per-turn model the agent process exits
         // after asking; the user's choice becomes the next turn.

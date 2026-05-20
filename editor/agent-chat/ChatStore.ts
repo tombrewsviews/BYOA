@@ -7,12 +7,22 @@ export interface ToolCallRecord {
   result: { ok: boolean; output: unknown } | null;
 }
 
+/**
+ * One item in a turn's ordered transcript. Text and tool calls are stored
+ * in a single sequence so the UI renders them interleaved in execution
+ * order (text → tool → text …) rather than bucketing all tools above all
+ * text. A `text` item groups consecutive deltas of the same `msgId`; a new
+ * msgId after a tool call starts a fresh text item below that tool.
+ */
+export type TurnItem =
+  | { type: "text"; msgId: string; text: string }
+  | { type: "tool"; call: ToolCallRecord };
+
 export interface TurnRecord {
   turnId: string;
   startedAt: number;
   endedAt: number | null;
-  assistantText: string;
-  toolCalls: ToolCallRecord[];
+  items: TurnItem[];
   status: "streaming" | "ended" | "errored";
   errorMessage?: string;
 }
@@ -93,8 +103,7 @@ export const createChatStore = (): ChatStore => {
                 turnId: e.turnId,
                 startedAt: e.startedAt,
                 endedAt: null,
-                assistantText: "",
-                toolCalls: [],
+                items: [],
                 status: "streaming",
               },
             ],
@@ -111,10 +120,20 @@ export const createChatStore = (): ChatStore => {
         case "message-delta": {
           const t = currentTurn();
           if (!t || t.turnId !== e.turnId) break;
-          const updated: TurnRecord = {
-            ...t,
-            assistantText: t.assistantText + e.text,
-          };
+          // Extend the last item if it's a text block for the same msgId;
+          // otherwise start a new text item (e.g. text resuming after a
+          // tool call, which arrives under a new message id).
+          const last = t.items[t.items.length - 1];
+          let items: TurnItem[];
+          if (last && last.type === "text" && last.msgId === e.msgId) {
+            items = [
+              ...t.items.slice(0, -1),
+              { ...last, text: last.text + e.text },
+            ];
+          } else {
+            items = [...t.items, { type: "text", msgId: e.msgId, text: e.text }];
+          }
+          const updated: TurnRecord = { ...t, items };
           state = {
             ...state,
             turns: [...state.turns.slice(0, -1), updated],
@@ -126,13 +145,16 @@ export const createChatStore = (): ChatStore => {
           if (!t || t.turnId !== e.turnId) break;
           const updated: TurnRecord = {
             ...t,
-            toolCalls: [
-              ...t.toolCalls,
+            items: [
+              ...t.items,
               {
-                callId: e.callId,
-                name: e.name,
-                input: e.input,
-                result: null,
+                type: "tool",
+                call: {
+                  callId: e.callId,
+                  name: e.name,
+                  input: e.input,
+                  result: null,
+                },
               },
             ],
           };
@@ -143,14 +165,20 @@ export const createChatStore = (): ChatStore => {
           break;
         }
         case "tool-result": {
+          // Patch the matching tool item by callId, wherever it sits in any
+          // turn's ordered items. Results carry only callId (not turnId), so
+          // we scan all turns — cheap given transcript sizes.
           state = {
             ...state,
             turns: state.turns.map((t) => ({
               ...t,
-              toolCalls: t.toolCalls.map((c) =>
-                c.callId === e.callId
-                  ? { ...c, result: { ok: e.ok, output: e.output } }
-                  : c,
+              items: t.items.map((it) =>
+                it.type === "tool" && it.call.callId === e.callId
+                  ? {
+                      ...it,
+                      call: { ...it.call, result: { ok: e.ok, output: e.output } },
+                    }
+                  : it,
               ),
             })),
           };
