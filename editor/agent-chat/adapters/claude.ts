@@ -204,15 +204,14 @@ const turnSpawnArgs = (opts: TurnSpawnOpts): SpawnArgs => {
   } else {
     args.push("--resume", opts.sessionId);
   }
-  if (opts.skipPermissions) {
-    args.push("--dangerously-skip-permissions");
-  } else {
-    // Non-interactive mode can't surface a y/n prompt. Without skip,
-    // claude denies tool use that needs approval. v1 chat-view defaults
-    // to skip so the agent can actually act; interactive permission
-    // dialogs are a v2 concern (needs --input-format stream-json).
-    args.push("--permission-mode", "acceptEdits");
-  }
+  // Non-interactive -p mode cannot surface a y/n permission prompt, so any
+  // mode short of full bypass leaves Reads/Bash blocked with no way to
+  // approve them (acceptEdits only auto-approves Edits/Writes — Reads still
+  // get denied). v1 chat-view therefore runs with bypassPermissions so the
+  // agent can actually act. Interactive permission dialogs are a v2 concern
+  // (needs bidirectional --input-format stream-json). `skipPermissions` is
+  // accepted for parity but bypassPermissions already covers it.
+  args.push("--permission-mode", "bypassPermissions");
   // Prompt is the final positional argument.
   args.push(opts.prompt);
   return { cmd: "claude", args, env: {}, cwd: opts.cwd };

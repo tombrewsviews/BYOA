@@ -66,19 +66,19 @@ describe("claudeAdapter.turnSpawnArgs", () => {
     expect(s!.args).not.toContain("--session-id");
   });
 
-  it("adds --dangerously-skip-permissions when requested", () => {
-    const s = claudeAdapter.turnSpawnArgs({
-      ...base,
-      isFirstTurn: true,
-      skipPermissions: true,
-    });
-    expect(s!.args).toContain("--dangerously-skip-permissions");
-  });
-
-  it("uses acceptEdits permission mode when not skipping", () => {
-    const s = claudeAdapter.turnSpawnArgs({ ...base, isFirstTurn: true });
-    expect(s!.args).toContain("--permission-mode");
-    expect(s!.args).toContain("acceptEdits");
+  it("runs with bypassPermissions (non-interactive -p can't show y/n)", () => {
+    // Both skip on and off use bypassPermissions in v1 — non-interactive
+    // mode has no way to surface a permission prompt, and anything less
+    // than full bypass leaves Reads/Bash blocked.
+    for (const skipPermissions of [false, true]) {
+      const s = claudeAdapter.turnSpawnArgs({
+        ...base,
+        isFirstTurn: true,
+        skipPermissions,
+      });
+      expect(s!.args).toContain("--permission-mode");
+      expect(s!.args).toContain("bypassPermissions");
+    }
   });
 });
 
