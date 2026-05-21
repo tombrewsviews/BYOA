@@ -20,7 +20,7 @@
 import React, { useEffect, useState } from "react";
 import { APPS, findApp, type AppManifest } from "./platform/apps";
 import { Square } from "./platform/Square";
-import { color, font, radius, secondaryBtn } from "./platform/theme";
+import { color, font, secondaryBtn } from "./platform/theme";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
@@ -85,14 +85,7 @@ const PlatformChrome: React.FC<{
           data-tauri-drag-region={false}
           onClick={onExit}
           title="Back to The Square"
-          style={{
-            ...secondaryBtn(),
-            padding: "4px 10px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: radius.md,
-          }}
+          style={secondaryBtn({ size: "sm" })}
         >
           <span style={{ fontSize: 13, lineHeight: 1 }}>⊞</span>
           The Square
