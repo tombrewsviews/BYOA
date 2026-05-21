@@ -459,7 +459,15 @@ fn stage_media(root: &Path, media: &[PathBuf]) -> Result<Vec<StagedMedia>, Strin
 /// Returns a job id immediately; the caller listens on
 /// `video://export-progress` / `video://export-done` / `video://export-error`.
 #[tauri::command]
-pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+pub fn export_video(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    scale: Option<u32>,
+) -> Result<String, String> {
+    // Render scale. 1 = quick draft (no supersampling). >1 supersamples then
+    // downscales back to delivery size to tame variable-font edge shimmer
+    // (2 ≈ 96% reduction, 3 ≈ 98%). Clamp to a sane range.
+    let scale = scale.unwrap_or(1).clamp(1, 4);
     let project = active_path(&state)?;
     let story = project.join("story.json");
     if !story.exists() {
@@ -503,22 +511,24 @@ pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String
             (PathBuf::from("npx"), vec!["remotion".into(), "render".into()])
         };
 
-        // Render at 2× and downscale to delivery size below. Supersampling is
-        // what tames the per-letter edge shimmer: at 1× the variable-font
-        // glyph edges land on fractional pixels where Chromium's text
-        // rasterizer rounds them non-deterministically frame-to-frame (~518
-        // changed px/frame in the settled hold). At 2× those edges are
-        // sampled at double density, so the post-downscale averages the
-        // ambiguity away (~15 changed px/frame — a 97% reduction) while the
-        // variable-font weight/width animation is fully preserved.
+        // Supersampling is what tames the per-letter edge shimmer: at 1× the
+        // variable-font glyph edges land on fractional pixels where Chromium's
+        // text rasterizer rounds them non-deterministically frame-to-frame
+        // (~518 changed px/frame in the settled hold). Rendering at scale N
+        // samples those edges at N× density, so the post-downscale averages
+        // the ambiguity away (2× ≈ 96%, 3× ≈ 98% reduction) while preserving
+        // the variable-font weight/width animation. scale=1 skips both
+        // (quick draft — shows the jitter but renders ~N²× faster).
         let mut cmd = Command::new(&program);
         cmd.current_dir(&root)
             .args(&base_args)
             .arg("KineticStory")
             .arg(&out_path)
-            .arg(format!("--props={}", story_arg))
-            .arg("--scale=2")
-            .stdout(Stdio::piped())
+            .arg(format!("--props={}", story_arg));
+        if scale > 1 {
+            cmd.arg(format!("--scale={}", scale));
+        }
+        cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         let mut child = match cmd.spawn() {
@@ -569,12 +579,15 @@ pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String
 
         match child.wait() {
             Ok(s) if s.success() && Path::new(&out_done).exists() => {
-                // The 2× render produced a 2160×3840 file. Downscale it back
-                // to the 1080×1920 delivery size with a high-quality (lanczos)
-                // filter — this is the step that averages out the per-letter
-                // edge shimmer. Best-effort: if ffmpeg isn't available the
-                // 2× file is still a valid (just larger) export.
-                downscale_in_place(&out_done, 1080, 1920);
+                // A supersampled render produced an N×(1080×1920) file.
+                // Downscale it back to the 1080×1920 delivery size with a
+                // high-quality (lanczos) filter — this is the step that
+                // averages out the per-letter edge shimmer. Skipped for the
+                // 1× quick draft. Best-effort: if ffmpeg is unavailable the
+                // larger file is still a valid export.
+                if scale > 1 {
+                    downscale_in_place(&out_done, 1080, 1920);
+                }
                 let _ = app_for_thread.emit(
                     "video://export-done",
                     ExportDone {

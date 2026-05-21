@@ -47,7 +47,7 @@ import type { Story } from "../../../src/kinetic/schema";
 import type { Selection } from "../../selection";
 import { color, focusRing, font } from "../../platform/theme";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "../../icons";
+import { ArrowLeft, Download, Loader2, ChevronDown } from "../../icons";
 
 const FPS = 30;
 
@@ -87,6 +87,19 @@ const EditorView: React.FC<{
   // MP4 export: last progress line while a render is in flight, else null.
   const [exporting, setExporting] = useState<string | null>(null);
   const exportIdRef = useRef<string | null>(null);
+  // Export quality split-button menu (Quick 1× vs High-res 3×).
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [exportMenuOpen]);
 
   const [viewMode, setViewMode] = useState<"terminal" | "chat">("terminal");
   // Mirror of viewMode for the global keydown listener, whose effect does
@@ -503,9 +516,9 @@ const EditorView: React.FC<{
     return () => window.clearTimeout(timer);
   }, [doc, savedJson]);
 
-  const onExport = useCallback(() => {
+  const onExport = useCallback((scale: number = 1) => {
     if (!isTauri() || exportIdRef.current) return;
-    setExporting("starting render…");
+    setExporting(scale > 1 ? "starting high-res render…" : "starting render…");
     void (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       const { listen } = await import("@tauri-apps/api/event");
@@ -519,7 +532,7 @@ const EditorView: React.FC<{
         exportIdRef.current = null;
       };
       try {
-        const id = await invoke<string>("export_video");
+        const id = await invoke<string>("export_video", { scale });
         exportIdRef.current = id;
         offProg = await listen<{ id: string; line: string }>(
           "video://export-progress",
@@ -629,16 +642,61 @@ const EditorView: React.FC<{
           <UndoMenu history={history} />
           <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
           {isTauri() && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onExport}
-              disabled={exporting !== null}
-              title="Render this composition to an MP4"
+            <div
+              ref={exportMenuRef}
+              className="relative flex [&>button:first-child]:rounded-r-none [&>button:last-child]:rounded-l-none [&>button:last-child]:border-l [&>button:last-child]:border-l-border [&>button:last-child]:px-1.5"
             >
-              {exporting ? <Loader2 className="animate-spin" /> : <Download />}
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
+              {/* Primary click = Quick draft (1×). */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onExport(1)}
+                disabled={exporting !== null}
+                title="Quick export (1× — fast draft)"
+              >
+                {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                {exporting ? "Exporting…" : "Export"}
+              </Button>
+              {/* Caret = quality menu. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setExportMenuOpen((v) => !v)}
+                disabled={exporting !== null}
+                aria-label="Export quality"
+                title="Export quality"
+              >
+                <ChevronDown />
+              </Button>
+              {exportMenuOpen && (
+                <div className="absolute right-0 top-full z-[100] mt-1 w-44 overflow-hidden rounded-md border border-border bg-popover text-sm shadow-md">
+                  <button
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      onExport(1);
+                    }}
+                    className="flex w-full flex-col items-start px-3 py-2 text-left transition-colors hover:bg-accent"
+                  >
+                    <span className="text-foreground">Quick draft</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      1× · fast, slight shimmer
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      onExport(3);
+                    }}
+                    className="flex w-full flex-col items-start border-t border-border px-3 py-2 text-left transition-colors hover:bg-accent"
+                  >
+                    <span className="text-foreground">High res</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      3× · slower, crisp & stable
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           <span
             onClick={() => {
