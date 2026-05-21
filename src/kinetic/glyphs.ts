@@ -128,6 +128,20 @@ export const FONT_AXIS_BOUNDS: Record<
   },
 };
 
+/**
+ * Discrete named weights for NON-variable fonts. A font is "variable on
+ * weight" when its FONT_AXIS_BOUNDS wght range is non-degenerate (min < max);
+ * those use the continuous axis slider. Static fonts can only render the
+ * specific weights their file ships, so the panel shows a dropdown of these
+ * instead. SpaceGrotesk in this app is the bold-only file, so it offers a
+ * single weight; add more entries if a multi-weight static font is bundled.
+ */
+export const FONT_STATIC_WEIGHTS: Partial<
+  Record<FontFamily, { label: string; value: number }[]>
+> = {
+  SpaceGrotesk: [{ label: "Bold", value: 700 }],
+};
+
 // ---------------------------------------------------------------------------
 // Font loading — cached per family
 // ---------------------------------------------------------------------------

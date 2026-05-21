@@ -5,6 +5,7 @@ import {
   setAxisStatic,
   setAxisRange,
   isAxisAnimated,
+  staticWeightOptions,
 } from "../typography-axes";
 import type { AxisRanges } from "../../src/kinetic/schema";
 
@@ -58,5 +59,18 @@ describe("isAxisAnimated", () => {
   it("is true only when start and end differ", () => {
     expect(isAxisAnimated({ wght: [400, 400], wdth: [100, 100], slnt: [0, 0] }, "wght")).toBe(false);
     expect(isAxisAnimated({ wght: [100, 900], wdth: [100, 100], slnt: [0, 0] }, "wght")).toBe(true);
+  });
+});
+
+describe("staticWeightOptions", () => {
+  it("returns null for fonts that vary the weight axis", () => {
+    expect(staticWeightOptions("RobotoFlex")).toBeNull();
+    expect(staticWeightOptions("BricolageGrotesque")).toBeNull();
+  });
+  it("returns discrete weights for a non-variable font", () => {
+    const opts = staticWeightOptions("SpaceGrotesk");
+    expect(opts).not.toBeNull();
+    expect(opts!.length).toBeGreaterThanOrEqual(1);
+    expect(opts!.some((o) => o.value === 700)).toBe(true);
   });
 });

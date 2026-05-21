@@ -338,6 +338,80 @@ fn remotion_root(app: &AppHandle) -> Result<PathBuf, String> {
     Err("could not locate remotion.config.ts (render root)".into())
 }
 
+/// Collect the absolute media paths a story references (imageSrc / videoSrc).
+/// The CLI renderer can't load arbitrary filesystem paths — headless Chromium
+/// blocks file:// and mis-resolves absolute paths — so the export stages these
+/// into Remotion's public/ dir and the composition references them by basename
+/// via staticFile().
+fn story_media_paths(story_json: &Path) -> Vec<PathBuf> {
+    let text = match fs::read_to_string(story_json) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut paths = Vec::new();
+    if let Some(beats) = value.get("beats").and_then(|b| b.as_array()) {
+        for beat in beats {
+            for key in ["imageSrc", "videoSrc"] {
+                if let Some(p) = beat.get(key).and_then(|s| s.as_str()) {
+                    if p.starts_with('/') {
+                        paths.push(PathBuf::from(p));
+                    }
+                }
+            }
+        }
+    }
+    paths
+}
+
+/// A media file staged into Remotion's public/ dir for the duration of a
+/// render. Removed on drop so an interrupted render doesn't litter public/.
+struct StagedMedia {
+    dest: PathBuf,
+    /// True only when WE created the file (it wasn't already there) — we must
+    /// not delete a file that legitimately ships in public/.
+    owned: bool,
+}
+
+impl Drop for StagedMedia {
+    fn drop(&mut self) {
+        if self.owned {
+            let _ = fs::remove_file(&self.dest);
+        }
+    }
+}
+
+/// Copy each referenced media file into `<root>/public/<basename>`. Returns
+/// guards that clean the copies up on drop. Files already present in public/
+/// are left untouched (owned=false).
+fn stage_media(root: &Path, media: &[PathBuf]) -> Result<Vec<StagedMedia>, String> {
+    let public = root.join("public");
+    fs::create_dir_all(&public).map_err(|e| format!("create public/: {}", e))?;
+    let mut staged = Vec::new();
+    for src in media {
+        if !src.exists() {
+            // Skip missing media — the render shows the "(no image source)"
+            // placeholder rather than failing the whole export.
+            continue;
+        }
+        let basename = match src.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let dest = public.join(basename);
+        let owned = !dest.exists();
+        if owned {
+            fs::copy(src, &dest)
+                .map_err(|e| format!("stage {}: {}", src.display(), e))?;
+        }
+        staged.push(StagedMedia { dest, owned });
+    }
+    Ok(staged)
+}
+
 /// Render the active project's `story.json` to an MP4 in the project folder.
 /// Returns a job id immediately; the caller listens on
 /// `video://export-progress` / `video://export-done` / `video://export-error`.
@@ -357,8 +431,27 @@ pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String
     let out_path = out.to_string_lossy().to_string();
     let out_done = out_path.clone();
     let story_arg = story.to_string_lossy().to_string();
+    let media = story_media_paths(&story);
+    let root_for_thread = root.clone();
 
     thread::spawn(move || {
+        // Stage any project media into Remotion's public/ so staticFile() in
+        // the composition can serve it. The guards live for the whole render
+        // and remove the staged copies when this scope ends.
+        let _staged = match stage_media(&root_for_thread, &media) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("staging media failed: {}", e),
+                    },
+                );
+                return;
+            }
+        };
+
         // Prefer the project-local remotion bin; fall back to npx.
         let local_bin = root.join("node_modules/.bin/remotion");
         let (program, base_args): (PathBuf, Vec<String>) = if local_bin.exists() {
@@ -454,4 +547,42 @@ pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String
     });
 
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn story_media_paths_collects_absolute_image_and_video_src() {
+        let dir = std::env::temp_dir().join(format!("kt-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let story = dir.join("story.json");
+        let mut f = std::fs::File::create(&story).unwrap();
+        write!(
+            f,
+            r#"{{"beats":[
+                {{"kind":"imageClip","imageSrc":"/abs/pic.png"}},
+                {{"kind":"videoClip","videoSrc":"/abs/clip.mp4"}},
+                {{"kind":"reveal","text":"hi"}},
+                {{"kind":"imageClip","imageSrc":"relative.png"}}
+            ]}}"#
+        )
+        .unwrap();
+
+        let paths = story_media_paths(&story);
+        assert_eq!(paths.len(), 2, "only absolute imageSrc/videoSrc collected");
+        assert!(paths.contains(&PathBuf::from("/abs/pic.png")));
+        assert!(paths.contains(&PathBuf::from("/abs/clip.mp4")));
+        // relative paths are skipped (only leading-slash absolutes staged)
+        assert!(!paths.iter().any(|p| p.to_string_lossy().contains("relative.png")));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn story_media_paths_handles_missing_or_malformed_file() {
+        assert!(story_media_paths(Path::new("/nonexistent/story.json")).is_empty());
+    }
 }

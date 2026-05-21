@@ -37,6 +37,7 @@ import {
   setAxisStatic,
   setAxisRange,
   isAxisAnimated,
+  staticWeightOptions,
 } from "./typography-axes";
 import { writeState } from "./state";
 import { color, font, secondaryBtn } from "./platform/theme";
@@ -217,6 +218,50 @@ const AxisControl: React.FC<{
         </div>
       )}
     </div>
+  );
+};
+
+// --- TypographyAxes: weight + width + slant for a beat ----------------------
+//
+// Variable fonts get the continuous axis sliders (weight + any width/slant
+// axes the font actually varies). Non-variable fonts (e.g. SpaceGrotesk) get
+// a plain weight DROPDOWN of the discrete weights the file ships, and the
+// width/slant controls are hidden entirely — they'd be no-ops.
+
+const TypographyAxes: React.FC<{
+  axes: AxisRanges;
+  family: FontFamily;
+  onChange: (axes: AxisRanges) => void;
+}> = ({ axes, family, onChange }) => {
+  const staticWeights = staticWeightOptions(family);
+
+  if (staticWeights) {
+    // Non-variable font — discrete weight dropdown, no width/slant.
+    const current = axes.wght[0];
+    return (
+      <Row label="weight">
+        <Dropdown
+          value={String(current)}
+          options={staticWeights.map((w) => String(w.value))}
+          onChange={(v) =>
+            onChange(setAxisStatic(axes, "wght", Number(v), family))
+          }
+        />
+      </Row>
+    );
+  }
+
+  // Variable font — show weight, plus width/slant only if the font varies them.
+  return (
+    <>
+      <AxisControl label="weight" axis="wght" axes={axes} family={family} onChange={onChange} />
+      {axisSupported("wdth", family) && (
+        <AxisControl label="width" axis="wdth" axes={axes} family={family} onChange={onChange} />
+      )}
+      {axisSupported("slnt", family) && (
+        <AxisControl label="slant" axis="slnt" axes={axes} family={family} onChange={onChange} />
+      )}
+    </>
   );
 };
 
@@ -612,23 +657,7 @@ const BeatEditor: React.FC<{
           onChange={(v) => onChange({ fontFamily: v as FontFamily })}
         />
       </Row>
-      <AxisControl
-        label="weight"
-        axis="wght"
-        axes={beat.axes}
-        family={family}
-        onChange={(axes) => onChange({ axes })}
-      />
-      <AxisControl
-        label="width"
-        axis="wdth"
-        axes={beat.axes}
-        family={family}
-        onChange={(axes) => onChange({ axes })}
-      />
-      <AxisControl
-        label="slant"
-        axis="slnt"
+      <TypographyAxes
         axes={beat.axes}
         family={family}
         onChange={(axes) => onChange({ axes })}

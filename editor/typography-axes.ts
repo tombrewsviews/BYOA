@@ -10,10 +10,22 @@
  * value the font can't render. These functions are pure and side-effect-free
  * so they can be unit-tested without React.
  */
-import { FONT_AXIS_BOUNDS } from "../src/kinetic/glyphs";
+import { FONT_AXIS_BOUNDS, FONT_STATIC_WEIGHTS } from "../src/kinetic/glyphs";
 import type { FontFamily, AxisRanges } from "../src/kinetic/schema";
 
 export type AxisKey = "wght" | "wdth" | "slnt";
+
+/**
+ * Discrete weights for a non-variable font, or null when the font varies its
+ * weight axis (use the continuous slider instead). Falls back to a single
+ * "Regular" 400 entry if a static font has no explicit list.
+ */
+export const staticWeightOptions = (
+  family: FontFamily,
+): { label: string; value: number }[] | null => {
+  if (axisSupported("wght", family)) return null;
+  return FONT_STATIC_WEIGHTS[family] ?? [{ label: "Regular", value: 400 }];
+};
 
 export const axisBounds = (
   axis: AxisKey,
