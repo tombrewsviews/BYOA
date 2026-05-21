@@ -837,31 +837,13 @@ const EditorView: React.FC<{
               >
                 <button
                   onClick={() => persistViewMode("terminal")}
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    border: "1px solid #2a2a36",
-                    background:
-                      viewMode === "terminal" ? "#2a2a36" : "transparent",
-                    color: "#e4e4ee",
-                    cursor: "pointer",
-                  }}
+                  style={secondaryBtn({ active: viewMode === "terminal", size: "sm" })}
                 >
                   Terminal
                 </button>
                 <button
                   onClick={() => persistViewMode("chat")}
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    border: "1px solid #2a2a36",
-                    background:
-                      viewMode === "chat" ? "#2a2a36" : "transparent",
-                    color: "#e4e4ee",
-                    cursor: "pointer",
-                  }}
+                  style={secondaryBtn({ active: viewMode === "chat", size: "sm" })}
                 >
                   {`Chat · ${agentLabelFor(defaultAgentId ?? "claude")}`}
                 </button>

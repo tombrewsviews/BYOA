@@ -402,12 +402,7 @@ const StoryEditor: React.FC<{
                 durationInSeconds: isAuto ? derivedDuration : undefined,
               })
             }
-            style={{
-              ...secondaryBtn({ active: !isAuto }),
-              fontSize: 10,
-              padding: "2px 8px",
-              cursor: "pointer",
-            }}
+            style={secondaryBtn({ active: !isAuto, size: "sm" })}
           >
             {isAuto ? "lock" : "auto"}
           </button>

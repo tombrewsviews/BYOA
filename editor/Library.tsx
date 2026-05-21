@@ -119,10 +119,8 @@ export const Library: React.FC = () => {
               key={c}
               onClick={() => setFilter(c)}
               style={{
-                ...secondaryBtn({ active: filter === c }),
-                padding: "3px 8px",
-                fontSize: 10,
-                borderRadius: 12,
+                ...secondaryBtn({ active: filter === c, size: "sm" }),
+                borderRadius: radius.pill,
               }}
             >
               {c}

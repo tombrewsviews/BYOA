@@ -86,11 +86,7 @@ export const PromptModeBar: React.FC = () => {
           key={m}
           onClick={() => void choose(m)}
           aria-pressed={mode === m}
-          style={{
-            ...secondaryBtn({ active: mode === m }),
-            padding: "2px 8px",
-            fontSize: 10,
-          }}
+          style={secondaryBtn({ active: mode === m, size: "sm" })}
         >
           {LABELS[m]}
         </button>

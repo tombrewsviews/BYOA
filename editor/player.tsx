@@ -460,8 +460,6 @@ const TBtn: React.FC<{
     aria-pressed={ariaPressed}
     style={{
       ...secondaryBtn({ active: ariaPressed }),
-      fontSize: font.size.md,
-      padding: "5px 10px",
       minWidth: 80,
     }}
   >
