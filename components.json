@@ -15,5 +15,8 @@
     "utils": "@/lib/utils",
     "ui": "@/components/ui",
     "lib": "@/lib"
+  },
+  "registries": {
+    "@reui": "https://reui.io/r/{name}.json"
   }
 }

@@ -55,11 +55,12 @@ export const Slider: React.FC<{
 }> = ({ value, min, max, step, onChange }) => (
   <div className="flex flex-1 items-center gap-2">
     <UISlider
-      value={value}
+      value={[value]}
       min={min}
       max={max}
       step={step}
-      onValueChange={(v) => onChange(Array.isArray(v) ? v[0] : (v as number))}
+      onValueChange={(v) => onChange(v[0])}
+      className="flex-1"
     />
     <input
       type="number"
