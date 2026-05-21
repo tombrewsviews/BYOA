@@ -294,3 +294,164 @@ pub fn download_youtube(
 
     Ok(id)
 }
+
+// ---------------------------------------------------------------------------
+// MP4 export — shells out to the Remotion CLI, streaming progress exactly
+// like download_youtube above.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub id: String,
+    pub line: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDone {
+    pub id: String,
+    pub path: String,
+}
+
+/// Locate the directory that holds `remotion.config.ts` + the composition
+/// entrypoint — the render must run from there so Remotion finds its root.
+///
+/// Bundled app: the composition ships in the resource dir. Dev: walk up from
+/// the Cargo manifest dir (src-tauri/) to the repo root.
+fn remotion_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(res) = app.path().resolve("", tauri::path::BaseDirectory::Resource) {
+        if res.join("remotion.config.ts").exists() {
+            return Ok(res);
+        }
+    }
+    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..4 {
+        if dir.join("remotion.config.ts").exists() {
+            return Ok(dir);
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent.to_path_buf(),
+            None => break,
+        }
+    }
+    Err("could not locate remotion.config.ts (render root)".into())
+}
+
+/// Render the active project's `story.json` to an MP4 in the project folder.
+/// Returns a job id immediately; the caller listens on
+/// `video://export-progress` / `video://export-done` / `video://export-error`.
+#[tauri::command]
+pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+    let project = active_path(&state)?;
+    let story = project.join("story.json");
+    if !story.exists() {
+        return Err(format!("story.json not found in {}", project.display()));
+    }
+    let root = remotion_root(&app)?;
+    let out = unique_assets_path(&project, "export.mp4");
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let id_for_thread = id.clone();
+    let app_for_thread = app.clone();
+    let out_path = out.to_string_lossy().to_string();
+    let out_done = out_path.clone();
+    let story_arg = story.to_string_lossy().to_string();
+
+    thread::spawn(move || {
+        // Prefer the project-local remotion bin; fall back to npx.
+        let local_bin = root.join("node_modules/.bin/remotion");
+        let (program, base_args): (PathBuf, Vec<String>) = if local_bin.exists() {
+            (local_bin, vec!["render".into()])
+        } else {
+            (PathBuf::from("npx"), vec!["remotion".into(), "render".into()])
+        };
+
+        let mut cmd = Command::new(&program);
+        cmd.current_dir(&root)
+            .args(&base_args)
+            .arg("KineticStory")
+            .arg(&out_path)
+            .arg(format!("--props={}", story_arg))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("spawn failed: {}", e),
+                    },
+                );
+                return;
+            }
+        };
+
+        let stdout = child.stdout.take().expect("piped");
+        let stderr = child.stderr.take().expect("piped");
+        let a1 = app_for_thread.clone();
+        let i1 = id_for_thread.clone();
+        let a2 = app_for_thread.clone();
+        let i2 = id_for_thread.clone();
+
+        let h1 = thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let _ = a1.emit(
+                    "video://export-progress",
+                    ExportProgress {
+                        id: i1.clone(),
+                        line,
+                    },
+                );
+            }
+        });
+        let h2 = thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = a2.emit(
+                    "video://export-progress",
+                    ExportProgress {
+                        id: i2.clone(),
+                        line,
+                    },
+                );
+            }
+        });
+        let _ = h1.join();
+        let _ = h2.join();
+
+        match child.wait() {
+            Ok(s) if s.success() && Path::new(&out_done).exists() => {
+                let _ = app_for_thread.emit(
+                    "video://export-done",
+                    ExportDone {
+                        id: id_for_thread,
+                        path: out_done,
+                    },
+                );
+            }
+            Ok(s) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("remotion exited {}", s),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("wait failed: {}", e),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(id)
+}

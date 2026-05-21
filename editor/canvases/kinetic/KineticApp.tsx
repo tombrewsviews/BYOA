@@ -81,6 +81,9 @@ const EditorView: React.FC<{
   const playerRef = useRef<PlayerRef>(null);
   const [selection, setSelection] = useState<Selection>({ kind: "story" });
   const [leftTab, setLeftTab] = useState<"terminal" | "secondary">("terminal");
+  // MP4 export: last progress line while a render is in flight, else null.
+  const [exporting, setExporting] = useState<string | null>(null);
+  const exportIdRef = useRef<string | null>(null);
 
   const [viewMode, setViewMode] = useState<"terminal" | "chat">("terminal");
   // Mirror of viewMode for the global keydown listener, whose effect does
@@ -497,6 +500,60 @@ const EditorView: React.FC<{
     return () => window.clearTimeout(timer);
   }, [doc, savedJson]);
 
+  const onExport = useCallback(() => {
+    if (!isTauri() || exportIdRef.current) return;
+    setExporting("starting render…");
+    void (async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      let offProg: undefined | (() => void);
+      let offDone: undefined | (() => void);
+      let offErr: undefined | (() => void);
+      const cleanup = () => {
+        offProg?.();
+        offDone?.();
+        offErr?.();
+        exportIdRef.current = null;
+      };
+      try {
+        const id = await invoke<string>("export_video");
+        exportIdRef.current = id;
+        offProg = await listen<{ id: string; line: string }>(
+          "video://export-progress",
+          (e) => {
+            if (e.payload.id === id) setExporting(e.payload.line);
+          },
+        );
+        offDone = await listen<{ id: string; path: string }>(
+          "video://export-done",
+          async (e) => {
+            if (e.payload.id !== id) return;
+            setExporting(null);
+            cleanup();
+            try {
+              await invoke("project_reveal", { path: e.payload.path });
+            } catch {
+              /* best-effort — reveal is non-critical */
+            }
+          },
+        );
+        offErr = await listen<{ id: string; line: string }>(
+          "video://export-error",
+          (e) => {
+            if (e.payload.id !== id) return;
+            setExporting(null);
+            setError(`Export failed: ${e.payload.line}`);
+            cleanup();
+          },
+        );
+      } catch (e) {
+        setExporting(null);
+        setError(`Export failed to start: ${(e as Error).message}`);
+        cleanup();
+      }
+    })();
+  }, []);
+
   const shellActions = useMemo<ShellActions>(
     () => ({
       focusTerminal: () => {
@@ -565,6 +622,19 @@ const EditorView: React.FC<{
           <button onClick={onCloseProject} style={secondaryBtn()}>← Projects</button>
           <UndoMenu history={history} />
           <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
+          {isTauri() && (
+            <button
+              onClick={onExport}
+              disabled={exporting !== null}
+              style={{
+                ...secondaryBtn({ active: exporting !== null }),
+                cursor: exporting ? "default" : "pointer",
+              }}
+              title="Render this composition to an MP4"
+            >
+              {exporting ? "Exporting…" : "Export"}
+            </button>
+          )}
           <span
             onClick={() => {
               if (!isTauri()) return;
@@ -628,6 +698,27 @@ const EditorView: React.FC<{
             >
               ×
             </button>
+          </div>
+        )}
+        {exporting && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 12px",
+              background: color.bg.raised,
+              borderBottom: `1px solid ${color.border.line}`,
+              color: color.text.muted,
+              fontSize: font.size.sm,
+              fontFamily: "ui-monospace, monospace",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              flex: "0 0 auto",
+            }}
+          >
+            <span>⏳ {exporting}</span>
           </div>
         )}
         <div
