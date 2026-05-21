@@ -37,6 +37,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@base-ui-components/react": "^1.0.0-rc.0",
     "@chenglou/pretext": "^0.0.3",
     "@remotion/animation-utils": "^4.0.461",
     "@remotion/cli": "^4.0.461",
@@ -45,8 +46,11 @@
     "@remotion/zod-types": "^4.0.461",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "flubber": "^0.4.2",
+    "lucide-react": "^1.16.0",
     "opentype.js": "^2.0.0",
     "paper": "^0.12.18",
     "react": "^19.2.6",
@@ -54,6 +58,7 @@
     "react-markdown": "^10.1.0",
     "remotion": "^4.0.461",
     "svg-path-properties": "^2.0.2",
+    "tailwind-merge": "^3.6.0",
     "xterm": "^5.3.0",
     "xterm-addon-canvas": "^0.5.0",
     "xterm-addon-fit": "^0.8.0",
@@ -63,6 +68,7 @@
   "devDependencies": {
     "@remotion/bundler": "^4.0.461",
     "@remotion/renderer": "^4.0.461",
+    "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2.11.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -74,7 +80,9 @@
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^25.0.1",
+    "tailwindcss": "^4.3.0",
     "tsx": "^4.22.0",
+    "tw-animate-css": "^1.4.0",
     "typescript": "^6.0.3",
     "vite": "^6.4.2",
     "vitest": "^2.1.9"

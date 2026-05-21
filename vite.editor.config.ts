@@ -11,6 +11,7 @@
  */
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -61,7 +62,7 @@ export default defineConfig({
   // preview. Point publicDir at the repo's public/ (where the fonts live) so
   // they're served in dev AND copied into editor/dist on build.
   publicDir: path.join(PROJECT_ROOT, "public"),
-  plugins: [react(), storyJsonPlugin()],
+  plugins: [tailwindcss(), react(), storyJsonPlugin()],
   server: {
     port: 5174,
     fs: {
@@ -70,7 +71,7 @@ export default defineConfig({
     },
   },
   resolve: {
-    // make ../src imports resolve cleanly from editor/
-    alias: {},
+    // @/* resolves to editor/* (shadcn/ReUI component convention)
+    alias: { "@": path.join(PROJECT_ROOT, "editor") },
   },
 });
