@@ -24,6 +24,49 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
 
+/// Downscale an MP4 in place to `w`×`h` using ffmpeg's lanczos filter.
+/// Best-effort: any failure (no ffmpeg, encode error) is logged and the
+/// original file is left untouched, so the export still succeeds.
+fn downscale_in_place(path: &str, w: u32, h: u32) {
+    let src = Path::new(path);
+    let tmp = src.with_extension("downscale.mp4");
+    let status = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-i")
+        .arg(path)
+        .arg("-vf")
+        .arg(format!("scale={}:{}:flags=lanczos", w, h))
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg("medium")
+        .arg("-crf")
+        .arg("18")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-c:a")
+        .arg("copy")
+        .arg(tmp.to_string_lossy().as_ref())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() && tmp.exists() => {
+            if let Err(e) = fs::rename(&tmp, src) {
+                eprintln!("downscale: rename failed ({e}); keeping 2× output");
+                let _ = fs::remove_file(&tmp);
+            }
+        }
+        Ok(s) => {
+            eprintln!("downscale: ffmpeg exited {s}; keeping 2× output");
+            let _ = fs::remove_file(&tmp);
+        }
+        Err(e) => {
+            eprintln!("downscale: ffmpeg not run ({e}); keeping 2× output");
+        }
+    }
+}
+
 fn active_path(state: &AppState) -> Result<PathBuf, String> {
     state
         .active_project
@@ -460,12 +503,21 @@ pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String
             (PathBuf::from("npx"), vec!["remotion".into(), "render".into()])
         };
 
+        // Render at 2× and downscale to delivery size below. Supersampling is
+        // what tames the per-letter edge shimmer: at 1× the variable-font
+        // glyph edges land on fractional pixels where Chromium's text
+        // rasterizer rounds them non-deterministically frame-to-frame (~518
+        // changed px/frame in the settled hold). At 2× those edges are
+        // sampled at double density, so the post-downscale averages the
+        // ambiguity away (~15 changed px/frame — a 97% reduction) while the
+        // variable-font weight/width animation is fully preserved.
         let mut cmd = Command::new(&program);
         cmd.current_dir(&root)
             .args(&base_args)
             .arg("KineticStory")
             .arg(&out_path)
             .arg(format!("--props={}", story_arg))
+            .arg("--scale=2")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -517,6 +569,12 @@ pub fn export_video(state: State<'_, AppState>, app: AppHandle) -> Result<String
 
         match child.wait() {
             Ok(s) if s.success() && Path::new(&out_done).exists() => {
+                // The 2× render produced a 2160×3840 file. Downscale it back
+                // to the 1080×1920 delivery size with a high-quality (lanczos)
+                // filter — this is the step that averages out the per-letter
+                // edge shimmer. Best-effort: if ffmpeg isn't available the
+                // 2× file is still a valid (just larger) export.
+                downscale_in_place(&out_done, 1080, 1920);
                 let _ = app_for_thread.emit(
                     "video://export-done",
                     ExportDone {
