@@ -566,11 +566,31 @@ const EditorView: React.FC<{
           <UndoMenu history={history} />
           <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
           <span
+            onClick={() => {
+              if (!isTauri()) return;
+              void (async () => {
+                try {
+                  const { invoke } = await import("@tauri-apps/api/core");
+                  await invoke("project_reveal", { path: project.path });
+                } catch {
+                  /* best-effort — reveal is non-critical */
+                }
+              })();
+            }}
+            title={isTauri() ? "Reveal in Finder" : undefined}
             style={{
               marginLeft: "auto",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
+              cursor: isTauri() ? "pointer" : "default",
+              textDecoration: "none",
+            }}
+            onMouseEnter={(e) => {
+              if (isTauri()) e.currentTarget.style.textDecoration = "underline";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.textDecoration = "none";
             }}
           >
             {project.path}
@@ -752,7 +772,7 @@ const EditorView: React.FC<{
                     cursor: "pointer",
                   }}
                 >
-                  Chat
+                  {`Chat · ${agentLabelFor(defaultAgentId ?? "claude")}`}
                 </button>
               </div>
               {/* Content area: the absolutely-positioned panels stack here. */}

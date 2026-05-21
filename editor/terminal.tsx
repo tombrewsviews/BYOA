@@ -18,6 +18,25 @@ import "xterm/css/xterm.css";
 import { isTauri } from "./runtime";
 
 /**
+ * Hide xterm's native viewport scrollbar — it renders as a bright white bar
+ * over the dark UI. We only hide the visual track; scrolling via wheel and
+ * keys still works. Injected once, globally scoped to the terminal root so it
+ * never touches other scrollable panels.
+ */
+const SCROLLBAR_STYLE_ID = "kinetic-terminal-scrollbar-style";
+const ensureScrollbarStyle = (): void => {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(SCROLLBAR_STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = SCROLLBAR_STYLE_ID;
+  el.textContent = `
+[data-terminal-root] .xterm-viewport { scrollbar-width: none; }
+[data-terminal-root] .xterm-viewport::-webkit-scrollbar { width: 0; height: 0; }
+`;
+  document.head.appendChild(el);
+};
+
+/**
  * Exposed for App.tsx so the merge-conflict flow can paste a prompt
  * into the live terminal. Single-pty-at-a-time, so a module mutable
  * is fine; refactor when multi-tab terminals arrive.
@@ -43,6 +62,7 @@ const TerminalInner: React.FC = () => {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    ensureScrollbarStyle();
     if (!hostRef.current) return;
 
     const term = new XTerm({
