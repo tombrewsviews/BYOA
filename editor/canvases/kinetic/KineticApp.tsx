@@ -39,7 +39,6 @@ import { isTauri } from "../../runtime";
 import { beginColumnDrag, usePersistedColumnWidth } from "../../resize";
 import { ProjectsView, type ProjectMeta } from "./ProjectsView";
 import { useHistory } from "./history";
-import { UndoMenu } from "../../UndoMenu";
 import { FirstRun } from "../../FirstRun";
 import { PromptModeBar } from "../../PromptModeBar";
 import { activeCanvas } from "../../canvas";
@@ -47,7 +46,7 @@ import type { Story } from "../../../src/kinetic/schema";
 import type { Selection } from "../../selection";
 import { color, focusRing, font } from "../../platform/theme";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2, ChevronDown } from "../../icons";
+import { ArrowLeft, Download, Loader2, ChevronDown, Folder } from "../../icons";
 
 const FPS = 30;
 
@@ -570,6 +569,18 @@ const EditorView: React.FC<{
     })();
   }, []);
 
+  const revealProject = useCallback(() => {
+    if (!isTauri()) return;
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("project_reveal", { path: project.path });
+      } catch {
+        /* best-effort — reveal is non-critical */
+      }
+    })();
+  }, [project.path]);
+
   const shellActions = useMemo<ShellActions>(
     () => ({
       focusTerminal: () => {
@@ -621,113 +632,89 @@ const EditorView: React.FC<{
     <ShellActionsContext.Provider value={shellActions}>
       <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
         <PerfOverlay playerRef={playerRef} />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 12px",
-            background: color.bg.surface,
-            borderBottom: `1px solid ${color.border.line}`,
-            fontSize: font.size.md,
-            color: color.text.muted,
-            fontFamily: font.family,
-            flex: "0 0 auto",
-          }}
-        >
+        <div className="relative flex flex-none items-center gap-2 border-b border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
+          {/* LEFT: back to projects. */}
           <Button variant="secondary" size="sm" onClick={onCloseProject}>
             <ArrowLeft />
             Projects
           </Button>
-          <UndoMenu history={history} />
-          <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
-          {isTauri() && (
-            <div
-              ref={exportMenuRef}
-              className="relative flex [&>button:first-child]:rounded-r-none [&>button:last-child]:rounded-l-none [&>button:last-child]:border-l [&>button:last-child]:border-l-border [&>button:last-child]:px-1.5"
-            >
-              {/* Primary click = Quick draft (1×). */}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => onExport(1)}
-                disabled={exporting !== null}
-                title="Quick export (1× — fast draft)"
-              >
-                {exporting ? <Loader2 className="animate-spin" /> : <Download />}
-                {exporting ? "Exporting…" : "Export"}
-              </Button>
-              {/* Caret = quality menu. */}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setExportMenuOpen((v) => !v)}
-                disabled={exporting !== null}
-                aria-label="Export quality"
-                title="Export quality"
-              >
-                <ChevronDown />
-              </Button>
-              {exportMenuOpen && (
-                <div className="absolute right-0 top-full z-[100] mt-1 w-44 overflow-hidden rounded-md border border-border bg-popover text-sm shadow-md">
-                  <button
-                    onClick={() => {
-                      setExportMenuOpen(false);
-                      onExport(1);
-                    }}
-                    className="flex w-full flex-col items-start px-3 py-2 text-left transition-colors hover:bg-accent"
-                  >
-                    <span className="text-foreground">Quick draft</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      1× · fast, slight shimmer
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setExportMenuOpen(false);
-                      onExport(3);
-                    }}
-                    className="flex w-full flex-col items-start border-t border-border px-3 py-2 text-left transition-colors hover:bg-accent"
-                  >
-                    <span className="text-foreground">High res</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      3× · slower, crisp & stable
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          <span
-            onClick={() => {
-              if (!isTauri()) return;
-              void (async () => {
-                try {
-                  const { invoke } = await import("@tauri-apps/api/core");
-                  await invoke("project_reveal", { path: project.path });
-                } catch {
-                  /* best-effort — reveal is non-critical */
-                }
-              })();
-            }}
-            title={isTauri() ? "Reveal in Finder" : undefined}
-            style={{
-              marginLeft: "auto",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              cursor: isTauri() ? "pointer" : "default",
-              textDecoration: "none",
-            }}
-            onMouseEnter={(e) => {
-              if (isTauri()) e.currentTarget.style.textDecoration = "underline";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.textDecoration = "none";
-            }}
-          >
-            {project.path}
+
+          {/* CENTER: project name, absolutely centered in the bar. */}
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 font-semibold text-foreground">
+            {project.name}
           </span>
+
+          {/* RIGHT: folder (reveal in Finder) + Export, pinned to the edge. */}
+          <div className="ml-auto flex items-center gap-2">
+            {isTauri() && (
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                onClick={revealProject}
+                aria-label="Reveal in Finder"
+                title="Reveal in Finder"
+              >
+                <Folder />
+              </Button>
+            )}
+            {isTauri() && (
+              <div
+                ref={exportMenuRef}
+                className="relative flex [&>button:first-child]:rounded-r-none [&>button:last-child]:rounded-l-none [&>button:last-child]:border-l [&>button:last-child]:border-l-border [&>button:last-child]:px-1.5"
+              >
+                {/* Primary click = Quick draft (1×). */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onExport(1)}
+                  disabled={exporting !== null}
+                  title="Quick export (1× — fast draft)"
+                >
+                  {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                  {exporting ? "Exporting…" : "Export"}
+                </Button>
+                {/* Caret = quality menu. */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setExportMenuOpen((v) => !v)}
+                  disabled={exporting !== null}
+                  aria-label="Export quality"
+                  title="Export quality"
+                >
+                  <ChevronDown />
+                </Button>
+                {exportMenuOpen && (
+                  <div className="absolute right-0 top-full z-[100] mt-1 w-44 overflow-hidden rounded-md border border-border bg-popover text-sm shadow-md">
+                    <button
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExport(1);
+                      }}
+                      className="flex w-full flex-col items-start px-3 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="text-foreground">Quick draft</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        1× · fast, slight shimmer
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExport(3);
+                      }}
+                      className="flex w-full flex-col items-start border-t border-border px-3 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="text-foreground">High res</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        3× · slower, crisp &amp; stable
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         {error && (
           <div

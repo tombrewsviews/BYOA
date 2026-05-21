@@ -64,7 +64,7 @@ const PlatformChrome: React.FC<{
 }> = ({ app, onExit }) => (
   <div
     data-tauri-drag-region
-    className="flex flex-none select-none items-center gap-2.5 border-b border-border bg-card pr-3 text-sm text-muted-foreground"
+    className="relative flex flex-none select-none items-center gap-2.5 border-b border-border bg-card pr-3 text-sm text-muted-foreground"
     style={{
       height: CHROME_HEIGHT,
       paddingLeft: isMac ? MAC_LEFT_PAD : 12,
@@ -75,7 +75,7 @@ const PlatformChrome: React.FC<{
       <>
         <Button
           data-tauri-drag-region={false}
-          variant="secondary"
+          variant="ghost"
           size="sm"
           onClick={onExit}
           title="Back to The Square"
@@ -83,11 +83,15 @@ const PlatformChrome: React.FC<{
           <LayoutGrid />
           The Square
         </Button>
-        <span className="font-semibold text-foreground">{app.name}</span>
-        <span className="text-xs text-muted-foreground/60">v{app.version}</span>
+        {/* App name centered in the bar, independent of the left/right
+            content. pointer-events-none so it never blocks the drag region. */}
+        <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-baseline gap-1.5">
+          <span className="font-semibold text-foreground">{app.name}</span>
+          <span className="text-xs text-muted-foreground/60">v{app.version}</span>
+        </div>
       </>
     ) : (
-      <span className="font-bold tracking-tight text-foreground">
+      <span className="absolute left-1/2 -translate-x-1/2 font-bold tracking-tight text-foreground">
         The Square
       </span>
     )}
