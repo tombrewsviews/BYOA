@@ -10,37 +10,41 @@
  */
 import type React from "react";
 
+// Neutral-grey scheme. These hex values mirror the shadcn CSS variables in
+// editor/index.css so the inline-styled (not-yet-migrated) parts of the app
+// match the ReUI/Tailwind components. Keep the two in sync until later
+// migration phases retire the inline styles entirely.
 export const color = {
   bg: {
-    canvas: "#08080c",
-    surface: "#0a0a10",
-    raised: "#0f0f18",
-    hover: "#14141e",
-    selected: "#1a1a24",
+    canvas: "#0a0a0a",
+    surface: "#121212",
+    raised: "#18181a",
+    hover: "#1e1e20",
+    selected: "#242427",
   },
   border: {
-    faint: "#1a1a24",
-    line: "#232330",
-    strong: "#2e2e3c",
-    hover: "#3a3a4a",
+    faint: "#1e1e20",
+    line: "#2a2a2c",
+    strong: "#3a3a3d",
+    hover: "#4a4a4d",
   },
   text: {
     primary: "#fafafa",
-    secondary: "#e4e4ee",
-    muted: "#8b8b9a",
-    dim: "#6b6b80",
-    faint: "#5a5a6e",
+    secondary: "#e6e6e8",
+    muted: "#9a9a9d",
+    dim: "#6e6e72",
+    faint: "#5a5a5d",
   },
   accent: {
     fg: "#fafafa",
-    bg: "#08080c",
+    bg: "#0a0a0a",
     dot: "#fafafa",
-    focus: "rgba(250,250,250,0.18)",
+    focus: "rgba(250,250,250,0.22)",
   },
   danger: {
-    bg: "#3a1414",
-    border: "#5a2020",
-    text: "#ffb4b4",
+    bg: "#2a1414",
+    border: "#5a2424",
+    text: "#fca5a5",
   },
 } as const;
 
