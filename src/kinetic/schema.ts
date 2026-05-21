@@ -79,7 +79,16 @@ export const shapeExitSchema = z
   .describe("How the shape leaves");
 
 export const fontFamilySchema = z
-  .enum(["SpaceGrotesk", "RobotoFlex", "Recursive", "InterVF"])
+  .enum([
+    "SpaceGrotesk",
+    "RobotoFlex",
+    "Recursive",
+    "InterVF",
+    "Fraunces",
+    "BricolageGrotesque",
+    "InstrumentSans",
+    "Archivo",
+  ])
   .describe("Typeface");
 
 export type BeatKind = z.infer<typeof beatKindSchema>;

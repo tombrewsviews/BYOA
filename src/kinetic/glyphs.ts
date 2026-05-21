@@ -62,6 +62,22 @@ export const FONT_REGISTRY: Record<FontFamily, FontRegistryEntry> = {
     file: "fonts/InterVF.ttf",
     cssFamily: "InterVFKinetic",
   },
+  Fraunces: {
+    file: "fonts/Fraunces.ttf",
+    cssFamily: "FrauncesKinetic",
+  },
+  BricolageGrotesque: {
+    file: "fonts/BricolageGrotesque.ttf",
+    cssFamily: "BricolageGrotesqueKinetic",
+  },
+  InstrumentSans: {
+    file: "fonts/InstrumentSans.ttf",
+    cssFamily: "InstrumentSansKinetic",
+  },
+  Archivo: {
+    file: "fonts/Archivo.ttf",
+    cssFamily: "ArchivoKinetic",
+  },
 };
 
 /** Sensible per-family axis bounds, for clamping schema axis ranges. */
@@ -87,6 +103,27 @@ export const FONT_AXIS_BOUNDS: Record<
   InterVF: {
     wght: [100, 900],
     wdth: [100, 100],
+    slnt: [0, 0],
+  },
+  // opsz/SOFT/WONK axes also present, but we only animate weight here.
+  Fraunces: {
+    wght: [100, 900],
+    wdth: [100, 100],
+    slnt: [0, 0],
+  },
+  BricolageGrotesque: {
+    wght: [200, 800],
+    wdth: [75, 100],
+    slnt: [0, 0],
+  },
+  InstrumentSans: {
+    wght: [400, 700],
+    wdth: [75, 100],
+    slnt: [0, 0],
+  },
+  Archivo: {
+    wght: [100, 900],
+    wdth: [62, 125],
     slnt: [0, 0],
   },
 };
