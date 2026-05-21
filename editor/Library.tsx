@@ -20,14 +20,7 @@
 import React, { useMemo, useState } from "react";
 import { useShellActions } from "./shell";
 import { ENTRIES, type LibraryEntry } from "./library/entries";
-import {
-  color,
-  font,
-  radius,
-  primaryBtn,
-  secondaryBtn,
-  ghostBtn,
-} from "./platform/theme";
+import { Button } from "@/components/ui/button";
 
 const CATEGORIES: LibraryEntry["category"][] = [
   "Entry",
@@ -85,68 +78,38 @@ export const Library: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        background: color.bg.surface,
-        color: color.text.secondary,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="absolute inset-0 flex flex-col bg-card text-muted-foreground">
       {/* Header + category filter */}
-      <div
-        style={{
-          padding: "10px 12px",
-          borderBottom: `1px solid ${color.border.line}`,
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-          flex: "0 0 auto",
-        }}
-      >
-        <div style={{ fontSize: 12, fontWeight: 600, color: color.text.primary }}>
+      <div className="flex flex-none flex-col gap-1.5 border-b border-border px-3 py-2.5">
+        <div className="text-xs font-semibold text-foreground">
           Prompt library
         </div>
-        <div style={{ fontSize: 10, color: color.text.dim, lineHeight: 1.4 }}>
+        <div className="text-[10px] leading-snug text-muted-foreground">
           Click any card to copy a prompt — it pastes straight into the
           terminal.
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+        <div className="mt-1 flex flex-wrap gap-1">
           {(["All", ...CATEGORIES] as const).map((c) => (
-            <button
+            <Button
               key={c}
+              size="xs"
+              variant={filter === c ? "secondary" : "ghost"}
               onClick={() => setFilter(c)}
-              style={{
-                ...secondaryBtn({ active: filter === c, size: "sm" }),
-                borderRadius: radius.pill,
-              }}
+              className="rounded-full"
             >
               {c}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {/* Card grid */}
       <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          padding: 10,
-          display: "grid",
-          gridTemplateColumns: "1fr",
-          // gridAutoRows: max-content keeps each row at the card's natural
-          // height. alignContent: start packs them at the top so a filtered
-          // list of 1-2 entries doesn't expand vertically to fill the column
-          // (the bug visible in the earlier screenshot).
-          gridAutoRows: "max-content",
-          gap: 10,
-          alignContent: "start",
-          alignItems: "start",
-        }}
+        className="min-h-0 flex-1 grid grid-cols-1 gap-2.5 overflow-y-auto p-2.5"
+        // gridAutoRows: max-content keeps each row at the card's natural
+        // height. alignContent: start packs them at the top so a filtered
+        // list of 1-2 entries doesn't expand vertically to fill the column.
+        style={{ gridAutoRows: "max-content", alignContent: "start", alignItems: "start" }}
       >
         {filtered.map((entry) => (
           <Card
@@ -157,7 +120,7 @@ export const Library: React.FC = () => {
           />
         ))}
         {filtered.length === 0 && (
-          <div style={{ fontSize: 11, color: color.text.dim, textAlign: "center", padding: 24 }}>
+          <div className="p-6 text-center text-[11px] text-muted-foreground">
             No entries in this category yet.
           </div>
         )}
@@ -174,22 +137,7 @@ export const Library: React.FC = () => {
 
       {/* Toast */}
       {toast && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 12,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: color.bg.selected,
-            border: `1px solid ${color.border.line}`,
-            color: color.text.primary,
-            fontSize: 11,
-            padding: "6px 12px",
-            borderRadius: 6,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
-            zIndex: 20,
-          }}
-        >
+        <div className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-md border border-border bg-secondary px-3 py-1.5 text-[11px] text-foreground shadow-lg">
           {toast}
         </div>
       )}
@@ -236,17 +184,7 @@ const Card: React.FC<{
   // children unpredictably — buttons collapse to 0 height in some flex
   // contexts. A div with role=button + tabIndex behaves consistently.
   return (
-    <div
-      style={{
-        background: color.bg.hover,
-        border: `1px solid ${color.border.line}`,
-        borderRadius: 8,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        flexShrink: 0,
-      }}
-    >
+    <div className="flex shrink-0 flex-col overflow-hidden rounded-md border border-border bg-secondary">
       <div
         role="button"
         tabIndex={0}
@@ -260,15 +198,7 @@ const Card: React.FC<{
           }
         }}
         aria-label={`Open ${entry.title}`}
-        style={{
-          width: "100%",
-          height: 140,
-          flexShrink: 0,
-          background: "#000",
-          cursor: "pointer",
-          overflow: "hidden",
-          position: "relative",
-        }}
+        className="relative h-[140px] w-full shrink-0 cursor-pointer overflow-hidden bg-black"
       >
         {url ? (
           <video
@@ -286,70 +216,29 @@ const Card: React.FC<{
                 /* ignore */
               }
             }}
-            style={{
-              display: "block",
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              pointerEvents: "none",
-            }}
+            className="pointer-events-none block h-full w-full object-cover"
           />
         ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: color.text.faint,
-              fontSize: 10,
-              padding: 8,
-              textAlign: "center",
-            }}
-          >
+          <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground">
             (no preview)
           </div>
         )}
       </div>
-      <div
-        style={{
-          padding: "8px 10px 10px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: color.text.primary }}>
+      <div className="flex flex-col gap-1 px-2.5 pb-2.5 pt-2">
+        <div className="flex justify-between gap-1.5">
+          <div className="text-[11px] font-semibold text-foreground">
             {entry.title}
           </div>
-          <span
-            style={{
-              fontSize: 9,
-              color: color.text.muted,
-              padding: "1px 6px",
-              borderRadius: 8,
-              border: `1px solid ${color.border.line}`,
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-            }}
-          >
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[9px] text-muted-foreground">
             {entry.category}
           </span>
         </div>
-        <div style={{ fontSize: 10, color: color.text.dim, lineHeight: 1.4 }}>
+        <div className="text-[10px] leading-snug text-muted-foreground">
           {entry.blurb}
         </div>
-        <button
-          onClick={onCopy}
-          style={{
-            ...primaryBtn({ size: "sm" }),
-            marginTop: 4,
-          }}
-        >
+        <Button size="sm" onClick={onCopy} className="mt-1">
           Copy prompt
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -368,29 +257,11 @@ const FocusedView: React.FC<{
   return (
     <div
       onClick={onClose}
-      style={{
-        position: "absolute",
-        inset: 0,
-        background: "rgba(0,0,0,0.85)",
-        zIndex: 30,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
+      className="absolute inset-0 z-30 flex items-center justify-center bg-black/85 p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          maxWidth: "100%",
-          maxHeight: "100%",
-          background: color.bg.hover,
-          border: `1px solid ${color.border.line}`,
-          borderRadius: 10,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
+        className="flex max-h-full max-w-full flex-col overflow-hidden rounded-lg border border-border bg-secondary"
       >
         {url && (
           <video
@@ -399,54 +270,27 @@ const FocusedView: React.FC<{
             loop
             muted
             playsInline
-            style={{
-              maxHeight: "55vh",
-              objectFit: "contain",
-              background: "#000",
-            }}
+            className="bg-black object-contain"
+            style={{ maxHeight: "55vh" }}
           />
         )}
-        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: color.text.primary }}>
+        <div className="flex flex-col gap-2 p-3.5">
+          <div className="text-[13px] font-semibold text-foreground">
             {entry.title}
           </div>
-          <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
+          <div className="text-[11px] leading-relaxed text-muted-foreground">
             {entry.blurb}
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: color.text.secondary,
-              background: color.bg.canvas,
-              border: `1px solid ${color.border.line}`,
-              borderRadius: 6,
-              padding: 10,
-              fontFamily: "ui-monospace, SFMono-Regular, monospace",
-              lineHeight: 1.5,
-              maxHeight: 160,
-              overflow: "auto",
-            }}
-          >
+          <div className="max-h-40 overflow-auto rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground">
             {entry.prompt}
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={onCopy}
-              style={{
-                ...primaryBtn({ size: "sm" }),
-                flex: 1,
-              }}
-            >
+          <div className="flex gap-1.5">
+            <Button size="sm" onClick={onCopy} className="flex-1">
               Copy prompt
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                ...secondaryBtn(),
-              }}
-            >
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onClose}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       </div>

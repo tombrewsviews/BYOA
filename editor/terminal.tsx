@@ -69,11 +69,15 @@ const TerminalInner: React.FC = () => {
       fontFamily:
         "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       fontSize: 12,
+      // xterm's colors are a JS API, not CSS — these hex values mirror the
+      // design tokens (background ≈ --background, foreground ≈ --foreground).
+      // Selection uses a translucent grey instead of the old purple to match
+      // the no-purple grey system; the cursor keeps its amber for visibility.
       theme: {
-        background: "#0a0a10",
-        foreground: "#e4e4ee",
+        background: "#0a0a0a",
+        foreground: "#fafafa",
         cursor: "#facc15",
-        selectionBackground: "#7c5cff66",
+        selectionBackground: "#ffffff33",
       },
       cursorBlink: true,
       convertEol: true,
@@ -206,14 +210,7 @@ const TerminalInner: React.FC = () => {
     <div
       data-terminal-root
       ref={hostRef}
-      style={{
-        width: "100%",
-        height: "100%",
-        background: "#0a0a10",
-        padding: 6,
-        boxSizing: "border-box",
-        overflow: "hidden",
-      }}
+      className="box-border h-full w-full overflow-hidden bg-background p-1.5"
     />
   );
 };

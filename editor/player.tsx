@@ -18,7 +18,9 @@ import { Player, type PlayerRef, type CallbackListener } from "@remotion/player"
 import { KineticStory } from "../src/kinetic/KineticStory";
 import { resolveBeatTimes, type Beat, type Story } from "../src/kinetic/schema";
 import type { Selection } from "./selection";
-import { color, font, radius, secondaryBtn } from "./platform/theme";
+import { color } from "./platform/theme";
+import { Button } from "@/components/ui/button";
+import { Play, Pause } from "./icons";
 
 type PlayerStageProps = {
   inputProps: Story;
@@ -131,15 +133,8 @@ export const PlayerStage: React.FC<PlayerStageProps> = React.memo(
     return (
       <div
         ref={containerRef}
-        style={{
-          height: "62vh",
-          aspectRatio: "9 / 16",
-          borderRadius: 14,
-          overflow: "hidden",
-          boxShadow: "0 24px 70px rgba(0,0,0,0.6)",
-          border: `1px solid ${color.border.line}`,
-          position: "relative",
-        }}
+        className="relative aspect-[9/16] overflow-hidden rounded-xl border border-border shadow-2xl"
+        style={{ height: "62vh" }}
       >
         <Player
           ref={playerRef}
@@ -422,47 +417,31 @@ export const Transport: React.FC<{
   const onStart = useCallback(() => playerRef.current?.seekTo(0), [playerRef]);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 6,
-        padding: "6px 8px",
-        background: color.bg.raised,
-        border: `1px solid ${color.border.line}`,
-        borderRadius: 8,
-        alignItems: "center",
-      }}
-    >
-      <TBtn onClick={onStart} label="⏮ Start" />
-      <TBtn
+    <div className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2 py-1.5">
+      <Button variant="ghost" size="sm" onClick={onStart} title="Jump to start">
+        Start
+      </Button>
+      <Button
+        variant={isPlaying ? "secondary" : "ghost"}
+        size="sm"
         onClick={toggle}
-        label={isPlaying ? "⏸ Pause  ⌥Space" : "▶ Play  ⌥Space"}
         aria-pressed={isPlaying}
-      />
+        title="Play / pause (⌥Space)"
+      >
+        {isPlaying ? <Pause /> : <Play />}
+        {isPlaying ? "Pause" : "Play"}
+      </Button>
       {/* Loop toggle: pressed-state = looping. Click to flip. */}
-      <TBtn
+      <Button
+        variant={loop ? "secondary" : "ghost"}
+        size="sm"
         onClick={() => onLoopChange(!loop)}
-        label={loop ? "🔁 Loop" : "↪︎ Once"}
         aria-pressed={loop}
-      />
+        title={loop ? "Looping" : "Play once"}
+      >
+        {loop ? "Loop" : "Once"}
+      </Button>
     </div>
   );
 });
 Transport.displayName = "Transport";
-
-const TBtn: React.FC<{
-  onClick: (e: React.MouseEvent) => void;
-  label: string;
-  "aria-pressed"?: boolean;
-}> = ({ onClick, label, "aria-pressed": ariaPressed }) => (
-  <button
-    onClick={onClick}
-    aria-pressed={ariaPressed}
-    style={{
-      ...secondaryBtn({ active: ariaPressed }),
-      minWidth: 80,
-    }}
-  >
-    {label}
-  </button>
-);

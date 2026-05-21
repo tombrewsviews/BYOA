@@ -18,7 +18,8 @@
 import React, { useState } from "react";
 import { useShellActions } from "./shell";
 import type { Story } from "../src/kinetic/schema";
-import { color, primaryBtn, ghostBtn } from "./platform/theme";
+import { Button } from "@/components/ui/button";
+import { X } from "./icons";
 
 const HEADLINE_PROMPT =
   "Animate the words 'launch your idea' as a 3-beat sequence — each word lands vertically with a small overshoot, holds readable for a beat, then exits rotating gently.";
@@ -76,123 +77,50 @@ export const StarterCard: React.FC<{
   };
 
   return (
-    <div
-      // Absolutely positioned over the player — pointer-events:none on the
-      // wrapper so clicks pass to the player UI, with the inner card
-      // re-enabling pointer events.
-      style={{
-        position: "absolute",
-        inset: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        pointerEvents: "none",
-        zIndex: 5,
-      }}
-    >
-      <div
-        style={{
-          pointerEvents: "auto",
-          background: "rgba(20, 20, 28, 0.92)",
-          border: `1px solid ${color.border.strong}`,
-          borderRadius: 12,
-          padding: 18,
-          maxWidth: 380,
-          color: color.text.primary,
-          boxShadow: "0 16px 64px rgba(0,0,0,0.6)",
-          backdropFilter: "blur(8px)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>
-            Start with a prompt
-          </div>
-          <button
+    // Absolutely positioned over the player — pointer-events:none on the
+    // wrapper so clicks pass to the player UI, with the inner card
+    // re-enabling pointer events.
+    <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
+      <div className="pointer-events-auto flex max-w-[380px] flex-col gap-2.5 rounded-xl border border-border bg-popover/95 p-[18px] text-foreground shadow-2xl backdrop-blur-md">
+        <div className="flex items-start justify-between">
+          <div className="text-[13px] font-bold">Start with a prompt</div>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={dismiss}
-            style={{
-              ...ghostBtn(),
-              fontSize: 16,
-              lineHeight: 1,
-              padding: 0,
-            }}
             aria-label="Dismiss"
             title="Dismiss"
           >
-            ×
-          </button>
+            <X />
+          </Button>
         </div>
-        <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
+        <div className="text-[11px] leading-relaxed text-muted-foreground">
           Send a prompt to the agent in the terminal and it will write the
           story. Try this:
         </div>
-        <div
-          style={{
-            background: color.bg.canvas,
-            border: `1px solid ${color.border.line}`,
-            borderRadius: 6,
-            padding: 10,
-            fontSize: 11,
-            color: color.text.secondary,
-            fontFamily: "ui-monospace, SFMono-Regular, monospace",
-            lineHeight: 1.5,
-          }}
-        >
+        <div className="rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground">
           {HEADLINE_PROMPT}
         </div>
-        <button
-          onClick={() => void copyPrompt(HEADLINE_PROMPT)}
-          style={{
-            ...primaryBtn({ size: "sm" }),
-          }}
-        >
+        <Button size="sm" onClick={() => void copyPrompt(HEADLINE_PROMPT)}>
           Copy prompt
-        </button>
-        <div style={{ fontSize: 10, color: color.text.dim, marginTop: 4 }}>
-          Other ideas:
-        </div>
+        </Button>
+        <div className="mt-1 text-[10px] text-muted-foreground">Other ideas:</div>
         {ALT_PROMPTS.map((p, i) => (
           <button
             key={i}
             onClick={() => void copyPrompt(p)}
-            style={{
-              textAlign: "left",
-              background: "transparent",
-              border: `1px solid ${color.border.strong}`,
-              borderRadius: 6,
-              color: color.text.muted,
-              fontSize: 11,
-              padding: "8px 10px",
-              cursor: "pointer",
-              lineHeight: 1.4,
-            }}
+            className="rounded-md border border-border bg-transparent px-2.5 py-2 text-left text-[11px] leading-snug text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {p}
           </button>
         ))}
-        <div style={{ fontSize: 10, color: color.text.faint, marginTop: 6 }}>
+        <div className="mt-1.5 text-[10px] text-muted-foreground/70">
           Or browse the prompt library tab (left panel) for techniques with
           live previews.
         </div>
       </div>
       {toast && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 24,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: color.bg.selected,
-            border: `1px solid ${color.border.strong}`,
-            color: color.text.primary,
-            fontSize: 11,
-            padding: "6px 12px",
-            borderRadius: 6,
-            pointerEvents: "auto",
-          }}
-        >
+        <div className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 rounded-md border border-border bg-secondary px-3 py-1.5 text-[11px] text-foreground">
           {toast}
         </div>
       )}
