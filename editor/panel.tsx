@@ -39,6 +39,7 @@ import {
   isAxisAnimated,
   staticWeightOptions,
 } from "./typography-axes";
+import { Switch } from "./components/ui/switch";
 import { writeState } from "./state";
 import { color, font, secondaryBtn } from "./platform/theme";
 
@@ -184,17 +185,16 @@ const AxisControl: React.FC<{
               fontSize: 10,
               color: color.text.muted,
               display: "flex",
-              gap: 4,
+              gap: 6,
               alignItems: "center",
               cursor: "pointer",
             }}
           >
-            <input
-              type="checkbox"
+            <Switch
               checked={animated}
-              onChange={(e) =>
+              onCheckedChange={(checked) =>
                 onChange(
-                  e.target.checked
+                  checked
                     ? setAxisRange(axes, axis, start, clampAxis(max, axis, family), family)
                     : setAxisStatic(axes, axis, start, family),
                 )
