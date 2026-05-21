@@ -10,37 +10,41 @@
  */
 import type React from "react";
 
+// Neutral-grey scheme. These hex values mirror the shadcn CSS variables in
+// editor/index.css so the inline-styled (not-yet-migrated) parts of the app
+// match the ReUI/Tailwind components. Keep the two in sync until later
+// migration phases retire the inline styles entirely.
 export const color = {
   bg: {
-    canvas: "#08080c",
-    surface: "#0a0a10",
-    raised: "#0f0f18",
-    hover: "#14141e",
-    selected: "#1a1a24",
+    canvas: "#0a0a0a",
+    surface: "#121212",
+    raised: "#18181a",
+    hover: "#1e1e20",
+    selected: "#242427",
   },
   border: {
-    faint: "#1a1a24",
-    line: "#232330",
-    strong: "#2e2e3c",
-    hover: "#3a3a4a",
+    faint: "#1e1e20",
+    line: "#2a2a2c",
+    strong: "#3a3a3d",
+    hover: "#4a4a4d",
   },
   text: {
     primary: "#fafafa",
-    secondary: "#e4e4ee",
-    muted: "#8b8b9a",
-    dim: "#6b6b80",
-    faint: "#5a5a6e",
+    secondary: "#e6e6e8",
+    muted: "#9a9a9d",
+    dim: "#6e6e72",
+    faint: "#5a5a5d",
   },
   accent: {
     fg: "#fafafa",
-    bg: "#08080c",
+    bg: "#0a0a0a",
     dot: "#fafafa",
-    focus: "rgba(250,250,250,0.18)",
+    focus: "rgba(250,250,250,0.22)",
   },
   danger: {
-    bg: "#3a1414",
-    border: "#5a2020",
-    text: "#ffb4b4",
+    bg: "#2a1414",
+    border: "#5a2424",
+    text: "#fca5a5",
   },
 } as const;
 
@@ -72,64 +76,73 @@ export const font = {
   size: { xs: 10, sm: 11, md: 12, base: 13, lg: 14, xl: 18, display: 36 },
 } as const;
 
+// --- Button rhythm -----------------------------------------------------------
+// One shared height/padding/font/radius for ALL chrome buttons so the toolbar,
+// transport, tabs, projects, and dialogs line up. Variants differ only in
+// fill/border/color — never in size. `sm` is the single smaller step (compact
+// inline buttons); everything else uses the default 28px height.
+const BTN_HEIGHT = 28;
+const BTN_HEIGHT_SM = 22;
+
+const btnBase = (sm: boolean): React.CSSProperties => ({
+  height: sm ? BTN_HEIGHT_SM : BTN_HEIGHT,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  borderRadius: radius.md,
+  fontSize: sm ? font.size.sm : font.size.md,
+  fontWeight: 600,
+  padding: sm ? "0 8px" : "0 12px",
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  boxSizing: "border-box",
+  transition: "background 120ms ease, border-color 120ms ease, color 120ms ease",
+});
+
 export const primaryBtn = (
   opts: { size?: "sm" | "md"; disabled?: boolean } = {},
-): React.CSSProperties => {
-  const sm = opts.size === "sm";
-  return {
-    background: opts.disabled ? color.bg.selected : color.accent.fg,
-    border: 0,
-    borderRadius: radius.md,
-    color: opts.disabled ? color.text.dim : color.accent.bg,
-    fontSize: sm ? font.size.md : font.size.base,
-    fontWeight: 700,
-    padding: sm ? "6px 10px" : "10px 14px",
-    cursor: opts.disabled ? "default" : "pointer",
-    letterSpacing: 0,
-    transition: "background 120ms ease",
-  };
-};
+): React.CSSProperties => ({
+  ...btnBase(opts.size === "sm"),
+  background: opts.disabled ? color.bg.selected : color.accent.fg,
+  border: "1px solid transparent",
+  color: opts.disabled ? color.text.dim : color.accent.bg,
+  fontWeight: 700,
+  cursor: opts.disabled ? "default" : "pointer",
+});
 
 export const secondaryBtn = (
-  opts: { active?: boolean; disabled?: boolean } = {},
+  opts: { active?: boolean; disabled?: boolean; size?: "sm" | "md" } = {},
 ): React.CSSProperties => ({
+  ...btnBase(opts.size === "sm"),
   background: opts.active ? color.bg.selected : "transparent",
   border: `1px solid ${color.border.strong}`,
-  borderRadius: radius.md,
   color: opts.disabled
     ? color.text.dim
     : opts.active
       ? color.text.primary
       : color.text.secondary,
-  fontSize: font.size.sm,
-  fontWeight: 600,
-  padding: "6px 12px",
   cursor: opts.disabled ? "default" : "pointer",
   opacity: opts.disabled ? 0.5 : 1,
-  transition: "border-color 120ms ease, background 120ms ease",
 });
 
 export const ghostBtn = (
-  opts: { disabled?: boolean } = {},
+  opts: { disabled?: boolean; size?: "sm" | "md" } = {},
 ): React.CSSProperties => ({
+  ...btnBase(opts.size === "sm"),
   background: "transparent",
-  border: 0,
-  borderRadius: radius.sm,
+  border: "1px solid transparent",
   color: color.text.muted,
-  fontSize: font.size.sm,
   fontWeight: 500,
-  padding: "6px 8px",
   cursor: opts.disabled ? "default" : "pointer",
   opacity: opts.disabled ? 0.5 : 1,
-  transition: "background 120ms ease, color 120ms ease",
 });
 
-/** One-off pattern for the terminal/secondary tab switcher. */
+/** The terminal/secondary tab switcher — shares the button rhythm, with the
+ *  tab-style top-rounded border treatment. */
 export const tabBtn = (active: boolean): React.CSSProperties => ({
+  ...btnBase(false),
   flex: 1,
-  padding: "6px 8px",
-  fontSize: font.size.sm,
-  fontWeight: 600,
   background: active ? color.bg.surface : "transparent",
   border: "1px solid",
   borderColor: active ? color.border.line : "transparent",
@@ -138,10 +151,6 @@ export const tabBtn = (active: boolean): React.CSSProperties => ({
   color: active ? color.text.primary : color.text.dim,
   cursor: "pointer",
   textTransform: "capitalize",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 6,
 });
 
 /** Standard inset focus ring used on the editor's three focus zones. */

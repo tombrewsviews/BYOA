@@ -62,6 +62,22 @@ export const FONT_REGISTRY: Record<FontFamily, FontRegistryEntry> = {
     file: "fonts/InterVF.ttf",
     cssFamily: "InterVFKinetic",
   },
+  Fraunces: {
+    file: "fonts/Fraunces.ttf",
+    cssFamily: "FrauncesKinetic",
+  },
+  BricolageGrotesque: {
+    file: "fonts/BricolageGrotesque.ttf",
+    cssFamily: "BricolageGrotesqueKinetic",
+  },
+  InstrumentSans: {
+    file: "fonts/InstrumentSans.ttf",
+    cssFamily: "InstrumentSansKinetic",
+  },
+  Archivo: {
+    file: "fonts/Archivo.ttf",
+    cssFamily: "ArchivoKinetic",
+  },
 };
 
 /** Sensible per-family axis bounds, for clamping schema axis ranges. */
@@ -89,6 +105,41 @@ export const FONT_AXIS_BOUNDS: Record<
     wdth: [100, 100],
     slnt: [0, 0],
   },
+  // opsz/SOFT/WONK axes also present, but we only animate weight here.
+  Fraunces: {
+    wght: [100, 900],
+    wdth: [100, 100],
+    slnt: [0, 0],
+  },
+  BricolageGrotesque: {
+    wght: [200, 800],
+    wdth: [75, 100],
+    slnt: [0, 0],
+  },
+  InstrumentSans: {
+    wght: [400, 700],
+    wdth: [75, 100],
+    slnt: [0, 0],
+  },
+  Archivo: {
+    wght: [100, 900],
+    wdth: [62, 125],
+    slnt: [0, 0],
+  },
+};
+
+/**
+ * Discrete named weights for NON-variable fonts. A font is "variable on
+ * weight" when its FONT_AXIS_BOUNDS wght range is non-degenerate (min < max);
+ * those use the continuous axis slider. Static fonts can only render the
+ * specific weights their file ships, so the panel shows a dropdown of these
+ * instead. SpaceGrotesk in this app is the bold-only file, so it offers a
+ * single weight; add more entries if a multi-weight static font is bundled.
+ */
+export const FONT_STATIC_WEIGHTS: Partial<
+  Record<FontFamily, { label: string; value: number }[]>
+> = {
+  SpaceGrotesk: [{ label: "Bold", value: 700 }],
 };
 
 // ---------------------------------------------------------------------------

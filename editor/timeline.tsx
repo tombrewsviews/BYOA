@@ -45,6 +45,7 @@ import {
 import type { Selection } from "./selection";
 import { AddVideo } from "./AddVideo";
 import { AddImage } from "./AddImage";
+import { AddItemButton } from "./AddItemButton";
 import { color, font } from "./platform/theme";
 
 type TimelineProps = {
@@ -441,54 +442,22 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
           gap: 6,
         }}
       >
-        {/* "+ Track" button (left) + Story selector row. The + sits
-            in the gutter column above the per-track gutters, aligning
-            with them visually. It CREATES a new empty row at the top
-            of the timeline (highest track number); the gutter ↑/↓
-            arrows below REORDER existing rows. */}
+        {/* Story selector row. (Adding a new empty track moved to the
+            bottom toolbar as "+ Layer", alongside + Beat / + Video /
+            + Image. The gutter ↑/↓ arrows below REORDER existing rows.) */}
         <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
-          <button
-            onClick={addTopTrack}
-            title="Add a new empty track on top"
-            style={{
-              width: 48,
-              height: 22,
-              borderRadius: 6,
-              padding: 0,
-              border: `1px solid ${color.border.line}`,
-              background: color.bg.hover,
-              color: color.text.muted,
-              fontSize: 14,
-              lineHeight: 1,
-              cursor: "pointer",
-              flex: "0 0 auto",
-            }}
-          >
-            +
-          </button>
           <button
             onClick={(e) => {
               onSelect({ kind: "story" });
               seekAndPlay(e, 0);
             }}
             aria-pressed={selection.kind === "story"}
-            style={{
-              flex: 1,
-              height: 22,
-              borderRadius: 6,
-              cursor: "pointer",
-              textAlign: "left",
-              padding: "0 8px",
-              fontSize: 10,
-              letterSpacing: 0.5,
-              textTransform: "uppercase",
-              color: selection.kind === "story" ? "white" : color.text.muted,
-              background: selection.kind === "story" ? "#7c5cff" : color.bg.hover,
-              border:
-                selection.kind === "story"
-                  ? "1px solid #9d83ff"
-                  : `1px solid ${color.border.line}`,
-            }}
+            className={
+              "h-[22px] flex-1 rounded-md px-2 text-left text-[10px] uppercase tracking-wide transition-colors " +
+              (selection.kind === "story"
+                ? "border border-foreground bg-foreground text-background"
+                : "border border-border bg-secondary text-muted-foreground hover:text-foreground")
+            }
           >
             Story
           </button>
@@ -579,22 +548,25 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
               selection.kind === "beat" && selection.indices.includes(i);
             const isVideo = beat.kind === "videoClip";
             const isImage = beat.kind === "imageClip";
-            // Media clips (video and image) get distinct colors so they
-            // stand out from text beats in the timeline at a glance.
+            // Selected clip uses the design-system "selected" treatment
+            // (light fill, like the active Story button) — no off-palette
+            // purple. Media clips (video/image) keep a subtle distinguishing
+            // tint so they read differently from text beats at a glance, but
+            // retoned to muted grey-blue/grey rather than purple.
             const clipBg = isSelected
-              ? "#7c5cff"
+              ? color.text.primary
               : isVideo
-                ? "#1a2a3a"
+                ? "#1a2230"
                 : isImage
-                  ? "#2a1a3a"
-                  : "#1c1c26";
+                  ? "#231f29"
+                  : color.bg.selected;
             const clipBorder = isSelected
-              ? "1px solid #9d83ff"
+              ? `1px solid ${color.text.primary}`
               : isVideo
-                ? "1px solid #2e4666"
+                ? "1px solid #2c3a4e"
                 : isImage
-                  ? "1px solid #4d2e66"
-                  : "1px solid #2e2e3c";
+                  ? "1px solid #3a3340"
+                  : `1px solid ${color.border.line}`;
             return (
               <div
                 key={i}
@@ -668,7 +640,8 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
                   borderRadius: 6,
                   border: clipBorder,
                   background: clipBg,
-                  color: isSelected ? "white" : color.text.secondary,
+                  // Selected clip has a light fill → dark text for contrast.
+                  color: isSelected ? color.bg.canvas : color.text.secondary,
                   fontSize: 11,
                   fontWeight: 600,
                   padding: "0 12px 0 14px",
@@ -776,33 +749,27 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
         </div>
         </div>{/* end flex wrapper around gutter + tracks */}
 
-        {/* + Beat button below the timeline */}
+        {/* Add-item toolbar below the timeline — all four use the shared
+            AddItemButton so they're pixel-identical. */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button
+          <AddItemButton
+            label="+ Beat"
+            title="Add a beat"
             onClick={(e) => {
               e.stopPropagation();
               onAddBeat();
             }}
-            title="Add a beat"
-            style={{
-              flex: "0 0 auto",
-              padding: "4px 12px",
-              fontSize: 11,
-              borderRadius: 4,
-              border: `1px dashed ${color.border.hover}`,
-              background: "transparent",
-              color: color.text.muted,
-              cursor: "pointer",
-            }}
-          >
-            + Beat
-          </button>
+          />
           <AddVideo onImported={onAddVideo} />
           <AddImage onImported={onAddImage} />
-          <span style={{ fontSize: 10, color: color.text.faint }}>
-            Drag clip to move/retime · drag edges to resize/trim · drag
-            vertically to change layer
-          </span>
+          <AddItemButton
+            label="+ Layer"
+            title="Add a new empty layer on top"
+            onClick={(e) => {
+              e.stopPropagation();
+              addTopTrack();
+            }}
+          />
         </div>
       </div>
     );

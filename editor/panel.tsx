@@ -12,7 +12,13 @@
  *   - beat.shape (provider-generated geometry — reprompt to change)
  */
 import React from "react";
-import { resolveBeatTimes, type Story, type Beat } from "../src/kinetic/schema";
+import {
+  resolveBeatTimes,
+  type Story,
+  type Beat,
+  type FontFamily,
+  type AxisRanges,
+} from "../src/kinetic/schema";
 import type { Selection } from "./selection";
 import type { EasingName } from "../src/typography/easings";
 import {
@@ -23,6 +29,17 @@ import {
   EasingPicker,
   TextInput,
 } from "./controls";
+import {
+  type AxisKey,
+  axisBounds,
+  axisSupported,
+  clampAxis,
+  setAxisStatic,
+  setAxisRange,
+  isAxisAnimated,
+  staticWeightOptions,
+} from "./typography-axes";
+import { Switch } from "./components/ui/switch";
 import { writeState } from "./state";
 import { color, font, secondaryBtn } from "./platform/theme";
 
@@ -62,6 +79,16 @@ const BLEND_MODES = [
 ] as const;
 const BG_KINDS = ["gradient", "shader"] as const;
 const SHADER_STYLES = ["aurora", "flowField", "mesh"] as const;
+const FONT_FAMILIES = [
+  "SpaceGrotesk",
+  "RobotoFlex",
+  "Recursive",
+  "InterVF",
+  "Fraunces",
+  "BricolageGrotesque",
+  "InstrumentSans",
+  "Archivo",
+] as const;
 
 // --- section scaffold -------------------------------------------------------
 
@@ -87,6 +114,156 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
     </div>
   </div>
 );
+
+// --- AxisControl: one variable-font axis, static or animated ---------------
+//
+// Panel-specific (knows the [start, end] tuple convention), so it lives here
+// rather than in the schema-agnostic controls.tsx. Renders a primary slider
+// for the start value; an "animate" checkbox reveals a second slider for the
+// end value (driving font-variation-settings interpolation across the beat).
+// When the selected font doesn't vary this axis, the slider is disabled and
+// shows the fixed value — no silent no-ops.
+
+const AxisControl: React.FC<{
+  label: string;
+  axis: AxisKey;
+  axes: AxisRanges;
+  family: FontFamily;
+  onChange: (axes: AxisRanges) => void;
+}> = ({ label, axis, axes, family, onChange }) => {
+  const supported = axisSupported(axis, family);
+  const [min, max] = axisBounds(axis, family);
+  const animated = isAxisAnimated(axes, axis);
+  const [start, end] = axes[axis];
+  const step = axis === "slnt" ? 0.5 : 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <Row label={label}>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={start}
+          disabled={!supported}
+          onChange={(e) =>
+            onChange(
+              animated
+                ? setAxisRange(axes, axis, Number(e.target.value), end, family)
+                : setAxisStatic(axes, axis, Number(e.target.value), family),
+            )
+          }
+          style={{
+            flex: 1,
+            accentColor: color.text.primary,
+            height: 4,
+            opacity: supported ? 1 : 0.4,
+          }}
+        />
+        <span
+          style={{
+            width: 52,
+            textAlign: "right",
+            fontSize: 11,
+            color: color.text.dim,
+          }}
+        >
+          {axis === "slnt" ? start.toFixed(1) : Math.round(start)}
+        </span>
+      </Row>
+      {supported && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            paddingLeft: 88,
+          }}
+        >
+          <label
+            style={{
+              fontSize: 10,
+              color: color.text.muted,
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+              cursor: "pointer",
+            }}
+          >
+            <Switch
+              checked={animated}
+              onCheckedChange={(checked) =>
+                onChange(
+                  checked
+                    ? setAxisRange(axes, axis, start, clampAxis(max, axis, family), family)
+                    : setAxisStatic(axes, axis, start, family),
+                )
+              }
+            />
+            animate
+          </label>
+          {animated && (
+            <input
+              type="range"
+              min={min}
+              max={max}
+              step={step}
+              value={end}
+              onChange={(e) =>
+                onChange(setAxisRange(axes, axis, start, Number(e.target.value), family))
+              }
+              style={{ flex: 1, accentColor: color.accent.fg, height: 4 }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- TypographyAxes: weight + width + slant for a beat ----------------------
+//
+// Variable fonts get the continuous axis sliders (weight + any width/slant
+// axes the font actually varies). Non-variable fonts (e.g. SpaceGrotesk) get
+// a plain weight DROPDOWN of the discrete weights the file ships, and the
+// width/slant controls are hidden entirely — they'd be no-ops.
+
+const TypographyAxes: React.FC<{
+  axes: AxisRanges;
+  family: FontFamily;
+  onChange: (axes: AxisRanges) => void;
+}> = ({ axes, family, onChange }) => {
+  const staticWeights = staticWeightOptions(family);
+
+  if (staticWeights) {
+    // Non-variable font — discrete weight dropdown, no width/slant.
+    const current = axes.wght[0];
+    return (
+      <Row label="weight">
+        <Dropdown
+          value={String(current)}
+          options={staticWeights.map((w) => String(w.value))}
+          onChange={(v) =>
+            onChange(setAxisStatic(axes, "wght", Number(v), family))
+          }
+        />
+      </Row>
+    );
+  }
+
+  // Variable font — show weight, plus width/slant only if the font varies them.
+  return (
+    <>
+      <AxisControl label="weight" axis="wght" axes={axes} family={family} onChange={onChange} />
+      {axisSupported("wdth", family) && (
+        <AxisControl label="width" axis="wdth" axes={axes} family={family} onChange={onChange} />
+      )}
+      {axisSupported("slnt", family) && (
+        <AxisControl label="slant" axis="slnt" axes={axes} family={family} onChange={onChange} />
+      )}
+    </>
+  );
+};
 
 
 // --- the panel --------------------------------------------------------------
@@ -149,22 +326,10 @@ export const Panel: React.FC<{
           beat={story.beats[selection.indices[0]]}
           index={selection.indices[0]}
           fallbackTextColor={story.textColor}
+          fallbackFontFamily={story.fontFamily}
           onChange={(patch) => patchBeat(selection.indices[0], patch)}
         />
       )}
-
-      <div
-        style={{
-          fontSize: 10,
-          color: color.text.faint,
-          lineHeight: 1.5,
-          marginTop: 16,
-        }}
-      >
-        This panel tweaks parameters only. To change the sequence — add or
-        remove beats, edit words, generate new shapes — reprompt Claude
-        Code (open the terminal pane).
-      </div>
     </div>
   );
 };
@@ -224,12 +389,7 @@ const StoryEditor: React.FC<{
                 durationInSeconds: isAuto ? derivedDuration : undefined,
               })
             }
-            style={{
-              ...secondaryBtn({ active: !isAuto }),
-              fontSize: 10,
-              padding: "2px 8px",
-              cursor: "pointer",
-            }}
+            style={secondaryBtn({ active: !isAuto, size: "sm" })}
           >
             {isAuto ? "lock" : "auto"}
           </button>
@@ -237,6 +397,13 @@ const StoryEditor: React.FC<{
       </Section>
 
       <Section title="Palette & background">
+        <Row label="font">
+          <Dropdown
+            value={story.fontFamily}
+            options={FONT_FAMILIES}
+            onChange={(v) => patchStory({ fontFamily: v as Story["fontFamily"] })}
+          />
+        </Row>
         <Row label="bg">
           <ColorControl
             value={story.bgColor}
@@ -342,8 +509,9 @@ const BeatEditor: React.FC<{
   beat: Beat | undefined;
   index: number;
   fallbackTextColor: string;
+  fallbackFontFamily: FontFamily;
   onChange: (patch: Partial<Beat>) => void;
-}> = ({ beat, index, fallbackTextColor, onChange }) => {
+}> = ({ beat, index, fallbackTextColor, fallbackFontFamily, onChange }) => {
   if (!beat) {
     return (
       <div style={{ fontSize: 11, color: color.text.muted, padding: "10px 0" }}>
@@ -351,6 +519,7 @@ const BeatEditor: React.FC<{
       </div>
     );
   }
+  const family: FontFamily = beat.fontFamily ?? fallbackFontFamily;
   return (
     <Section title={`${beat.kind} beat`}>
       <Row label="text">
@@ -463,6 +632,18 @@ const BeatEditor: React.FC<{
           onChange={(v) => onChange({ blendMode: v as Beat["blendMode"] })}
         />
       </Row>
+      <Row label="font">
+        <Dropdown
+          value={beat.fontFamily ?? fallbackFontFamily}
+          options={FONT_FAMILIES}
+          onChange={(v) => onChange({ fontFamily: v as FontFamily })}
+        />
+      </Row>
+      <TypographyAxes
+        axes={beat.axes}
+        family={family}
+        onChange={(axes) => onChange({ axes })}
+      />
       <Row label="color">
         <ColorControl
           value={beat.color ?? fallbackTextColor}

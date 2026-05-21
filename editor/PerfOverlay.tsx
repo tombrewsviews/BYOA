@@ -129,29 +129,14 @@ export const PerfOverlay: React.FC<{
   if (!enabled || !stats) return null;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 12,
-        right: 12,
-        background: "rgba(8,8,12,0.92)",
-        border: "1px solid #2e2e3c",
-        borderRadius: 6,
-        color: "#facc15",
-        fontFamily: "ui-monospace, SFMono-Regular, monospace",
-        fontSize: 10,
-        padding: "8px 10px",
-        zIndex: 1000,
-        pointerEvents: "none",
-        minWidth: 200,
-      }}
-    >
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>perf · ⌃P to hide</div>
+    // Dev-only diagnostic overlay — deliberately keeps its amber/monospace
+    // "instrument" look (it is never user-facing); only the chrome is
+    // tokenized to match the grey system.
+    <div className="pointer-events-none fixed bottom-3 right-3 z-[1000] min-w-[200px] rounded-md border border-border bg-popover/95 px-2.5 py-2 font-mono text-[10px] text-amber-400">
+      <div className="mb-1 font-bold">perf · ⌃P to hide</div>
       <div>setStory count: {stats.storyChanges}</div>
       <div>frameupdate Hz: {stats.frameupdateHz}</div>
-      <div>
-        recent setStory Δms: [{stats.storyDeltas.join(", ")}]
-      </div>
+      <div>recent setStory Δms: [{stats.storyDeltas.join(", ")}]</div>
     </div>
   );
 };

@@ -5,20 +5,7 @@ interface Props {
 }
 
 export const UserMessage: React.FC<Props> = ({ text }) => (
-  <div
-    style={{
-      maxWidth: "70ch",
-      marginLeft: "auto",
-      fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-      fontSize: 15,
-      lineHeight: 1.55,
-      color: "#e4e4ee",
-      background: "#1c1c26",
-      borderRadius: 10,
-      padding: "8px 12px",
-      whiteSpace: "pre-wrap",
-    }}
-  >
+  <div className="ml-auto max-w-[70ch] whitespace-pre-wrap rounded-lg bg-secondary px-3 py-2 text-sm leading-relaxed text-foreground">
     {text}
   </div>
 );

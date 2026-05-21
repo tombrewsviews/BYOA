@@ -6,8 +6,9 @@
  * component is fully controlled.
  */
 import React from "react";
-import { color, font, radius, space } from "./theme";
 import { APPS, type AppCategory, type AppManifest } from "./apps";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 export type Filter =
   | { kind: "browse"; key: "featured" | "new" | "most" | "soon" }
@@ -30,39 +31,19 @@ const CATEGORY_LABEL: Record<AppCategory, string> = {
   devtools: "Devtools",
 };
 
-const sectionLabel: React.CSSProperties = {
-  fontSize: font.size.xs,
-  fontWeight: 600,
-  color: color.text.dim,
-  textTransform: "uppercase",
-  letterSpacing: 0.5,
-  padding: "0 12px",
-  marginBottom: space.s6,
-};
+const SECTION_LABEL =
+  "mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground";
 
-const row = (active: boolean): React.CSSProperties => ({
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  width: "100%",
-  background: "transparent",
-  border: 0,
-  textAlign: "left",
-  color: active ? color.text.primary : color.text.secondary,
-  fontFamily: font.family,
-  fontSize: font.size.base,
-  fontWeight: active ? 600 : 500,
-  padding: "6px 12px",
-  cursor: "pointer",
-});
+const rowClass = (active: boolean): string =>
+  cn(
+    "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[13px] transition-colors hover:text-foreground",
+    active
+      ? "font-semibold text-foreground"
+      : "font-medium text-muted-foreground",
+  );
 
-const dot = (visible: boolean): React.CSSProperties => ({
-  width: 6,
-  height: 6,
-  borderRadius: radius.pill,
-  background: visible ? color.accent.dot : "transparent",
-  flex: "0 0 auto",
-});
+const dotClass = (visible: boolean): string =>
+  cn("size-1.5 flex-none rounded-full", visible ? "bg-foreground" : "bg-transparent");
 
 const sameFilter = (a: Filter, b: Filter): boolean => {
   if (a.kind !== b.kind) return false;
@@ -86,54 +67,27 @@ export const Sidebar: React.FC<{
   ) as AppCategory[];
 
   return (
-    <div
-      style={{
-        width: 220,
-        flex: "0 0 220px",
-        background: color.bg.surface,
-        borderRight: `1px solid ${color.border.line}`,
-        display: "flex",
-        flexDirection: "column",
-        padding: "16px 0 24px",
-        gap: space.s20,
-        overflowY: "auto",
-        fontFamily: font.family,
-      }}
-    >
-      <div style={{ padding: "0 12px" }}>
-        <input
+    <div className="flex w-[220px] flex-none flex-col gap-5 overflow-y-auto border-r border-border bg-card pb-6 pt-4">
+      <div className="px-3">
+        <Input
           type="text"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search…"
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            background: color.bg.raised,
-            border: `1px solid ${color.border.line}`,
-            borderRadius: radius.md,
-            color: color.text.primary,
-            fontFamily: font.family,
-            fontSize: font.size.md,
-            padding: "8px 10px",
-            outline: "none",
-          }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = color.border.hover)}
-          onBlur={(e) => (e.currentTarget.style.borderColor = color.border.line)}
         />
       </div>
 
       <div>
-        <div style={sectionLabel}>Browse</div>
+        <div className={SECTION_LABEL}>Browse</div>
         {BROWSE.map((b) => {
           const active = sameFilter(filter, { kind: "browse", key: b.key });
           return (
             <button
               key={b.key}
               onClick={() => onFilter({ kind: "browse", key: b.key })}
-              style={row(active)}
+              className={rowClass(active)}
             >
-              <span style={dot(active)} />
+              <span className={dotClass(active)} />
               {b.label}
             </button>
           );
@@ -142,16 +96,16 @@ export const Sidebar: React.FC<{
 
       {usedCategories.length > 0 && (
         <div>
-          <div style={sectionLabel}>Categories</div>
+          <div className={SECTION_LABEL}>Categories</div>
           {usedCategories.map((cat) => {
             const active = sameFilter(filter, { kind: "category", name: cat });
             return (
               <button
                 key={cat}
                 onClick={() => onFilter({ kind: "category", name: cat })}
-                style={row(active)}
+                className={rowClass(active)}
               >
-                <span style={dot(active)} />
+                <span className={dotClass(active)} />
                 {CATEGORY_LABEL[cat]}
               </button>
             );
@@ -161,7 +115,7 @@ export const Sidebar: React.FC<{
 
       {installed.length > 0 && (
         <div>
-          <div style={sectionLabel}>Installed</div>
+          <div className={SECTION_LABEL}>Installed</div>
           {installed.map((app) => {
             const active = sameFilter(filter, {
               kind: "installed",
@@ -173,9 +127,9 @@ export const Sidebar: React.FC<{
                 onClick={() =>
                   onFilter({ kind: "installed", appId: app.id })
                 }
-                style={row(active)}
+                className={rowClass(active)}
               >
-                <span style={dot(active)} />
+                <span className={dotClass(active)} />
                 {app.name}
               </button>
             );

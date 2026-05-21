@@ -7,16 +7,7 @@ interface Props {
 }
 
 export const Message: React.FC<Props> = ({ text, streaming }) => (
-  <div
-    style={{
-      maxWidth: "70ch",
-      fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-      fontSize: 15,
-      lineHeight: 1.55,
-      color: "#e4e4ee",
-      padding: "10px 0",
-    }}
-  >
+  <div className="max-w-[70ch] py-2.5 text-[15px] leading-relaxed text-foreground">
     <ReactMarkdown
       components={{
         code(props) {
@@ -24,32 +15,13 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
           const isBlock = className && className.startsWith("language-");
           if (isBlock) {
             return (
-              <pre
-                style={{
-                  background: "#13131a",
-                  border: "1px solid #2a2a36",
-                  borderRadius: 6,
-                  padding: 10,
-                  overflow: "auto",
-                  fontSize: 13,
-                  margin: "8px 0",
-                }}
-              >
+              <pre className="my-2 overflow-auto rounded-md border border-border bg-card p-2.5 text-[13px]">
                 <code>{children}</code>
               </pre>
             );
           }
           return (
-            <code
-              style={{
-                background: "#1c1c26",
-                padding: "1px 4px",
-                borderRadius: 3,
-                fontSize: 13,
-                fontFamily:
-                  "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-              }}
-            >
+            <code className="rounded-sm bg-secondary px-1 py-px font-mono text-[13px]">
               {children}
             </code>
           );
@@ -60,7 +32,7 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
               href={props.href}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: "#7c5cff" }}
+              className="text-foreground underline underline-offset-2"
             >
               {props.children}
             </a>
@@ -77,15 +49,8 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
         `}</style>
         <span
           aria-hidden
-          style={{
-            display: "inline-block",
-            width: 8,
-            height: 14,
-            background: "#7c5cff",
-            marginLeft: 3,
-            verticalAlign: "text-bottom",
-            animation: "agentchat-pulse 1s steps(2) infinite",
-          }}
+          className="ml-[3px] inline-block h-3.5 w-2 align-text-bottom bg-foreground"
+          style={{ animation: "agentchat-pulse 1s steps(2) infinite" }}
         />
       </>
     ) : null}

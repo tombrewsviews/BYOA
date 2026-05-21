@@ -1,60 +1,24 @@
 import React from "react";
+import { Button } from "@/components/ui/button";
 
 interface Props {
+  // agentLabel + cwd are kept in the contract (callers still pass them) but
+  // are no longer shown here: the agent name now lives on the Chat toggle
+  // label, and the project path lives in the editor header. The toolbar is
+  // just the "Clear" affordance now.
   agentLabel: string;
   cwd: string;
   onEndSession: () => void;
   sessionAlive: boolean;
 }
 
-export const SessionToolbar: React.FC<Props> = ({
-  agentLabel,
-  cwd,
-  onEndSession,
-  sessionAlive,
-}) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "6px 10px",
-      borderBottom: "1px solid #2a2a36",
-      fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-      fontSize: 12,
-      color: "#a4a4b4",
-      background: "#0e0e16",
-    }}
-  >
-    <span style={{ fontWeight: 600, color: "#e4e4ee" }}>{agentLabel}</span>
-    <span
-      style={{
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-        opacity: 0.7,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        flex: 1,
-        minWidth: 0,
-      }}
-      title={cwd}
-    >
-      {cwd}
-    </span>
-    {sessionAlive ? (
-      <button
-        onClick={onEndSession}
-        style={{
-          padding: "3px 8px",
-          borderRadius: 4,
-          border: "1px solid #3a3a48",
-          background: "transparent",
-          color: "#cdcdd8",
-          cursor: "pointer",
-        }}
-      >
+export const SessionToolbar: React.FC<Props> = ({ onEndSession, sessionAlive }) => {
+  if (!sessionAlive) return null;
+  return (
+    <div className="flex items-center justify-end border-b border-border bg-card px-2.5 py-1.5">
+      <Button variant="secondary" size="xs" onClick={onEndSession}>
         Clear
-      </button>
-    ) : null}
-  </div>
-);
+      </Button>
+    </div>
+  );
+};

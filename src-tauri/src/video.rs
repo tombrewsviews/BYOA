@@ -24,6 +24,49 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
 
+/// Downscale an MP4 in place to `w`×`h` using ffmpeg's lanczos filter.
+/// Best-effort: any failure (no ffmpeg, encode error) is logged and the
+/// original file is left untouched, so the export still succeeds.
+fn downscale_in_place(path: &str, w: u32, h: u32) {
+    let src = Path::new(path);
+    let tmp = src.with_extension("downscale.mp4");
+    let status = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-i")
+        .arg(path)
+        .arg("-vf")
+        .arg(format!("scale={}:{}:flags=lanczos", w, h))
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg("medium")
+        .arg("-crf")
+        .arg("18")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-c:a")
+        .arg("copy")
+        .arg(tmp.to_string_lossy().as_ref())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() && tmp.exists() => {
+            if let Err(e) = fs::rename(&tmp, src) {
+                eprintln!("downscale: rename failed ({e}); keeping 2× output");
+                let _ = fs::remove_file(&tmp);
+            }
+        }
+        Ok(s) => {
+            eprintln!("downscale: ffmpeg exited {s}; keeping 2× output");
+            let _ = fs::remove_file(&tmp);
+        }
+        Err(e) => {
+            eprintln!("downscale: ffmpeg not run ({e}); keeping 2× output");
+        }
+    }
+}
+
 fn active_path(state: &AppState) -> Result<PathBuf, String> {
     state
         .active_project
@@ -293,4 +336,324 @@ pub fn download_youtube(
     });
 
     Ok(id)
+}
+
+// ---------------------------------------------------------------------------
+// MP4 export — shells out to the Remotion CLI, streaming progress exactly
+// like download_youtube above.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub id: String,
+    pub line: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDone {
+    pub id: String,
+    pub path: String,
+}
+
+/// Locate the directory that holds `remotion.config.ts` + the composition
+/// entrypoint — the render must run from there so Remotion finds its root.
+///
+/// Bundled app: the composition ships in the resource dir. Dev: walk up from
+/// the Cargo manifest dir (src-tauri/) to the repo root.
+fn remotion_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(res) = app.path().resolve("", tauri::path::BaseDirectory::Resource) {
+        if res.join("remotion.config.ts").exists() {
+            return Ok(res);
+        }
+    }
+    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..4 {
+        if dir.join("remotion.config.ts").exists() {
+            return Ok(dir);
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent.to_path_buf(),
+            None => break,
+        }
+    }
+    Err("could not locate remotion.config.ts (render root)".into())
+}
+
+/// Collect the absolute media paths a story references (imageSrc / videoSrc).
+/// The CLI renderer can't load arbitrary filesystem paths — headless Chromium
+/// blocks file:// and mis-resolves absolute paths — so the export stages these
+/// into Remotion's public/ dir and the composition references them by basename
+/// via staticFile().
+fn story_media_paths(story_json: &Path) -> Vec<PathBuf> {
+    let text = match fs::read_to_string(story_json) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut paths = Vec::new();
+    if let Some(beats) = value.get("beats").and_then(|b| b.as_array()) {
+        for beat in beats {
+            for key in ["imageSrc", "videoSrc"] {
+                if let Some(p) = beat.get(key).and_then(|s| s.as_str()) {
+                    if p.starts_with('/') {
+                        paths.push(PathBuf::from(p));
+                    }
+                }
+            }
+        }
+    }
+    paths
+}
+
+/// A media file staged into Remotion's public/ dir for the duration of a
+/// render. Removed on drop so an interrupted render doesn't litter public/.
+struct StagedMedia {
+    dest: PathBuf,
+    /// True only when WE created the file (it wasn't already there) — we must
+    /// not delete a file that legitimately ships in public/.
+    owned: bool,
+}
+
+impl Drop for StagedMedia {
+    fn drop(&mut self) {
+        if self.owned {
+            let _ = fs::remove_file(&self.dest);
+        }
+    }
+}
+
+/// Copy each referenced media file into `<root>/public/<basename>`. Returns
+/// guards that clean the copies up on drop. Files already present in public/
+/// are left untouched (owned=false).
+fn stage_media(root: &Path, media: &[PathBuf]) -> Result<Vec<StagedMedia>, String> {
+    let public = root.join("public");
+    fs::create_dir_all(&public).map_err(|e| format!("create public/: {}", e))?;
+    let mut staged = Vec::new();
+    for src in media {
+        if !src.exists() {
+            // Skip missing media — the render shows the "(no image source)"
+            // placeholder rather than failing the whole export.
+            continue;
+        }
+        let basename = match src.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let dest = public.join(basename);
+        let owned = !dest.exists();
+        if owned {
+            fs::copy(src, &dest)
+                .map_err(|e| format!("stage {}: {}", src.display(), e))?;
+        }
+        staged.push(StagedMedia { dest, owned });
+    }
+    Ok(staged)
+}
+
+/// Render the active project's `story.json` to an MP4 in the project folder.
+/// Returns a job id immediately; the caller listens on
+/// `video://export-progress` / `video://export-done` / `video://export-error`.
+#[tauri::command]
+pub fn export_video(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    scale: Option<u32>,
+) -> Result<String, String> {
+    // Render scale. 1 = quick draft (no supersampling). >1 supersamples then
+    // downscales back to delivery size to tame variable-font edge shimmer
+    // (2 ≈ 96% reduction, 3 ≈ 98%). Clamp to a sane range.
+    let scale = scale.unwrap_or(1).clamp(1, 4);
+    let project = active_path(&state)?;
+    let story = project.join("story.json");
+    if !story.exists() {
+        return Err(format!("story.json not found in {}", project.display()));
+    }
+    let root = remotion_root(&app)?;
+    let out = unique_assets_path(&project, "export.mp4");
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let id_for_thread = id.clone();
+    let app_for_thread = app.clone();
+    let out_path = out.to_string_lossy().to_string();
+    let out_done = out_path.clone();
+    let story_arg = story.to_string_lossy().to_string();
+    let media = story_media_paths(&story);
+    let root_for_thread = root.clone();
+
+    thread::spawn(move || {
+        // Stage any project media into Remotion's public/ so staticFile() in
+        // the composition can serve it. The guards live for the whole render
+        // and remove the staged copies when this scope ends.
+        let _staged = match stage_media(&root_for_thread, &media) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("staging media failed: {}", e),
+                    },
+                );
+                return;
+            }
+        };
+
+        // Prefer the project-local remotion bin; fall back to npx.
+        let local_bin = root.join("node_modules/.bin/remotion");
+        let (program, base_args): (PathBuf, Vec<String>) = if local_bin.exists() {
+            (local_bin, vec!["render".into()])
+        } else {
+            (PathBuf::from("npx"), vec!["remotion".into(), "render".into()])
+        };
+
+        // Supersampling is what tames the per-letter edge shimmer: at 1× the
+        // variable-font glyph edges land on fractional pixels where Chromium's
+        // text rasterizer rounds them non-deterministically frame-to-frame
+        // (~518 changed px/frame in the settled hold). Rendering at scale N
+        // samples those edges at N× density, so the post-downscale averages
+        // the ambiguity away (2× ≈ 96%, 3× ≈ 98% reduction) while preserving
+        // the variable-font weight/width animation. scale=1 skips both
+        // (quick draft — shows the jitter but renders ~N²× faster).
+        let mut cmd = Command::new(&program);
+        cmd.current_dir(&root)
+            .args(&base_args)
+            .arg("KineticStory")
+            .arg(&out_path)
+            .arg(format!("--props={}", story_arg));
+        if scale > 1 {
+            cmd.arg(format!("--scale={}", scale));
+        }
+        cmd.stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("spawn failed: {}", e),
+                    },
+                );
+                return;
+            }
+        };
+
+        let stdout = child.stdout.take().expect("piped");
+        let stderr = child.stderr.take().expect("piped");
+        let a1 = app_for_thread.clone();
+        let i1 = id_for_thread.clone();
+        let a2 = app_for_thread.clone();
+        let i2 = id_for_thread.clone();
+
+        let h1 = thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let _ = a1.emit(
+                    "video://export-progress",
+                    ExportProgress {
+                        id: i1.clone(),
+                        line,
+                    },
+                );
+            }
+        });
+        let h2 = thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = a2.emit(
+                    "video://export-progress",
+                    ExportProgress {
+                        id: i2.clone(),
+                        line,
+                    },
+                );
+            }
+        });
+        let _ = h1.join();
+        let _ = h2.join();
+
+        match child.wait() {
+            Ok(s) if s.success() && Path::new(&out_done).exists() => {
+                // A supersampled render produced an N×(1080×1920) file.
+                // Downscale it back to the 1080×1920 delivery size with a
+                // high-quality (lanczos) filter — this is the step that
+                // averages out the per-letter edge shimmer. Skipped for the
+                // 1× quick draft. Best-effort: if ffmpeg is unavailable the
+                // larger file is still a valid export.
+                if scale > 1 {
+                    downscale_in_place(&out_done, 1080, 1920);
+                }
+                let _ = app_for_thread.emit(
+                    "video://export-done",
+                    ExportDone {
+                        id: id_for_thread,
+                        path: out_done,
+                    },
+                );
+            }
+            Ok(s) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("remotion exited {}", s),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app_for_thread.emit(
+                    "video://export-error",
+                    ExportProgress {
+                        id: id_for_thread.clone(),
+                        line: format!("wait failed: {}", e),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn story_media_paths_collects_absolute_image_and_video_src() {
+        let dir = std::env::temp_dir().join(format!("kt-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let story = dir.join("story.json");
+        let mut f = std::fs::File::create(&story).unwrap();
+        write!(
+            f,
+            r#"{{"beats":[
+                {{"kind":"imageClip","imageSrc":"/abs/pic.png"}},
+                {{"kind":"videoClip","videoSrc":"/abs/clip.mp4"}},
+                {{"kind":"reveal","text":"hi"}},
+                {{"kind":"imageClip","imageSrc":"relative.png"}}
+            ]}}"#
+        )
+        .unwrap();
+
+        let paths = story_media_paths(&story);
+        assert_eq!(paths.len(), 2, "only absolute imageSrc/videoSrc collected");
+        assert!(paths.contains(&PathBuf::from("/abs/pic.png")));
+        assert!(paths.contains(&PathBuf::from("/abs/clip.mp4")));
+        // relative paths are skipped (only leading-slash absolutes staged)
+        assert!(!paths.iter().any(|p| p.to_string_lossy().contains("relative.png")));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn story_media_paths_handles_missing_or_malformed_file() {
+        assert!(story_media_paths(Path::new("/nonexistent/story.json")).is_empty());
+    }
 }

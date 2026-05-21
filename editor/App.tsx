@@ -20,7 +20,9 @@
 import React, { useEffect, useState } from "react";
 import { APPS, findApp, type AppManifest } from "./platform/apps";
 import { Square } from "./platform/Square";
-import { color, font, radius, secondaryBtn } from "./platform/theme";
+import { font } from "./platform/theme";
+import { Button } from "@/components/ui/button";
+import { LayoutGrid } from "./icons";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
@@ -62,56 +64,34 @@ const PlatformChrome: React.FC<{
 }> = ({ app, onExit }) => (
   <div
     data-tauri-drag-region
+    className="relative flex flex-none select-none items-center gap-2.5 border-b border-border bg-card pr-3 text-sm text-muted-foreground"
     style={{
       height: CHROME_HEIGHT,
-      flex: "0 0 auto",
-      background: color.bg.surface,
-      borderBottom: `1px solid ${color.border.line}`,
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
       paddingLeft: isMac ? MAC_LEFT_PAD : 12,
-      paddingRight: 12,
-      color: color.text.secondary,
       fontFamily: font.family,
-      fontSize: font.size.md,
-      userSelect: "none",
-      WebkitUserSelect: "none",
     }}
   >
     {app ? (
       <>
-        <button
+        <Button
           data-tauri-drag-region={false}
+          variant="ghost"
+          size="sm"
           onClick={onExit}
           title="Back to The Square"
-          style={{
-            ...secondaryBtn(),
-            padding: "4px 10px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: radius.md,
-          }}
         >
-          <span style={{ fontSize: 13, lineHeight: 1 }}>⊞</span>
+          <LayoutGrid />
           The Square
-        </button>
-        <span style={{ color: color.text.primary, fontWeight: 600 }}>
-          {app.name}
-        </span>
-        <span style={{ color: color.text.faint, fontSize: font.size.sm }}>
-          v{app.version}
-        </span>
+        </Button>
+        {/* App name centered in the bar, independent of the left/right
+            content. pointer-events-none so it never blocks the drag region. */}
+        <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-baseline gap-1.5">
+          <span className="font-semibold text-foreground">{app.name}</span>
+          <span className="text-xs text-muted-foreground/60">v{app.version}</span>
+        </div>
       </>
     ) : (
-      <span
-        style={{
-          color: color.text.primary,
-          fontWeight: 700,
-          letterSpacing: -0.2,
-        }}
-      >
+      <span className="absolute left-1/2 -translate-x-1/2 font-bold tracking-tight text-foreground">
         The Square
       </span>
     )}

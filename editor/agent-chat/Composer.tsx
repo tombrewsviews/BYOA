@@ -3,6 +3,14 @@ import {
   type PermissionMode,
   PERMISSION_MODES,
 } from "./adapters/types";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 /**
  * The mounted chat input, exposed module-side so app-level shortcuts
@@ -186,49 +194,20 @@ export const Composer: React.FC<Props> = ({
       }}
       onDragLeave={() => setDropActive(false)}
       onDrop={onDrop}
-      style={{
-        padding: 10,
-        borderTop: "1px solid #2a2a36",
-        background: dropActive ? "#1a1a25" : "transparent",
-      }}
+      className={`border-t border-border p-2.5 ${dropActive ? "bg-accent" : "bg-transparent"}`}
     >
       {attachments.length > 0 ? (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            marginBottom: 6,
-          }}
-        >
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
           {attachments.map((p, i) => (
             <span
               key={`${p}-${i}`}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                fontFamily:
-                  "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-                fontSize: 11,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "#1c1c26",
-                color: "#cdcdd8",
-              }}
+              className="inline-flex items-center gap-1 rounded-sm bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
             >
               @{p}
               <button
                 onClick={() => removeAttachment(i)}
                 aria-label={`Remove ${p}`}
-                style={{
-                  all: "unset",
-                  cursor: "pointer",
-                  color: "#7a7a88",
-                  fontSize: 12,
-                  lineHeight: 1,
-                  padding: "0 2px",
-                }}
+                className="cursor-pointer px-0.5 text-xs leading-none text-muted-foreground hover:text-foreground"
               >
                 ×
               </button>
@@ -246,99 +225,48 @@ export const Composer: React.FC<Props> = ({
           disabled ? "Waiting for agent…" : "Message your agent (Enter to send)"
         }
         rows={3}
-        style={{
-          width: "100%",
-          boxSizing: "border-box",
-          background: "#13131a",
-          border: "1px solid #2a2a36",
-          borderRadius: 8,
-          color: "#e4e4ee",
-          fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-          fontSize: 14,
-          padding: 8,
-          resize: "vertical",
-        }}
+        className="box-border w-full resize-y rounded-lg border border-input bg-card p-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginTop: 6,
-        }}
-      >
-        <button
+      <div className="mt-1.5 flex items-center gap-2">
+        <Button
+          variant="secondary"
+          size="icon-sm"
           onClick={() => void openFilePicker()}
           title="Attach files"
           aria-label="Attach files"
-          style={{
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: "1px solid #2a2a36",
-            background: "transparent",
-            color: "#cdcdd8",
-            cursor: "pointer",
-            fontSize: 16,
-            lineHeight: 1,
-          }}
         >
           +
-        </button>
+        </Button>
 
-        <select
+        <Select
           value={permissionMode}
-          onChange={(e) =>
-            onPermissionModeChange(e.target.value as PermissionMode)
-          }
-          title="What the agent is allowed to do this turn"
-          style={{
-            background: "#13131a",
-            border: "1px solid #2a2a36",
-            borderRadius: 6,
-            color: "#e4e4ee",
-            fontSize: 12,
-            padding: "4px 6px",
-            cursor: "pointer",
-          }}
+          onValueChange={(v) => onPermissionModeChange(v as PermissionMode)}
         >
-          {PERMISSION_MODES.map((m) => (
-            <option key={m.value} value={m.value} title={m.hint}>
-              {m.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            size="sm"
+            title="What the agent is allowed to do this turn"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERMISSION_MODES.map((m) => (
+              <SelectItem key={m.value} value={m.value} title={m.hint}>
+                {m.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
 
         {running ? (
-          <button
-            onClick={onStop}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: "1px solid #2a2a36",
-              background: "transparent",
-              color: "#cdcdd8",
-              cursor: "pointer",
-            }}
-          >
+          <Button variant="secondary" size="sm" onClick={onStop}>
             Stop
-          </button>
+          </Button>
         ) : (
-          <button
-            onClick={submit}
-            disabled={!canSend}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 6,
-              border: "none",
-              background: canSend ? "#7c5cff" : "#3a3a48",
-              color: "#fff",
-              cursor: canSend ? "pointer" : "not-allowed",
-            }}
-          >
+          <Button size="sm" onClick={submit} disabled={!canSend}>
             Send
-          </button>
+          </Button>
         )}
       </div>
     </div>

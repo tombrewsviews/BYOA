@@ -11,6 +11,7 @@
  */
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -52,7 +53,16 @@ const storyJsonPlugin = (): Plugin => ({
 
 export default defineConfig({
   root: path.join(PROJECT_ROOT, "editor"),
-  plugins: [react(), storyJsonPlugin()],
+  // The composition's @font-face rules load self-hosted fonts via Remotion's
+  // staticFile(), which resolves to the page origin's root (/fonts/...). With
+  // root = editor/, vite's default publicDir would be editor/public (which
+  // doesn't exist), so the fonts 404 and every family silently falls back to
+  // a system sans-serif that ignores font-variation-settings — making the
+  // typography axes (weight/width/slant) and font-family picker no-ops in the
+  // preview. Point publicDir at the repo's public/ (where the fonts live) so
+  // they're served in dev AND copied into editor/dist on build.
+  publicDir: path.join(PROJECT_ROOT, "public"),
+  plugins: [tailwindcss(), react(), storyJsonPlugin()],
   server: {
     port: 5174,
     fs: {
@@ -61,7 +71,7 @@ export default defineConfig({
     },
   },
   resolve: {
-    // make ../src imports resolve cleanly from editor/
-    alias: {},
+    // @/* resolves to editor/* (shadcn/ReUI component convention)
+    alias: { "@": path.join(PROJECT_ROOT, "editor") },
   },
 });

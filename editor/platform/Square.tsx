@@ -19,11 +19,12 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { APPS, type AppManifest } from "./apps";
-import { color, font } from "./theme";
 import { Sidebar, type Filter } from "./Sidebar";
 import { AppRow } from "./AppRow";
 import { AppDrawer } from "./AppDrawer";
 import { getInstallState } from "./install";
+import { Button } from "@/components/ui/button";
+import { ArrowUp, ArrowDown } from "../icons";
 
 const FAVORITES_KEY = "platform.favorites";
 
@@ -179,17 +180,7 @@ export const Square: React.FC<{ onOpen: (id: string) => void }> = ({ onOpen }) =
     : null;
 
   return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        background: color.bg.canvas,
-        color: color.text.secondary,
-        fontFamily: font.family,
-        overflow: "hidden",
-      }}
-    >
+    <div className="flex h-full w-full overflow-hidden bg-background text-muted-foreground">
       <Sidebar
         filter={filter}
         onFilter={handleFilter}
@@ -200,70 +191,31 @@ export const Square: React.FC<{ onOpen: (id: string) => void }> = ({ onOpen }) =
         installed={installed}
       />
 
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflowY: "auto",
-          padding: "32px 32px 80px",
-        }}
-      >
-        <div style={{ maxWidth: 920, margin: "0 auto" }}>
-          <div style={{ marginBottom: 24 }}>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: font.size.display,
-                fontWeight: 800,
-                letterSpacing: -1,
-                color: color.text.primary,
-              }}
-            >
+      <div className="min-w-0 flex-1 overflow-y-auto px-8 pb-20 pt-8">
+        <div className="mx-auto max-w-[920px]">
+          <div className="mb-6">
+            <h1 className="text-4xl font-extrabold tracking-tight text-foreground">
               {headerTitle}
             </h1>
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: font.size.md,
-                color: color.text.muted,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
               <span>{visible.length} results · sort: {sortKey}</span>
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
                 aria-label="Toggle sort direction"
-                style={{
-                  background: "transparent",
-                  border: 0,
-                  color: color.text.muted,
-                  cursor: "pointer",
-                  fontSize: font.size.base,
-                  padding: 0,
-                }}
               >
-                {sortDir === "desc" ? "↓" : "↑"}
-              </button>
+                {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
+              </Button>
             </div>
           </div>
 
           {visible.length === 0 ? (
-            <div
-              style={{
-                padding: 40,
-                textAlign: "center",
-                color: color.text.faint,
-                fontSize: font.size.base,
-                border: `1px dashed ${color.border.line}`,
-                borderRadius: 12,
-              }}
-            >
+            <div className="rounded-xl border border-dashed border-border p-10 text-center text-[13px] text-muted-foreground">
               No apps match. Try clearing the filters.
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {visible.map((app) => (
                 <AppRow
                   key={app.id}

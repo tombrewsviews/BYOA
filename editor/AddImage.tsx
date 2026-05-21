@@ -7,6 +7,7 @@
  */
 import React, { useState } from "react";
 import { isTauri } from "./runtime";
+import { AddItemButton } from "./AddItemButton";
 
 type Props = {
   onImported: (absolutePath: string) => void;
@@ -52,38 +53,15 @@ export const AddImage: React.FC<Props> = ({ onImported }) => {
   };
 
   return (
-    <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
-      <button
+    <div className="relative inline-flex flex-col gap-1">
+      <AddItemButton
+        label={busy ? "…" : "+ Image"}
         onClick={() => void pickFile()}
         disabled={busy}
         title="Add image"
-        style={{
-          padding: "4px 12px",
-          fontSize: 11,
-          borderRadius: 4,
-          border: "1px dashed #3a3a4c",
-          background: "transparent",
-          color: busy ? "#4b4b5a" : "#8b8b9a",
-          cursor: busy ? "default" : "pointer",
-        }}
-      >
-        {busy ? "…" : "+ Image"}
-      </button>
+      />
       {error && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "100%",
-            marginBottom: 4,
-            background: "#3a1414",
-            border: "1px solid #5a2020",
-            color: "#ff8b8b",
-            fontSize: 10,
-            padding: "4px 8px",
-            borderRadius: 4,
-            maxWidth: 240,
-          }}
-        >
+        <div className="absolute bottom-full mb-1 max-w-[240px] rounded-md border border-destructive/40 bg-destructive/15 px-2 py-1 text-[10px] text-destructive">
           {error}
         </div>
       )}

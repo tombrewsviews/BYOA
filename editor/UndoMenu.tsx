@@ -10,7 +10,8 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import type { HistoryHandle } from "./shell";
-import { color, font, radius, secondaryBtn } from "./platform/theme";
+import { Button } from "@/components/ui/button";
+import { Undo2, Redo2, ChevronDown } from "./icons";
 
 const fmtAgo = (now: number, then: number): string => {
   const ms = Math.max(0, now - then);
@@ -35,88 +36,49 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const baseBtn: React.CSSProperties = {
-    ...secondaryBtn(),
-    fontSize: font.size.sm,
-    padding: "3px 8px",
-  };
-
   const now = Date.now();
   // Show newest-first.
   const entries = [...history.past].reverse();
 
+  // Connected split-button group: the inner borders are collapsed and only
+  // the outer corners are rounded, so undo / redo / history read as one unit.
   return (
-    <div ref={wrapRef} style={{ position: "relative", display: "flex" }}>
-      <button
+    <div
+      ref={wrapRef}
+      className="relative flex [&>button]:rounded-none [&>button:first-child]:rounded-l-md [&>button:last-child]:rounded-r-md [&>button:not(:first-child)]:-ml-px"
+    >
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={history.undo}
         disabled={!history.canUndo}
         title="Undo (⌘Z)"
-        style={{
-          ...baseBtn,
-          borderRadius: "4px 0 0 4px",
-          opacity: history.canUndo ? 1 : 0.4,
-          cursor: history.canUndo ? "pointer" : "default",
-        }}
       >
-        ↶ Undo
-      </button>
-      <button
+        <Undo2 />
+        Undo
+      </Button>
+      <Button
+        variant="secondary"
+        size="icon-sm"
         onClick={history.redo}
         disabled={!history.canRedo}
         title="Redo (⌘⇧Z)"
-        style={{
-          ...baseBtn,
-          borderLeft: 0,
-          borderRadius: 0,
-          opacity: history.canRedo ? 1 : 0.4,
-          cursor: history.canRedo ? "pointer" : "default",
-        }}
       >
-        ↷
-      </button>
-      <button
+        <Redo2 />
+      </Button>
+      <Button
+        variant="secondary"
+        size="icon-sm"
         onClick={() => setOpen((v) => !v)}
         disabled={entries.length === 0}
         title="History"
-        style={{
-          ...baseBtn,
-          borderLeft: 0,
-          borderRadius: "0 4px 4px 0",
-          opacity: entries.length === 0 ? 0.4 : 1,
-          cursor: entries.length === 0 ? "default" : "pointer",
-          padding: "3px 6px",
-        }}
+        aria-label="History"
       >
-        ▾
-      </button>
+        <ChevronDown />
+      </Button>
       {open && entries.length > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            marginTop: 4,
-            minWidth: 220,
-            maxHeight: 320,
-            overflowY: "auto",
-            background: color.bg.surface,
-            border: `1px solid ${color.border.strong}`,
-            borderRadius: radius.md,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-            zIndex: 100,
-            fontSize: font.size.sm,
-          }}
-        >
-          <div
-            style={{
-              padding: "6px 10px",
-              borderBottom: `1px solid ${color.border.line}`,
-              color: color.text.dim,
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-              fontSize: font.size.xs,
-            }}
-          >
+        <div className="absolute left-0 top-full z-[100] mt-1 max-h-80 min-w-[220px] overflow-y-auto rounded-md border border-border bg-popover text-sm shadow-md">
+          <div className="border-b border-border px-2.5 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
             History · {entries.length}
           </div>
           {entries.map((entry, i) => {
@@ -130,23 +92,10 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
                   history.jumpTo(pastIndex);
                   setOpen(false);
                 }}
-                style={{
-                  display: "flex",
-                  width: "100%",
-                  background: "transparent",
-                  border: 0,
-                  color: color.text.secondary,
-                  padding: "6px 10px",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  alignItems: "baseline",
-                  gap: 8,
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = color.bg.hover)}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                className="flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
               >
-                <span style={{ flex: 1 }}>{entry.label}</span>
-                <span style={{ color: color.text.dim, fontSize: font.size.xs }}>
+                <span className="flex-1">{entry.label}</span>
+                <span className="text-[10px] text-muted-foreground">
                   {fmtAgo(now, entry.at)}
                 </span>
               </button>

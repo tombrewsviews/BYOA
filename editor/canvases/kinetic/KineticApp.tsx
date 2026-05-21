@@ -39,12 +39,14 @@ import { isTauri } from "../../runtime";
 import { beginColumnDrag, usePersistedColumnWidth } from "../../resize";
 import { ProjectsView, type ProjectMeta } from "./ProjectsView";
 import { useHistory } from "./history";
-import { UndoMenu } from "../../UndoMenu";
 import { FirstRun } from "../../FirstRun";
+import { PromptModeBar } from "../../PromptModeBar";
 import { activeCanvas } from "../../canvas";
 import type { Story } from "../../../src/kinetic/schema";
 import type { Selection } from "../../selection";
-import { color, focusRing, font, secondaryBtn, tabBtn } from "../../platform/theme";
+import { color, focusRing, font } from "../../platform/theme";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Download, Loader2, ChevronDown, Folder } from "../../icons";
 
 const FPS = 30;
 
@@ -81,6 +83,22 @@ const EditorView: React.FC<{
   const playerRef = useRef<PlayerRef>(null);
   const [selection, setSelection] = useState<Selection>({ kind: "story" });
   const [leftTab, setLeftTab] = useState<"terminal" | "secondary">("terminal");
+  // MP4 export: last progress line while a render is in flight, else null.
+  const [exporting, setExporting] = useState<string | null>(null);
+  const exportIdRef = useRef<string | null>(null);
+  // Export quality split-button menu (Quick 1× vs High-res 3×).
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [exportMenuOpen]);
 
   const [viewMode, setViewMode] = useState<"terminal" | "chat">("terminal");
   // Mirror of viewMode for the global keydown listener, whose effect does
@@ -497,6 +515,72 @@ const EditorView: React.FC<{
     return () => window.clearTimeout(timer);
   }, [doc, savedJson]);
 
+  const onExport = useCallback((scale: number = 1) => {
+    if (!isTauri() || exportIdRef.current) return;
+    setExporting(scale > 1 ? "starting high-res render…" : "starting render…");
+    void (async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      let offProg: undefined | (() => void);
+      let offDone: undefined | (() => void);
+      let offErr: undefined | (() => void);
+      const cleanup = () => {
+        offProg?.();
+        offDone?.();
+        offErr?.();
+        exportIdRef.current = null;
+      };
+      try {
+        const id = await invoke<string>("export_video", { scale });
+        exportIdRef.current = id;
+        offProg = await listen<{ id: string; line: string }>(
+          "video://export-progress",
+          (e) => {
+            if (e.payload.id === id) setExporting(e.payload.line);
+          },
+        );
+        offDone = await listen<{ id: string; path: string }>(
+          "video://export-done",
+          async (e) => {
+            if (e.payload.id !== id) return;
+            setExporting(null);
+            cleanup();
+            try {
+              await invoke("project_reveal", { path: e.payload.path });
+            } catch {
+              /* best-effort — reveal is non-critical */
+            }
+          },
+        );
+        offErr = await listen<{ id: string; line: string }>(
+          "video://export-error",
+          (e) => {
+            if (e.payload.id !== id) return;
+            setExporting(null);
+            setError(`Export failed: ${e.payload.line}`);
+            cleanup();
+          },
+        );
+      } catch (e) {
+        setExporting(null);
+        setError(`Export failed to start: ${(e as Error).message}`);
+        cleanup();
+      }
+    })();
+  }, []);
+
+  const revealProject = useCallback(() => {
+    if (!isTauri()) return;
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("project_reveal", { path: project.path });
+      } catch {
+        /* best-effort — reveal is non-critical */
+      }
+    })();
+  }, [project.path]);
+
   const shellActions = useMemo<ShellActions>(
     () => ({
       focusTerminal: () => {
@@ -548,33 +632,89 @@ const EditorView: React.FC<{
     <ShellActionsContext.Provider value={shellActions}>
       <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
         <PerfOverlay playerRef={playerRef} />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 12px",
-            background: color.bg.surface,
-            borderBottom: `1px solid ${color.border.line}`,
-            fontSize: font.size.md,
-            color: color.text.muted,
-            fontFamily: font.family,
-            flex: "0 0 auto",
-          }}
-        >
-          <button onClick={onCloseProject} style={secondaryBtn()}>← Projects</button>
-          <UndoMenu history={history} />
-          <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
-          <span
-            style={{
-              marginLeft: "auto",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {project.path}
+        <div className="relative flex flex-none items-center gap-2 border-b border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
+          {/* LEFT: back to projects. */}
+          <Button variant="secondary" size="sm" onClick={onCloseProject}>
+            <ArrowLeft />
+            Projects
+          </Button>
+
+          {/* CENTER: project name, absolutely centered in the bar. */}
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 font-semibold text-foreground">
+            {project.name}
           </span>
+
+          {/* RIGHT: folder (reveal in Finder) + Export, pinned to the edge. */}
+          <div className="ml-auto flex items-center gap-2">
+            {isTauri() && (
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                onClick={revealProject}
+                aria-label="Reveal in Finder"
+                title="Reveal in Finder"
+              >
+                <Folder />
+              </Button>
+            )}
+            {isTauri() && (
+              <div
+                ref={exportMenuRef}
+                className="relative flex [&>button:first-child]:rounded-r-none [&>button:last-child]:rounded-l-none [&>button:last-child]:border-l [&>button:last-child]:border-l-border [&>button:last-child]:px-1.5"
+              >
+                {/* Primary click = Quick draft (1×). */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onExport(1)}
+                  disabled={exporting !== null}
+                  title="Quick export (1× — fast draft)"
+                >
+                  {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                  {exporting ? "Exporting…" : "Export"}
+                </Button>
+                {/* Caret = quality menu. */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setExportMenuOpen((v) => !v)}
+                  disabled={exporting !== null}
+                  aria-label="Export quality"
+                  title="Export quality"
+                >
+                  <ChevronDown />
+                </Button>
+                {exportMenuOpen && (
+                  <div className="absolute right-0 top-full z-[100] mt-1 w-44 overflow-hidden rounded-md border border-border bg-popover text-sm shadow-md">
+                    <button
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExport(1);
+                      }}
+                      className="flex w-full flex-col items-start px-3 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="text-foreground">Quick draft</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        1× · fast, slight shimmer
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExport(3);
+                      }}
+                      className="flex w-full flex-col items-start border-t border-border px-3 py-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <span className="text-foreground">High res</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        3× · slower, crisp &amp; stable
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         {error && (
           <div
@@ -608,6 +748,27 @@ const EditorView: React.FC<{
             >
               ×
             </button>
+          </div>
+        )}
+        {exporting && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 12px",
+              background: color.bg.raised,
+              borderBottom: `1px solid ${color.border.line}`,
+              color: color.text.muted,
+              fontSize: font.size.sm,
+              fontFamily: "ui-monospace, monospace",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              flex: "0 0 auto",
+            }}
+          >
+            <span>⏳ {exporting}</span>
           </div>
         )}
         <div
@@ -662,42 +823,31 @@ const EditorView: React.FC<{
             />
             {LeftPrelude && <LeftPrelude />}
             {SecondaryTab && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 2,
-                  padding: "4px 4px 0",
-                  borderBottom: `1px solid ${color.border.line}`,
-                  background: color.bg.canvas,
-                  flex: "0 0 auto",
-                }}
-              >
+              <div className="flex flex-none border-b border-border bg-background">
                 {(["terminal", "secondary"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setLeftTab(t)}
                     title={t === "terminal" ? "Focus from anywhere: Option+C" : undefined}
-                    style={tabBtn(leftTab === t)}
+                    aria-pressed={leftTab === t}
+                    className={
+                      // Flat tabs: no rounding, a vertical divider between
+                      // them (border-l on the 2nd+), and a 2px bottom bar on
+                      // the active tab as the only indicator.
+                      "flex flex-1 items-center justify-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors [&:not(:first-child)]:border-l [&:not(:first-child)]:border-l-border " +
+                      (leftTab === t
+                        ? "border-b-foreground font-semibold text-foreground"
+                        : "border-b-transparent text-muted-foreground hover:text-foreground")
+                    }
                   >
                     {t === "secondary" ? (
                       SecondaryTab.label
                     ) : (
                       <>
-                        terminal
-                        <span
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 600,
-                            letterSpacing: 0.3,
-                            color: leftTab === "terminal" ? color.text.muted : color.text.faint,
-                            border: `1px solid ${leftTab === "terminal" ? color.border.strong : color.border.faint}`,
-                            borderRadius: 3,
-                            padding: "1px 4px",
-                            textTransform: "none",
-                          }}
-                        >
+                        Agent
+                        <kbd className="rounded-sm border border-border px-1 py-px text-[9px] font-semibold text-muted-foreground">
                           ⌥C
-                        </span>
+                        </kbd>
                       </>
                     )}
                   </button>
@@ -713,48 +863,30 @@ const EditorView: React.FC<{
               }}
             >
               {/* Terminal/Chat toggle on its OWN row so it never overlaps
-                  the chat session toolbar / project path below it. */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-start",
-                  gap: 4,
-                  padding: "4px 8px",
-                  borderBottom: "1px solid #1c1c26",
-                  flex: "0 0 auto",
-                }}
-              >
-                <button
-                  onClick={() => persistViewMode("terminal")}
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    border: "1px solid #2a2a36",
-                    background:
-                      viewMode === "terminal" ? "#2a2a36" : "transparent",
-                    color: "#e4e4ee",
-                    cursor: "pointer",
-                  }}
-                >
-                  Terminal
-                </button>
-                <button
-                  onClick={() => persistViewMode("chat")}
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    border: "1px solid #2a2a36",
-                    background:
-                      viewMode === "chat" ? "#2a2a36" : "transparent",
-                    color: "#e4e4ee",
-                    cursor: "pointer",
-                  }}
-                >
-                  Chat
-                </button>
-              </div>
+                  the chat session toolbar / project path below it. Only shown
+                  on the Agent tab — the Library tab has no view modes. */}
+              {(leftTab === "terminal" || !SecondaryTab) && (
+                <div className="flex flex-none items-center gap-1 border-b border-border px-2 py-1">
+                  <Button
+                    size="sm"
+                    variant={viewMode === "terminal" ? "secondary" : "ghost"}
+                    onClick={() => persistViewMode("terminal")}
+                  >
+                    Terminal
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={viewMode === "chat" ? "secondary" : "ghost"}
+                    onClick={() => persistViewMode("chat")}
+                  >
+                    {`Chat · ${agentLabelFor(defaultAgentId ?? "claude")}`}
+                  </Button>
+                  {/* Prompt-mode dropdown lives at the end of this row. */}
+                  <div className="ml-auto">
+                    <PromptModeBar />
+                  </div>
+                </div>
+              )}
               {/* Content area: the absolutely-positioned panels stack here. */}
               <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
                 <div

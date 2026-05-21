@@ -69,6 +69,7 @@ pub fn run() {
             video::import_local_video,
             video::import_local_image,
             video::download_youtube,
+            video::export_video,
             window_state::save_window_state,
             window_state::get_view_mode,
             window_state::set_view_mode,

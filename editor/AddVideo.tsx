@@ -13,6 +13,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { isTauri } from "./runtime";
 import { color, primaryBtn, secondaryBtn } from "./platform/theme";
+import { AddItemButton } from "./AddItemButton";
 
 type Props = {
   onImported: (absolutePath: string) => void;
@@ -180,21 +181,11 @@ export const AddVideo: React.FC<Props> = ({ onImported }) => {
           100% { transform: translateX(333%); }
         }
       `}</style>
-      <button
+      <AddItemButton
+        label="+ Video"
         onClick={() => setOpen((v) => !v)}
         title="Add video"
-        style={{
-          padding: "4px 12px",
-          fontSize: 11,
-          borderRadius: 4,
-          border: `1px dashed ${color.border.hover}`,
-          background: "transparent",
-          color: color.text.muted,
-          cursor: "pointer",
-        }}
-      >
-        + Video
-      </button>
+      />
       {open && (
         <div
           style={{

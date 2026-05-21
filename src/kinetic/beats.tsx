@@ -32,6 +32,7 @@ import {
   interpolate,
   interpolateColors,
   OffthreadVideo,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
   random,
@@ -1111,6 +1112,9 @@ const ShapePathEl: React.FC<{
  * In the Remotion CLI renderer Node loads the path directly. We detect
  * Tauri at module-load and pick the right strategy.
  */
+/** Last path segment of an absolute or relative file path. */
+const basenameOf = (p: string): string => p.split("/").pop() ?? p;
+
 const isTauriRuntime = (): boolean =>
   typeof window !== "undefined" &&
   // Tauri 2 sets this on the global object before app boot.
@@ -1147,7 +1151,9 @@ export const VideoClipBeat: React.FC<BeatProps> = ({
         }
       })();
     } else {
-      setResolvedSrc(beat.videoSrc);
+      // CLI render: reference by basename via staticFile(); the export
+      // command stages project media into Remotion's public/ folder.
+      setResolvedSrc(staticFile(basenameOf(beat.videoSrc)));
     }
     return () => {
       cancelled = true;
@@ -1269,7 +1275,11 @@ export const ImageClipBeat: React.FC<BeatProps> = ({
         }
       })();
     } else {
-      setResolvedSrc(beat.imageSrc);
+      // CLI render (headless Chromium): file:// and absolute paths are
+      // blocked / mis-resolved. The export command stages the project's
+      // media into Remotion's public/ folder, so we reference it by
+      // basename via staticFile(), which resolves against the served root.
+      setResolvedSrc(staticFile(basenameOf(beat.imageSrc)));
     }
     return () => {
       cancelled = true;

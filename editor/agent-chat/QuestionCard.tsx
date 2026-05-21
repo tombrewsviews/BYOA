@@ -28,68 +28,28 @@ export const QuestionCard: React.FC<Props> = ({
   };
 
   return (
-    <div
-      style={{
-        border: "1px solid #2a2a36",
-        borderRadius: 10,
-        padding: 12,
-        margin: "8px 0",
-        background: "#13131a",
-        fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-      }}
-    >
+    <div className="my-2 rounded-md border border-border bg-card p-3">
       {questions.map((q, qi) => (
-        <div key={qi} style={{ marginBottom: qi < questions.length - 1 ? 14 : 0 }}>
+        <div key={qi} className={qi < questions.length - 1 ? "mb-3.5" : ""}>
           {q.header ? (
-            <div
-              style={{
-                fontSize: 11,
-                textTransform: "uppercase",
-                letterSpacing: 0.6,
-                opacity: 0.55,
-                color: "#a4a4b4",
-                marginBottom: 4,
-              }}
-            >
+            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground opacity-90">
               {q.header}
             </div>
           ) : null}
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#e4e4ee",
-              marginBottom: 8,
-            }}
-          >
+          <div className="mb-2 text-sm font-semibold text-foreground">
             {q.question}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="flex flex-col gap-1.5">
             {q.options.map((o, oi) => (
               <button
                 key={oi}
                 onClick={() => answer(q, o.label)}
                 disabled={disabled}
-                style={{
-                  textAlign: "left",
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #2a2a36",
-                  background: disabled ? "#1a1a22" : "#1c1c26",
-                  color: "#e4e4ee",
-                  cursor: disabled ? "not-allowed" : "pointer",
-                  fontSize: 13,
-                }}
+                className="rounded-md border border-border bg-secondary px-2.5 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <div style={{ fontWeight: 600 }}>{o.label}</div>
+                <div className="font-semibold">{o.label}</div>
                 {o.description ? (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      opacity: 0.7,
-                      marginTop: 2,
-                    }}
-                  >
+                  <div className="mt-0.5 text-xs opacity-70">
                     {o.description}
                   </div>
                 ) : null}
