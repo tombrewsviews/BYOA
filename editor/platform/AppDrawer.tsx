@@ -8,18 +8,11 @@
  * (handled in the parent).
  */
 import React, { useEffect, useState } from "react";
-import {
-  color,
-  font,
-  radius,
-  space,
-  primaryBtn,
-  secondaryBtn,
-  ghostBtn,
-  formatBytes,
-} from "./theme";
+import { radius, formatBytes } from "./theme";
 import { type AppManifest } from "./apps";
 import { startInstall, useInstallState } from "./install";
+import { Button } from "@/components/ui/button";
+import { X, Star, ChevronUp, ChevronDown } from "../icons";
 
 const formatTokens = (n: number): string => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -33,24 +26,9 @@ const formatLoc = (n: number): string => {
 };
 
 const KV: React.FC<{ k: string; v: string }> = ({ k, v }) => (
-  <div
-    style={{
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      padding: "4px 0",
-      fontSize: font.size.md,
-    }}
-  >
-    <span style={{ color: color.text.muted }}>{k}</span>
-    <span
-      style={{
-        color: color.text.primary,
-        fontVariantNumeric: "tabular-nums",
-      }}
-    >
-      {v}
-    </span>
+  <div className="flex items-baseline justify-between py-1 text-xs">
+    <span className="text-muted-foreground">{k}</span>
+    <span className="tabular-nums text-foreground">{v}</span>
   </div>
 );
 
@@ -63,27 +41,14 @@ const Section: React.FC<{
     <div>
       <button
         onClick={() => setOpen((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          width: "100%",
-          background: "transparent",
-          border: 0,
-          color: color.text.primary,
-          fontFamily: font.family,
-          fontSize: font.size.md,
-          fontWeight: 700,
-          padding: "8px 0",
-          cursor: "pointer",
-        }}
+        className="flex w-full items-center justify-between py-2 text-xs font-bold text-foreground"
       >
         <span>{title}</span>
-        <span style={{ color: color.text.dim, fontSize: font.size.sm }}>
-          {open ? "⌃" : "⌄"}
+        <span className="text-muted-foreground">
+          {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
         </span>
       </button>
-      {open && <div style={{ paddingBottom: space.s8 }}>{children}</div>}
+      {open && <div className="pb-2">{children}</div>}
     </div>
   );
 };
@@ -95,46 +60,25 @@ const CTA: React.FC<{
   const rec = useInstallState(app.id);
   if (app.status === "coming-soon") {
     return (
-      <button disabled style={{ ...primaryBtn({ disabled: true }), width: "100%" }}>
+      <Button disabled className="w-full">
         Coming soon
-      </button>
+      </Button>
     );
   }
   if (rec.state === "installed") {
     return (
-      <button onClick={onOpen} style={{ ...primaryBtn(), width: "100%" }}>
+      <Button onClick={onOpen} className="w-full">
         Open {app.name}
-      </button>
+      </Button>
     );
   }
   if (rec.state === "installing") {
     const pct = Math.round(rec.progress * 100);
     return (
-      <div
-        style={{
-          width: "100%",
-          background: color.bg.selected,
-          border: `1px solid ${color.border.strong}`,
-          borderRadius: radius.md,
-          padding: "10px 14px",
-          fontSize: font.size.base,
-          fontWeight: 700,
-          color: color.text.primary,
-          position: "relative",
-          overflow: "hidden",
-          textAlign: "center",
-        }}
-      >
+      <div className="relative w-full overflow-hidden rounded-md border border-border bg-secondary px-3.5 py-2.5 text-center text-[13px] font-bold text-foreground">
         <div
-          style={{
-            position: "absolute",
-            left: 0,
-            bottom: 0,
-            height: 2,
-            width: `${pct}%`,
-            background: color.accent.fg,
-            transition: "width 60ms linear",
-          }}
+          className="absolute bottom-0 left-0 h-0.5 bg-foreground transition-[width] duration-75"
+          style={{ width: `${pct}%` }}
         />
         Installing… {pct}%
       </div>
@@ -142,21 +86,19 @@ const CTA: React.FC<{
   }
   if (rec.state === "failed") {
     return (
-      <button
+      <Button
+        variant="secondary"
         onClick={() => startInstall(app.id)}
-        style={{ ...secondaryBtn(), width: "100%" }}
+        className="w-full"
       >
         Retry install
-      </button>
+      </Button>
     );
   }
   return (
-    <button
-      onClick={() => startInstall(app.id)}
-      style={{ ...primaryBtn(), width: "100%" }}
-    >
+    <Button onClick={() => startInstall(app.id)} className="w-full">
       Install · {formatBytes(app.sizeBytes)}
-    </button>
+    </Button>
   );
 };
 
@@ -177,103 +119,50 @@ export const AppDrawer: React.FC<{
   }, [onClose]);
 
   return (
-    <div
-      style={{
-        width: 360,
-        flex: "0 0 360px",
-        background: color.bg.surface,
-        borderLeft: `1px solid ${color.border.line}`,
-        display: "flex",
-        flexDirection: "column",
-        fontFamily: font.family,
-        overflowY: "auto",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "14px 16px 8px",
-        }}
-      >
-        <span
-          style={{
-            flex: 1,
-            fontSize: font.size.xs,
-            fontWeight: 600,
-            color: color.text.dim,
-            textTransform: "uppercase",
-            letterSpacing: 0.5,
-          }}
-        >
+    <div className="flex w-[360px] flex-none flex-col overflow-y-auto border-l border-border bg-card">
+      <div className="flex items-center px-4 pb-2 pt-3.5">
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           App
         </span>
-        <button onClick={onClose} aria-label="Close" style={ghostBtn()}>
-          ×
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <X />
+        </Button>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "0 16px 16px",
-        }}
-      >
+      <div className="flex items-center gap-3 px-4 pb-4">
         <div
           aria-hidden
+          className="flex size-10 items-center justify-center text-lg font-extrabold text-white/60"
           style={{
-            width: 40,
-            height: 40,
             background: `hsl(${app.hue}, 70%, 38%)`,
             borderRadius: radius.lg,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "rgba(255,255,255,0.6)",
-            fontSize: font.size.xl,
-            fontWeight: 800,
           }}
         >
           {app.name.charAt(0)}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: font.size.lg,
-              fontWeight: 700,
-              color: color.text.primary,
-            }}
-          >
-            {app.name}
-          </div>
-          <div
-            style={{
-              fontSize: font.size.sm,
-              color: color.text.dim,
-              marginTop: 2,
-              letterSpacing: 0.2,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold text-foreground">{app.name}</div>
+          <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
             app.{app.id}.v{app.version}
           </div>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onToggleFavorite}
           aria-label={favorite ? "Unfavorite" : "Favorite"}
-          style={{
-            ...ghostBtn(),
-            color: favorite ? color.text.primary : color.text.faint,
-            fontSize: font.size.lg,
-          }}
+          className={favorite ? "text-foreground" : "text-muted-foreground"}
         >
-          ★
-        </button>
+          <Star className={favorite ? "fill-current" : ""} />
+        </Button>
       </div>
 
-      <div style={{ padding: "0 16px 16px", flex: 1 }}>
+      <div className="flex-1 px-4 pb-4">
         <Section title="Identity">
           <KV k="Name" v={app.name} />
           <KV k="Author" v={app.creator} />
@@ -303,19 +192,12 @@ export const AppDrawer: React.FC<{
           </Section>
         )}
 
-        <p
-          style={{
-            fontSize: font.size.md,
-            color: color.text.secondary,
-            lineHeight: 1.6,
-            margin: "12px 0 0",
-          }}
-        >
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           {app.description}
         </p>
       </div>
 
-      <div style={{ padding: 16, borderTop: `1px solid ${color.border.faint}` }}>
+      <div className="border-t border-border p-4">
         <CTA app={app} onOpen={onOpen} />
       </div>
     </div>

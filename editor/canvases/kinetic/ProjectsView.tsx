@@ -4,13 +4,9 @@
  * actions per card.
  */
 import React, { useEffect, useRef, useState } from "react";
-import {
-  color,
-  font,
-  radius,
-  primaryBtn,
-  secondaryBtn,
-} from "../../platform/theme";
+import { color, radius } from "../../platform/theme";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export type ProjectMeta = {
   name: string;
@@ -98,71 +94,26 @@ export const ProjectsView: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        background: color.bg.canvas,
-        color: color.text.secondary,
-        fontFamily: font.family,
-        padding: 40,
-        boxSizing: "border-box",
-        overflowY: "auto",
-      }}
-    >
-      <h1 style={{ margin: 0, fontSize: 22 }}>Kinetic Studio</h1>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginTop: 24,
-          marginBottom: 24,
-        }}
-      >
-        <input
+    <div className="h-full w-full overflow-y-auto bg-background p-10 text-muted-foreground">
+      <h1 className="text-[22px] font-bold text-foreground">Kinetic Studio</h1>
+      <div className="mb-6 mt-6 flex items-center gap-3">
+        <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="New project name"
           onKeyDown={(e) => {
             if (e.key === "Enter") void createProject();
           }}
-          style={{
-            flex: 1,
-            maxWidth: 320,
-            background: color.bg.raised,
-            border: `1px solid ${color.border.strong}`,
-            borderRadius: radius.md,
-            color: color.text.secondary,
-            fontSize: 13,
-            padding: "8px 12px",
-          }}
+          className="max-w-[320px] flex-1"
         />
-        <button
-          onClick={() => void createProject()}
-          style={primaryBtn({ size: "sm" })}
-        >
-          + New project
-        </button>
-        <button
-          onClick={() => void openFolder()}
-          style={secondaryBtn()}
-        >
+        <Button onClick={() => void createProject()}>+ New project</Button>
+        <Button variant="secondary" onClick={() => void openFolder()}>
           Open folder…
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div
-          style={{
-            background: color.danger.bg,
-            color: color.danger.text,
-            padding: "8px 12px",
-            borderRadius: radius.md,
-            marginBottom: 16,
-            fontSize: font.size.md,
-          }}
-        >
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-xs text-destructive">
           {error}
         </div>
       )}

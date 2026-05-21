@@ -41,10 +41,13 @@ import { ProjectsView, type ProjectMeta } from "./ProjectsView";
 import { useHistory } from "./history";
 import { UndoMenu } from "../../UndoMenu";
 import { FirstRun } from "../../FirstRun";
+import { PromptModeBar } from "../../PromptModeBar";
 import { activeCanvas } from "../../canvas";
 import type { Story } from "../../../src/kinetic/schema";
 import type { Selection } from "../../selection";
-import { color, focusRing, font, secondaryBtn, tabBtn } from "../../platform/theme";
+import { color, focusRing, font } from "../../platform/theme";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Download, Loader2 } from "../../icons";
 
 const FPS = 30;
 
@@ -619,21 +622,23 @@ const EditorView: React.FC<{
             flex: "0 0 auto",
           }}
         >
-          <button onClick={onCloseProject} style={secondaryBtn()}>← Projects</button>
+          <Button variant="secondary" size="sm" onClick={onCloseProject}>
+            <ArrowLeft />
+            Projects
+          </Button>
           <UndoMenu history={history} />
           <span style={{ color: color.text.primary, fontWeight: 600 }}>{project.name}</span>
           {isTauri() && (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={onExport}
               disabled={exporting !== null}
-              style={{
-                ...secondaryBtn({ active: exporting !== null }),
-                cursor: exporting ? "default" : "pointer",
-              }}
               title="Render this composition to an MP4"
             >
+              {exporting ? <Loader2 className="animate-spin" /> : <Download />}
               {exporting ? "Exporting…" : "Export"}
-            </button>
+            </Button>
           )}
           <span
             onClick={() => {
@@ -773,42 +778,31 @@ const EditorView: React.FC<{
             />
             {LeftPrelude && <LeftPrelude />}
             {SecondaryTab && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 2,
-                  padding: "4px 4px 0",
-                  borderBottom: `1px solid ${color.border.line}`,
-                  background: color.bg.canvas,
-                  flex: "0 0 auto",
-                }}
-              >
+              <div className="flex flex-none border-b border-border bg-background">
                 {(["terminal", "secondary"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setLeftTab(t)}
                     title={t === "terminal" ? "Focus from anywhere: Option+C" : undefined}
-                    style={tabBtn(leftTab === t)}
+                    aria-pressed={leftTab === t}
+                    className={
+                      // Flat tabs: no rounding, a vertical divider between
+                      // them (border-l on the 2nd+), and a 2px bottom bar on
+                      // the active tab as the only indicator.
+                      "flex flex-1 items-center justify-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors [&:not(:first-child)]:border-l [&:not(:first-child)]:border-l-border " +
+                      (leftTab === t
+                        ? "border-b-foreground font-semibold text-foreground"
+                        : "border-b-transparent text-muted-foreground hover:text-foreground")
+                    }
                   >
                     {t === "secondary" ? (
                       SecondaryTab.label
                     ) : (
                       <>
-                        terminal
-                        <span
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 600,
-                            letterSpacing: 0.3,
-                            color: leftTab === "terminal" ? color.text.muted : color.text.faint,
-                            border: `1px solid ${leftTab === "terminal" ? color.border.strong : color.border.faint}`,
-                            borderRadius: 3,
-                            padding: "1px 4px",
-                            textTransform: "none",
-                          }}
-                        >
+                        Agent
+                        <kbd className="rounded-sm border border-border px-1 py-px text-[9px] font-semibold text-muted-foreground">
                           ⌥C
-                        </span>
+                        </kbd>
                       </>
                     )}
                   </button>
@@ -824,30 +818,30 @@ const EditorView: React.FC<{
               }}
             >
               {/* Terminal/Chat toggle on its OWN row so it never overlaps
-                  the chat session toolbar / project path below it. */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-start",
-                  gap: 4,
-                  padding: "4px 8px",
-                  borderBottom: "1px solid #1c1c26",
-                  flex: "0 0 auto",
-                }}
-              >
-                <button
-                  onClick={() => persistViewMode("terminal")}
-                  style={secondaryBtn({ active: viewMode === "terminal", size: "sm" })}
-                >
-                  Terminal
-                </button>
-                <button
-                  onClick={() => persistViewMode("chat")}
-                  style={secondaryBtn({ active: viewMode === "chat", size: "sm" })}
-                >
-                  {`Chat · ${agentLabelFor(defaultAgentId ?? "claude")}`}
-                </button>
-              </div>
+                  the chat session toolbar / project path below it. Only shown
+                  on the Agent tab — the Library tab has no view modes. */}
+              {(leftTab === "terminal" || !SecondaryTab) && (
+                <div className="flex flex-none items-center gap-1 border-b border-border px-2 py-1">
+                  <Button
+                    size="sm"
+                    variant={viewMode === "terminal" ? "secondary" : "ghost"}
+                    onClick={() => persistViewMode("terminal")}
+                  >
+                    Terminal
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={viewMode === "chat" ? "secondary" : "ghost"}
+                    onClick={() => persistViewMode("chat")}
+                  >
+                    {`Chat · ${agentLabelFor(defaultAgentId ?? "claude")}`}
+                  </Button>
+                  {/* Prompt-mode dropdown lives at the end of this row. */}
+                  <div className="ml-auto">
+                    <PromptModeBar />
+                  </div>
+                </div>
+              )}
               {/* Content area: the absolutely-positioned panels stack here. */}
               <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
                 <div

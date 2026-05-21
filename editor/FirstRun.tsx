@@ -17,13 +17,8 @@
  * the permission setting just stays at its default (false).
  */
 import React, { useEffect, useState } from "react";
-import {
-  color,
-  font,
-  radius,
-  primaryBtn,
-  secondaryBtn,
-} from "./platform/theme";
+import { Button } from "@/components/ui/button";
+import { ArrowRight } from "./icons";
 
 type AgentInfo = {
   id: string;
@@ -43,18 +38,8 @@ const SKIP_FLAG: Record<AgentId, string | null> = {
   opencode: null,
 };
 
-const SHELL: React.CSSProperties = {
-  width: "100%",
-  height: "100%",
-  background: color.bg.canvas,
-  color: color.text.secondary,
-  fontFamily: font.family,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 40,
-  boxSizing: "border-box",
-};
+const SHELL =
+  "flex h-full w-full items-center justify-center bg-background p-10 text-muted-foreground";
 
 export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -108,59 +93,38 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
 
   if (step === "agent") {
     return (
-      <div style={SHELL}>
-        <div style={{ maxWidth: 560, width: "100%" }}>
-          <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
+      <div className={SHELL}>
+        <div className="w-full max-w-[560px]">
+          <div className="mb-1.5 text-2xl font-bold text-foreground">
             Pick your agent
           </div>
-          <div style={{ fontSize: 13, color: color.text.muted, marginBottom: 28, lineHeight: 1.5 }}>
+          <div className="mb-7 text-[13px] leading-relaxed text-muted-foreground">
             Kinetic Studio runs your chosen agent CLI in the terminal panel.
             Bring your own subscription — the studio doesn't broker tokens.
             Already logged in via the CLI? You're ready.
           </div>
           {error && (
-            <div
-              style={{
-                padding: "8px 12px",
-                background: color.danger.bg,
-                border: `1px solid ${color.danger.border}`,
-                color: color.danger.text,
-                fontSize: 12,
-                borderRadius: 6,
-                marginBottom: 16,
-              }}
-            >
+            <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-xs text-destructive">
               {error}
             </div>
           )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {agents.map((a) => (
               <button
                 key={a.id}
                 disabled={!a.installed || busy}
                 onClick={() => pickAgent(a.id as AgentId)}
-                style={{
-                  ...secondaryBtn({ disabled: !a.installed || busy }),
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "12px 14px",
-                  background: a.installed ? color.bg.raised : color.bg.surface,
-                  borderColor: a.installed ? color.border.strong : color.border.faint,
-                  color: a.installed ? color.text.primary : color.text.faint,
-                  fontSize: 13,
-                  textAlign: "left",
-                }}
+                className="flex items-center gap-3 rounded-md border border-border bg-secondary px-3.5 py-3 text-left text-[13px] text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>{a.label}</div>
-                  <div style={{ fontSize: 11, color: color.text.dim, marginTop: 2 }}>
+                <div className="flex-1">
+                  <div className="font-semibold">{a.label}</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
                     {a.installed ? (
                       a.path
                     ) : (
                       <>
                         not on PATH — install with{" "}
-                        <code style={{ background: color.bg.selected, padding: "1px 5px", borderRadius: 3 }}>
+                        <code className="rounded-sm bg-background px-1.5 py-px">
                           {a.installHint}
                         </code>
                       </>
@@ -168,23 +132,22 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
                   </div>
                 </div>
                 {a.installed && (
-                  <div style={{ fontSize: 11, color: color.text.primary, fontWeight: 600 }}>USE →</div>
+                  <div className="flex items-center gap-1 text-[11px] font-semibold text-foreground">
+                    USE <ArrowRight className="size-3" />
+                  </div>
                 )}
               </button>
             ))}
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => pickAgent(null)}
             disabled={busy}
-            style={{
-              ...secondaryBtn({ disabled: busy }),
-              marginTop: 16,
-              fontSize: 12,
-              padding: "8px 14px",
-            }}
+            className="mt-4"
           >
             Skip — just give me a plain shell
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -196,52 +159,36 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const flag = chosen ? SKIP_FLAG[chosen] : null;
 
   return (
-    <div style={SHELL}>
-      <div style={{ maxWidth: 560, width: "100%" }}>
-        <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
+    <div className={SHELL}>
+      <div className="w-full max-w-[560px]">
+        <div className="mb-1.5 text-2xl font-bold text-foreground">
           Permission mode
         </div>
-        <div style={{ fontSize: 13, color: color.text.muted, marginBottom: 28, lineHeight: 1.5 }}>
+        <div className="mb-7 text-[13px] leading-relaxed text-muted-foreground">
           {chosenLabel} will run inside the studio terminal with the
           project folder as its CWD. Do you want it to ask before every
           file edit / shell command, or just go?
         </div>
         {error && (
-          <div
-            style={{
-              padding: "8px 12px",
-              background: color.danger.bg,
-              border: `1px solid ${color.danger.border}`,
-              color: color.danger.text,
-              fontSize: 12,
-              borderRadius: 6,
-              marginBottom: 16,
-            }}
-          >
+          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-xs text-destructive">
             {error}
           </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           <button
             disabled={busy}
             onClick={() => pickPermissions(true)}
-            style={{
-              ...primaryBtn({ disabled: busy }),
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "stretch",
-              gap: 6,
-              padding: "14px 14px",
-              textAlign: "left",
-            }}
+            className="flex flex-col items-stretch gap-1.5 rounded-md border border-transparent bg-primary p-3.5 text-left text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 600 }}>Skip permission prompts (recommended)</span>
-              <span style={{ fontSize: 11, fontWeight: 600 }}>DEFAULT →</span>
+            <div className="flex justify-between">
+              <span className="font-semibold">Skip permission prompts (recommended)</span>
+              <span className="flex items-center gap-1 text-[11px] font-semibold">
+                DEFAULT <ArrowRight className="size-3" />
+              </span>
             </div>
-            <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
+            <div className="text-[11px] leading-relaxed text-primary-foreground/70">
               Launches with{" "}
-              <code style={{ background: color.bg.selected, padding: "1px 5px", borderRadius: 3 }}>
+              <code className="rounded-sm bg-background/20 px-1.5 py-px">
                 {flag}
               </code>
               . The agent edits {`./story.json`} and runs commands without
@@ -252,18 +199,10 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
           <button
             disabled={busy}
             onClick={() => pickPermissions(false)}
-            style={{
-              ...secondaryBtn({ disabled: busy }),
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "stretch",
-              gap: 6,
-              padding: "14px 14px",
-              textAlign: "left",
-            }}
+            className="flex flex-col items-stretch gap-1.5 rounded-md border border-border bg-secondary p-3.5 text-left text-foreground transition-colors hover:bg-accent disabled:opacity-50"
           >
-            <div style={{ fontWeight: 600 }}>Supervised — keep prompts</div>
-            <div style={{ fontSize: 11, color: color.text.muted, lineHeight: 1.5 }}>
+            <div className="font-semibold">Supervised — keep prompts</div>
+            <div className="text-[11px] leading-relaxed text-muted-foreground">
               The agent's normal permission flow stays on. Slower, safer.
               You can change this later.
             </div>

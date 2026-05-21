@@ -17,7 +17,6 @@ import { Panel } from "../../panel";
 import { Timeline } from "../../timeline";
 import { Library } from "../../Library";
 import { StarterCard } from "../../StarterCard";
-import { PromptModeBar } from "../../PromptModeBar";
 import {
   diffFields,
   applyFields,
@@ -122,7 +121,6 @@ export const kineticCanvas: CanvasPlugin<Story> = {
   Renderer,
   Inspector,
   Timeline: KineticTimeline,
-  LeftColumnPrelude: PromptModeBar,
   RendererOverlay,
   LeftColumnSecondaryTab: {
     label: "library",

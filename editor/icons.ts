@@ -11,6 +11,8 @@ export {
   X,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   Play,
   Pause,
   Download,
@@ -19,4 +21,6 @@ export {
   Undo2,
   Redo2,
   Plus,
+  LayoutGrid,
+  Star,
 } from "lucide-react";

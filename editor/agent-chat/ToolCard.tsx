@@ -18,78 +18,36 @@ const summary = (call: ToolCallRecord): string => {
 
 export const ToolCard: React.FC<Props> = ({ call }) => {
   const [open, setOpen] = useState(false);
-  const [focused, setFocused] = useState(false);
   const sub = summary(call);
   const status = call.result == null ? "running" : call.result.ok ? "ok" : "err";
   const badge =
     status === "running" ? "…" : status === "ok" ? "✓" : "✗";
-  const badgeColor =
-    status === "running" ? "#7c5cff" : status === "ok" ? "#22c55e" : "#ef4444";
+  // Status hue: running stays neutral (grey), success/error keep their
+  // conventional green/red since they carry meaning, not decoration.
+  const badgeClass =
+    status === "running"
+      ? "text-muted-foreground"
+      : status === "ok"
+        ? "text-green-500"
+        : "text-destructive";
 
   return (
-    <div
-      style={{
-        border: "1px solid #2a2a36",
-        borderRadius: 8,
-        padding: "8px 10px",
-        margin: "8px 0",
-        fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-        fontSize: 13,
-        color: "#cdcdd8",
-        background: "#13131a",
-      }}
-    >
+    <div className="my-2 rounded-md border border-border bg-card px-2.5 py-2 text-[13px] text-muted-foreground">
       <button
         onClick={() => setOpen((v) => !v)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={{
-          all: "unset",
-          cursor: "pointer",
-          display: "flex",
-          gap: 8,
-          width: "100%",
-          alignItems: "center",
-          // Restore a focus ring for keyboard users since `all: unset`
-          // stripped the default.
-          outline: focused ? "2px solid #7c5cff" : "none",
-          outlineOffset: 2,
-          borderRadius: 4,
-        }}
+        className="flex w-full items-center gap-2 rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
       >
-        <span style={{ color: badgeColor, fontWeight: 600 }}>{badge}</span>
-        <span style={{ fontWeight: 600 }}>{call.name}</span>
+        <span className={`font-semibold ${badgeClass}`}>{badge}</span>
+        <span className="font-semibold text-foreground">{call.name}</span>
         {sub ? (
-          <span
-            style={{
-              fontFamily:
-                "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-              fontSize: 12,
-              opacity: 0.8,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs opacity-80">
             {sub}
           </span>
         ) : null}
-        <span style={{ opacity: 0.55 }}>{open ? "▾" : "▸"}</span>
+        <span className="opacity-55">{open ? "▾" : "▸"}</span>
       </button>
       {open ? (
-        <pre
-          style={{
-            margin: "8px 0 0",
-            fontSize: 12,
-            background: "#0a0a10",
-            padding: 8,
-            borderRadius: 6,
-            overflow: "auto",
-            maxHeight: 240,
-          }}
-        >
+        <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-background p-2 text-xs">
 {JSON.stringify(
               { input: call.input, result: call.result },
               null,

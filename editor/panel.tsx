@@ -330,19 +330,6 @@ export const Panel: React.FC<{
           onChange={(patch) => patchBeat(selection.indices[0], patch)}
         />
       )}
-
-      <div
-        style={{
-          fontSize: 10,
-          color: color.text.faint,
-          lineHeight: 1.5,
-          marginTop: 16,
-        }}
-      >
-        This panel tweaks parameters only. To change the sequence — add or
-        remove beats, edit words, generate new shapes — reprompt Claude
-        Code (open the terminal pane).
-      </div>
     </div>
   );
 };

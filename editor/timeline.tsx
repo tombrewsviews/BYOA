@@ -45,6 +45,7 @@ import {
 import type { Selection } from "./selection";
 import { AddVideo } from "./AddVideo";
 import { AddImage } from "./AddImage";
+import { AddItemButton } from "./AddItemButton";
 import { color, font } from "./platform/theme";
 
 type TimelineProps = {
@@ -441,31 +442,10 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
           gap: 6,
         }}
       >
-        {/* "+ Track" button (left) + Story selector row. The + sits
-            in the gutter column above the per-track gutters, aligning
-            with them visually. It CREATES a new empty row at the top
-            of the timeline (highest track number); the gutter ↑/↓
-            arrows below REORDER existing rows. */}
+        {/* Story selector row. (Adding a new empty track moved to the
+            bottom toolbar as "+ Layer", alongside + Beat / + Video /
+            + Image. The gutter ↑/↓ arrows below REORDER existing rows.) */}
         <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
-          <button
-            onClick={addTopTrack}
-            title="Add a new empty track on top"
-            style={{
-              width: 48,
-              height: 22,
-              borderRadius: 6,
-              padding: 0,
-              border: `1px solid ${color.border.line}`,
-              background: color.bg.hover,
-              color: color.text.muted,
-              fontSize: 14,
-              lineHeight: 1,
-              cursor: "pointer",
-              flex: "0 0 auto",
-            }}
-          >
-            +
-          </button>
           <button
             onClick={(e) => {
               onSelect({ kind: "story" });
@@ -776,33 +756,27 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
         </div>
         </div>{/* end flex wrapper around gutter + tracks */}
 
-        {/* + Beat button below the timeline */}
+        {/* Add-item toolbar below the timeline — all four use the shared
+            AddItemButton so they're pixel-identical. */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button
+          <AddItemButton
+            label="+ Beat"
+            title="Add a beat"
             onClick={(e) => {
               e.stopPropagation();
               onAddBeat();
             }}
-            title="Add a beat"
-            style={{
-              flex: "0 0 auto",
-              padding: "4px 12px",
-              fontSize: 11,
-              borderRadius: 4,
-              border: `1px dashed ${color.border.hover}`,
-              background: "transparent",
-              color: color.text.muted,
-              cursor: "pointer",
-            }}
-          >
-            + Beat
-          </button>
+          />
           <AddVideo onImported={onAddVideo} />
           <AddImage onImported={onAddImage} />
-          <span style={{ fontSize: 10, color: color.text.faint }}>
-            Drag clip to move/retime · drag edges to resize/trim · drag
-            vertically to change layer
-          </span>
+          <AddItemButton
+            label="+ Layer"
+            title="Add a new empty layer on top"
+            onClick={(e) => {
+              e.stopPropagation();
+              addTopTrack();
+            }}
+          />
         </div>
       </div>
     );

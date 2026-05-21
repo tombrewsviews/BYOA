@@ -55,6 +55,20 @@
   --ring: rgba(10, 10, 10, 0.22);
 }
 
+/* Native number-input spinners render with the OS accent color (blue on
+   macOS), which clashes with the grey design system. Hide them app-wide —
+   numeric fields here pair with a slider or are edited directly, so the
+   stepper arrows aren't needed. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

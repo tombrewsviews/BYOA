@@ -12,12 +12,7 @@ export const ThinkingIndicator: React.FC = () => (
   <div
     role="status"
     aria-label="Agent is thinking"
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 5,
-      padding: "12px 0",
-    }}
+    className="flex items-center gap-[5px] py-3"
   >
     <style>{`
       @keyframes agentchat-thinking {
@@ -29,11 +24,8 @@ export const ThinkingIndicator: React.FC = () => (
       <span
         key={i}
         aria-hidden
+        className="size-1.5 rounded-full bg-muted-foreground"
         style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: "#7c5cff",
           animation: "agentchat-thinking 1.2s ease-in-out infinite",
           animationDelay: `${i * 0.16}s`,
         }}

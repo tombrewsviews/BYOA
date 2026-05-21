@@ -1,5 +1,6 @@
 /**
- * Prompt-mode selector — sits above the terminal/library tab strip.
+ * Prompt-mode selector — a compact dropdown that sits at the end of the
+ * Terminal/Chat toggle row.
  *
  * Tells the agent how the user wants new prompts integrated into the
  * existing story:
@@ -14,7 +15,13 @@
  */
 import React, { useEffect, useState } from "react";
 import { isTauri } from "./runtime";
-import { color, secondaryBtn } from "./platform/theme";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 export type PromptMode = "replace" | "append" | "insert";
 const MODES: PromptMode[] = ["replace", "append", "insert"];
@@ -64,33 +71,20 @@ export const PromptModeBar: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 6px",
-        background: color.bg.canvas,
-        borderBottom: `1px solid ${color.border.line}`,
-        fontSize: 10,
-        color: color.text.dim,
-        flex: "0 0 auto",
-      }}
-      title="How agent prompts modify the story. Default: append at end."
-    >
-      <span style={{ flex: "0 0 auto", textTransform: "uppercase", letterSpacing: 0.5 }}>
-        Prompt
-      </span>
-      {MODES.map((m) => (
-        <button
-          key={m}
-          onClick={() => void choose(m)}
-          aria-pressed={mode === m}
-          style={secondaryBtn({ active: mode === m, size: "sm" })}
-        >
-          {LABELS[m]}
-        </button>
-      ))}
-    </div>
+    <Select value={mode} onValueChange={(v) => void choose(v as PromptMode)}>
+      <SelectTrigger
+        size="sm"
+        title="How agent prompts modify the story. Default: append at end."
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {MODES.map((m) => (
+          <SelectItem key={m} value={m}>
+            {LABELS[m]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 };

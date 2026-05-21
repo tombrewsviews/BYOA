@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   // agentLabel + cwd are kept in the contract (callers still pass them) but
@@ -14,31 +15,10 @@ interface Props {
 export const SessionToolbar: React.FC<Props> = ({ onEndSession, sessionAlive }) => {
   if (!sessionAlive) return null;
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        padding: "6px 10px",
-        borderBottom: "1px solid #2a2a36",
-        background: "#0e0e16",
-      }}
-    >
-      <button
-        onClick={onEndSession}
-        style={{
-          padding: "3px 8px",
-          borderRadius: 4,
-          border: "1px solid #3a3a48",
-          background: "transparent",
-          color: "#cdcdd8",
-          cursor: "pointer",
-          fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-          fontSize: 12,
-        }}
-      >
+    <div className="flex items-center justify-end border-b border-border bg-card px-2.5 py-1.5">
+      <Button variant="secondary" size="xs" onClick={onEndSession}>
         Clear
-      </button>
+      </Button>
     </div>
   );
 };

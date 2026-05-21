@@ -7,9 +7,10 @@
  * NOT open the drawer (the button stops propagation).
  */
 import React from "react";
-import { color, font, radius, primaryBtn, secondaryBtn, formatBytes } from "./theme";
+import { color, font, radius, formatBytes } from "./theme";
 import { type AppManifest } from "./apps";
 import { startInstall, useInstallState } from "./install";
+import { Button } from "@/components/ui/button";
 
 const ICON_SIZE = 44;
 
@@ -20,63 +21,66 @@ const InstallButton: React.FC<{
   const rec = useInstallState(app.id);
   if (app.status === "coming-soon") {
     return (
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         disabled
-        style={secondaryBtn({ disabled: true })}
         onClick={(e) => e.stopPropagation()}
       >
         Coming soon
-      </button>
+      </Button>
     );
   }
   if (rec.state === "installed") {
     return (
-      <button
+      <Button
+        size="sm"
         onClick={(e) => {
           e.stopPropagation();
           onOpen();
         }}
-        style={primaryBtn({ size: "sm" })}
       >
         Open
-      </button>
+      </Button>
     );
   }
   if (rec.state === "installing") {
     const pct = Math.round(rec.progress * 100);
     return (
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={(e) => e.stopPropagation()}
-        style={secondaryBtn()}
         title="Installing…"
       >
         Installing… {pct}%
-      </button>
+      </Button>
     );
   }
   if (rec.state === "failed") {
     return (
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={(e) => {
           e.stopPropagation();
           startInstall(app.id);
         }}
-        style={secondaryBtn()}
       >
         Retry install
-      </button>
+      </Button>
     );
   }
   return (
-    <button
+    <Button
+      size="sm"
       onClick={(e) => {
         e.stopPropagation();
         startInstall(app.id);
       }}
-      style={primaryBtn({ size: "sm" })}
     >
       Install · {formatBytes(app.sizeBytes)}
-    </button>
+    </Button>
   );
 };
 

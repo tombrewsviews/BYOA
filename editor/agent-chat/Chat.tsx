@@ -18,6 +18,7 @@ import { QuestionCard } from "./QuestionCard";
 import { Composer } from "./Composer";
 import { SessionToolbar } from "./SessionToolbar";
 import { ThinkingIndicator } from "./ThinkingIndicator";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   agentId: AgentId;
@@ -191,86 +192,33 @@ export const Chat: React.FC<Props> = ({
 
   if (!supported) {
     return (
-      <div
-        style={{
-          padding: 16,
-          fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-          color: "#cdcdd8",
-        }}
-      >
+      <div className="p-4 text-sm text-muted-foreground">
         Chat view is not yet supported for {agentLabel}. Use Terminal view.
-        <div style={{ marginTop: 12 }}>
-          <button
-            onClick={onSwitchToTerminal}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: "1px solid #3a3a48",
-              background: "transparent",
-              color: "#e4e4ee",
-              cursor: "pointer",
-            }}
-          >
+        <div className="mt-3">
+          <Button variant="secondary" size="sm" onClick={onSwitchToTerminal}>
             Switch to Terminal
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        position: "relative",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        background: "#0a0a10",
-      }}
-    >
+    <div className="relative flex h-full flex-col bg-background">
       <SessionToolbar
         agentLabel={agentLabel}
         cwd={cwd}
         sessionAlive={state.turns.length > 0 || running}
         onEndSession={endSession}
       />
-      <div
-        style={{
-          flex: 1,
-          overflow: "auto",
-          padding: "10px 16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-        }}
-      >
+      <div className="flex flex-1 flex-col gap-1.5 overflow-auto px-4 py-2.5">
         {state.sessionError ? (
-          <div
-            style={{
-              fontSize: 13,
-              padding: 12,
-              borderRadius: 8,
-              background: "#2a1517",
-              border: "1px solid #5a2a30",
-              color: "#fda4af",
-              fontFamily:
-                "system-ui, -apple-system, Helvetica Neue, sans-serif",
-              marginBottom: 12,
-            }}
-          >
+          <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/15 p-3 text-[13px] text-destructive">
             {state.sessionError}
           </div>
         ) : null}
         {state.turns.length === 0 && userBubbles.length === 0 ? (
-          <div
-            style={{
-              color: "#6a6a78",
-              fontFamily:
-                "system-ui, -apple-system, Helvetica Neue, sans-serif",
-              fontSize: 14,
-              padding: "24px 0",
-            }}
-          >
+          <div className="py-6 text-sm text-muted-foreground">
             Message {agentLabel} to get started. Your agent runs with your own
             subscription in this project.
           </div>
@@ -300,14 +248,7 @@ export const Chat: React.FC<Props> = ({
                 ),
               )}
               {t.errorMessage ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#ef4444",
-                    fontFamily:
-                      "system-ui, -apple-system, Helvetica Neue, sans-serif",
-                  }}
-                >
+                <div className="text-xs text-destructive">
                   {t.errorMessage}
                 </div>
               ) : null}

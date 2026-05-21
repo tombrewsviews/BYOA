@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import type { PendingPermission } from "./ChatStore";
+import { Button } from "@/components/ui/button";
 
 export type Decision = "allow" | "allow-always" | "deny";
 
@@ -37,86 +38,36 @@ export const PermissionDialog: React.FC<Props> = ({ pending, onDecide }) => {
     <div
       role="dialog"
       aria-label={`Permission request: ${pending.tool}`}
-      style={{
-        position: "absolute",
-        left: 16,
-        right: 16,
-        bottom: 80, // assumes parent is position:relative with ≥80px composer below
-        background: "#15151c",
-        border: "1px solid #2a2a36",
-        borderRadius: 10,
-        padding: 16,
-        fontFamily: "system-ui, -apple-system, Helvetica Neue, sans-serif",
-        color: "#e4e4ee",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.45)",
-      }}
+      className="absolute bottom-20 left-4 right-4 rounded-lg border border-border bg-popover p-4 text-foreground shadow-xl"
     >
-      <div
-        style={{
-          fontSize: 12,
-          textTransform: "uppercase",
-          letterSpacing: 0.6,
-          opacity: 0.6,
-          marginBottom: 6,
-        }}
-      >
+      <div className="mb-1.5 text-xs uppercase tracking-wide opacity-60">
         Permission required · {pending.scope}
       </div>
-      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>
-        {pending.tool}
-      </div>
-      <div
-        style={{
-          fontFamily:
-            "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-          fontSize: 12,
-          opacity: 0.85,
-          marginBottom: 14,
-          wordBreak: "break-all",
-        }}
-      >
+      <div className="mb-1 text-[15px] font-semibold">{pending.tool}</div>
+      <div className="mb-3.5 break-all font-mono text-xs opacity-85">
         {summary}
       </div>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => onDecide(pending.promptId, "deny")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: "1px solid #3a3a48",
-            background: "transparent",
-            color: "#e4e4ee",
-            cursor: "pointer",
-          }}
         >
           Deny
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => onDecide(pending.promptId, "allow")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: "1px solid #4a4a58",
-            background: "#2a2a36",
-            color: "#e4e4ee",
-            cursor: "pointer",
-          }}
         >
           Allow once
-        </button>
-        <button
+        </Button>
+        <Button
+          size="sm"
           onClick={() => onDecide(pending.promptId, "allow-always")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: "none",
-            background: "#7c5cff",
-            color: "#fff",
-            cursor: "pointer",
-          }}
         >
           Allow always
-        </button>
+        </Button>
       </div>
     </div>
   );
