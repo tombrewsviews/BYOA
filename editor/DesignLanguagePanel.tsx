@@ -7,7 +7,7 @@ import React, { useMemo, useState } from "react";
 import {
   DIAL_AXES, PRESETS, emptyState, mergeDeltas, clampState,
   resolve, parsePhrase, applyTokens, resetTokens, toPatch,
-  SnapshotStore, type DialState,
+  SnapshotStore, type DialState, type AxisKey,
 } from "./design-language";
 
 export const DesignLanguagePanel: React.FC = () => {
@@ -24,7 +24,7 @@ export const DesignLanguagePanel: React.FC = () => {
     applyTokens(resolve(clamped));
   };
 
-  const onDial = (key: string, v: number) => applyState({ ...state, [key]: v });
+  const onDial = (key: AxisKey, v: number) => applyState({ ...state, [key]: v });
 
   const onPhrase = () => {
     const { deltas, unknownWords } = parsePhrase(phrase);
@@ -55,10 +55,11 @@ export const DesignLanguagePanel: React.FC = () => {
     const { cssVars, themeTs } = toPatch(resolve(state));
     if (!window.confirm("Write these tokens into index.css + theme.ts?")) return;
     try {
-      await fetch("/__apply-tokens", {
+      const res = await fetch("/__apply-tokens", {
         method: "POST",
         body: JSON.stringify({ cssVars, themeTs }),
       });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       window.alert("Applied. Reload to see persisted values as the new BASE.");
     } catch (e) {
       window.alert(`Apply failed: ${(e as Error).message}`);
