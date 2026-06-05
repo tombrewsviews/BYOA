@@ -16,6 +16,8 @@ import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
 import { isTauri } from "./runtime";
+import { terminalThemeFromTokens } from "./design-language/terminal-bridge";
+import type { TokenMap } from "./design-language/types";
 
 /**
  * Hide xterm's native viewport scrollbar — it renders as a bright white bar
@@ -49,9 +51,23 @@ export const getActivePtyId = (): string | null => _activePtyId;
  *  Library). Set by the Terminal component on mount, cleared on
  *  unmount. */
 let _activeTerm: XTerm | null = null;
+let _activeFit: FitAddon | null = null;
 export const focusActiveTerminal = (): void => {
   _activeTerm?.focus();
 };
+
+/** Push resolved design tokens into the live terminal (colors + font-size).
+ *  No-op if no terminal is mounted. Re-fits only when font-size changed. */
+export function applyToTerminal(map: TokenMap): void {
+  const term = _activeTerm;
+  if (!term) return;
+  const { theme, fontSize } = terminalThemeFromTokens(map);
+  term.options.theme = theme;
+  if (term.options.fontSize !== fontSize) {
+    term.options.fontSize = fontSize;
+    _activeFit?.fit();
+  }
+}
 
 // React.memo: Terminal has no props, so it should NEVER re-render once
 // mounted. Without memo, every parent `setStory` (triggered by Player
@@ -87,6 +103,7 @@ const TerminalInner: React.FC = () => {
     term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
     _activeTerm = term;
+    _activeFit = fit;
     // NOTE: xterm-addon-canvas was previously loaded here for perf, but
     // its dispose() crashes ("undefined is not an object" on
     // _renderer.value.onRequestRedraw) whenever this Terminal unmounts —
@@ -220,6 +237,7 @@ const TerminalInner: React.FC = () => {
         }
       }
       if (_activeTerm === term) _activeTerm = null;
+      _activeFit = null;
       term.dispose();
     };
   }, []);
