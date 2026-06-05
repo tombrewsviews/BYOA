@@ -83,7 +83,7 @@ export const StarterCard: React.FC<{
     <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
       <div className="pointer-events-auto flex max-w-[380px] flex-col gap-2.5 rounded-xl border border-border bg-popover/95 p-[18px] text-foreground shadow-2xl backdrop-blur-md">
         <div className="flex items-start justify-between">
-          <div className="text-[13px] font-bold">Start with a prompt</div>
+          <div className="text-ui-base font-bold">Start with a prompt</div>
           <Button
             variant="ghost"
             size="icon-xs"
@@ -94,33 +94,33 @@ export const StarterCard: React.FC<{
             <X />
           </Button>
         </div>
-        <div className="text-[11px] leading-relaxed text-muted-foreground">
+        <div className="text-ui-sm leading-relaxed text-muted-foreground">
           Send a prompt to the agent in the terminal and it will write the
           story. Try this:
         </div>
-        <div className="rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground">
+        <div className="rounded-md border border-border bg-background p-2.5 font-mono text-ui-sm leading-relaxed text-foreground">
           {HEADLINE_PROMPT}
         </div>
         <Button size="sm" onClick={() => void copyPrompt(HEADLINE_PROMPT)}>
           Copy prompt
         </Button>
-        <div className="mt-1 text-[10px] text-muted-foreground">Other ideas:</div>
+        <div className="mt-1 text-ui-xs text-muted-foreground">Other ideas:</div>
         {ALT_PROMPTS.map((p, i) => (
           <button
             key={i}
             onClick={() => void copyPrompt(p)}
-            className="rounded-md border border-border bg-transparent px-2.5 py-2 text-left text-[11px] leading-snug text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md border border-border bg-transparent px-2.5 py-2 text-left text-ui-sm leading-snug text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {p}
           </button>
         ))}
-        <div className="mt-1.5 text-[10px] text-muted-foreground/70">
+        <div className="mt-1.5 text-ui-xs text-muted-foreground/70">
           Or browse the prompt library tab (left panel) for techniques with
           live previews.
         </div>
       </div>
       {toast && (
-        <div className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 rounded-md border border-border bg-secondary px-3 py-1.5 text-[11px] text-foreground">
+        <div className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 rounded-md border border-border bg-secondary px-3 py-1.5 text-ui-sm text-foreground">
           {toast}
         </div>
       )}

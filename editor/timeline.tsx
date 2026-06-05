@@ -453,7 +453,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(
             }}
             aria-pressed={selection.kind === "story"}
             className={
-              "h-[22px] flex-1 rounded-md px-2 text-left text-[10px] uppercase tracking-wide transition-colors " +
+              "h-[22px] flex-1 rounded-md px-2 text-left text-ui-xs uppercase tracking-wide transition-colors " +
               (selection.kind === "story"
                 ? "border border-foreground bg-foreground text-background"
                 : "border border-border bg-secondary text-muted-foreground hover:text-foreground")

@@ -211,7 +211,7 @@ export const Square: React.FC<{ onOpen: (id: string) => void }> = ({ onOpen }) =
           </div>
 
           {visible.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border p-10 text-center text-[13px] text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border p-10 text-center text-ui-base text-muted-foreground">
               No apps match. Try clearing the filters.
             </div>
           ) : (

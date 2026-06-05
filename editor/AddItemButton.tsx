@@ -22,7 +22,7 @@ export const AddItemButton: React.FC<Props> = ({
     onClick={onClick}
     disabled={disabled}
     title={title}
-    className="flex-none rounded-md border border-dashed border-border bg-transparent px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:border-input hover:text-foreground disabled:cursor-default disabled:opacity-50"
+    className="flex-none rounded-md border border-dashed border-border bg-transparent px-3 py-1 text-ui-sm text-muted-foreground transition-colors hover:border-input hover:text-foreground disabled:cursor-default disabled:opacity-50"
   >
     {label}
   </button>

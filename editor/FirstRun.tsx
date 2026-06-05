@@ -98,7 +98,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
           <div className="mb-1.5 text-2xl font-bold text-foreground">
             Pick your agent
           </div>
-          <div className="mb-7 text-[13px] leading-relaxed text-muted-foreground">
+          <div className="mb-7 text-ui-base leading-relaxed text-muted-foreground">
             Kinetic Studio runs your chosen agent CLI in the terminal panel.
             Bring your own subscription — the studio doesn't broker tokens.
             Already logged in via the CLI? You're ready.
@@ -114,11 +114,11 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
                 key={a.id}
                 disabled={!a.installed || busy}
                 onClick={() => pickAgent(a.id as AgentId)}
-                className="flex items-center gap-3 rounded-md border border-border bg-secondary px-3.5 py-3 text-left text-[13px] text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center gap-3 rounded-md border border-border bg-secondary px-3.5 py-3 text-left text-ui-base text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <div className="flex-1">
                   <div className="font-semibold">{a.label}</div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  <div className="mt-0.5 text-ui-sm text-muted-foreground">
                     {a.installed ? (
                       a.path
                     ) : (
@@ -132,7 +132,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
                   </div>
                 </div>
                 {a.installed && (
-                  <div className="flex items-center gap-1 text-[11px] font-semibold text-foreground">
+                  <div className="flex items-center gap-1 text-ui-sm font-semibold text-foreground">
                     USE <ArrowRight className="size-3" />
                   </div>
                 )}
@@ -164,7 +164,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
         <div className="mb-1.5 text-2xl font-bold text-foreground">
           Permission mode
         </div>
-        <div className="mb-7 text-[13px] leading-relaxed text-muted-foreground">
+        <div className="mb-7 text-ui-base leading-relaxed text-muted-foreground">
           {chosenLabel} will run inside the studio terminal with the
           project folder as its CWD. Do you want it to ask before every
           file edit / shell command, or just go?
@@ -182,11 +182,11 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
           >
             <div className="flex justify-between">
               <span className="font-semibold">Skip permission prompts (recommended)</span>
-              <span className="flex items-center gap-1 text-[11px] font-semibold">
+              <span className="flex items-center gap-1 text-ui-sm font-semibold">
                 DEFAULT <ArrowRight className="size-3" />
               </span>
             </div>
-            <div className="text-[11px] leading-relaxed text-primary-foreground/70">
+            <div className="text-ui-sm leading-relaxed text-primary-foreground/70">
               Launches with{" "}
               <code className="rounded-sm bg-background/20 px-1.5 py-px">
                 {flag}
@@ -202,7 +202,7 @@ export const FirstRun: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             className="flex flex-col items-stretch gap-1.5 rounded-md border border-border bg-secondary p-3.5 text-left text-foreground transition-colors hover:bg-accent disabled:opacity-50"
           >
             <div className="font-semibold">Supervised — keep prompts</div>
-            <div className="text-[11px] leading-relaxed text-muted-foreground">
+            <div className="text-ui-sm leading-relaxed text-muted-foreground">
               The agent's normal permission flow stays on. Slower, safer.
               You can change this later.
             </div>

@@ -24,7 +24,7 @@ export const Row: React.FC<{ label: string; children: React.ReactNode }> = ({
   children,
 }) => (
   <div className="flex items-center gap-2.5 min-h-[30px]">
-    <span className="w-[78px] shrink-0 text-[11px] lowercase text-muted-foreground">
+    <span className="w-[78px] shrink-0 text-ui-sm lowercase text-muted-foreground">
       {label}
     </span>
     <div className="flex flex-1 items-center">{children}</div>
@@ -69,7 +69,7 @@ export const Slider: React.FC<{
       step={step}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
-      className="w-[52px] rounded-md border border-input bg-secondary px-1.5 py-1 text-right text-[11px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="w-[52px] rounded-md border border-input bg-secondary px-1.5 py-1 text-right text-ui-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
     />
   </div>
 );
@@ -164,8 +164,8 @@ const CurveThumb: React.FC<{
       <span
         className={
           selected
-            ? "text-[9px] text-foreground"
-            : "text-[9px] text-muted-foreground"
+            ? "text-ui-2xs text-foreground"
+            : "text-ui-2xs text-muted-foreground"
         }
       >
         {easing.replace("power", "p")}

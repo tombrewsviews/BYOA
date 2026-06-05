@@ -201,7 +201,7 @@ export const Composer: React.FC<Props> = ({
           {attachments.map((p, i) => (
             <span
               key={`${p}-${i}`}
-              className="inline-flex items-center gap-1 rounded-sm bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+              className="inline-flex items-center gap-1 rounded-sm bg-secondary px-1.5 py-0.5 font-mono text-ui-sm text-muted-foreground"
             >
               @{p}
               <button

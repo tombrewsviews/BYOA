@@ -75,7 +75,7 @@ const CTA: React.FC<{
   if (rec.state === "installing") {
     const pct = Math.round(rec.progress * 100);
     return (
-      <div className="relative w-full overflow-hidden rounded-md border border-border bg-secondary px-3.5 py-2.5 text-center text-[13px] font-bold text-foreground">
+      <div className="relative w-full overflow-hidden rounded-md border border-border bg-secondary px-3.5 py-2.5 text-center text-ui-base font-bold text-foreground">
         <div
           className="absolute bottom-0 left-0 h-0.5 bg-foreground transition-[width] duration-75"
           style={{ width: `${pct}%` }}
@@ -121,7 +121,7 @@ export const AppDrawer: React.FC<{
   return (
     <div className="flex w-[360px] flex-none flex-col overflow-y-auto border-l border-border bg-card">
       <div className="flex items-center px-4 pb-2 pt-3.5">
-        <span className="flex-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="flex-1 text-ui-xs font-semibold uppercase tracking-wide text-muted-foreground">
           App
         </span>
         <Button
@@ -147,7 +147,7 @@ export const AppDrawer: React.FC<{
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-bold text-foreground">{app.name}</div>
-          <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+          <div className="mt-0.5 text-ui-sm tabular-nums text-muted-foreground">
             app.{app.id}.v{app.version}
           </div>
         </div>

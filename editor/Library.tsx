@@ -84,7 +84,7 @@ export const Library: React.FC = () => {
         <div className="text-xs font-semibold text-foreground">
           Prompt library
         </div>
-        <div className="text-[10px] leading-snug text-muted-foreground">
+        <div className="text-ui-xs leading-snug text-muted-foreground">
           Click any card to copy a prompt — it pastes straight into the
           terminal.
         </div>
@@ -120,7 +120,7 @@ export const Library: React.FC = () => {
           />
         ))}
         {filtered.length === 0 && (
-          <div className="p-6 text-center text-[11px] text-muted-foreground">
+          <div className="p-6 text-center text-ui-sm text-muted-foreground">
             No entries in this category yet.
           </div>
         )}
@@ -137,7 +137,7 @@ export const Library: React.FC = () => {
 
       {/* Toast */}
       {toast && (
-        <div className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-md border border-border bg-secondary px-3 py-1.5 text-[11px] text-foreground shadow-lg">
+        <div className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-md border border-border bg-secondary px-3 py-1.5 text-ui-sm text-foreground shadow-lg">
           {toast}
         </div>
       )}
@@ -219,21 +219,21 @@ const Card: React.FC<{
             className="pointer-events-none block h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground">
+          <div className="flex h-full w-full items-center justify-center p-2 text-center text-ui-xs text-muted-foreground">
             (no preview)
           </div>
         )}
       </div>
       <div className="flex flex-col gap-1 px-2.5 pb-2.5 pt-2">
         <div className="flex justify-between gap-1.5">
-          <div className="text-[11px] font-semibold text-foreground">
+          <div className="text-ui-sm font-semibold text-foreground">
             {entry.title}
           </div>
-          <span className="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[9px] text-muted-foreground">
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-ui-2xs text-muted-foreground">
             {entry.category}
           </span>
         </div>
-        <div className="text-[10px] leading-snug text-muted-foreground">
+        <div className="text-ui-xs leading-snug text-muted-foreground">
           {entry.blurb}
         </div>
         <Button size="sm" onClick={onCopy} className="mt-1">
@@ -275,13 +275,13 @@ const FocusedView: React.FC<{
           />
         )}
         <div className="flex flex-col gap-2 p-3.5">
-          <div className="text-[13px] font-semibold text-foreground">
+          <div className="text-ui-base font-semibold text-foreground">
             {entry.title}
           </div>
-          <div className="text-[11px] leading-relaxed text-muted-foreground">
+          <div className="text-ui-sm leading-relaxed text-muted-foreground">
             {entry.blurb}
           </div>
-          <div className="max-h-40 overflow-auto rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground">
+          <div className="max-h-40 overflow-auto rounded-md border border-border bg-background p-2.5 font-mono text-ui-sm leading-relaxed text-foreground">
             {entry.prompt}
           </div>
           <div className="flex gap-1.5">

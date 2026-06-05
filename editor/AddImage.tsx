@@ -61,7 +61,7 @@ export const AddImage: React.FC<Props> = ({ onImported }) => {
         title="Add image"
       />
       {error && (
-        <div className="absolute bottom-full mb-1 max-w-[240px] rounded-md border border-destructive/40 bg-destructive/15 px-2 py-1 text-[10px] text-destructive">
+        <div className="absolute bottom-full mb-1 max-w-[240px] rounded-md border border-destructive/40 bg-destructive/15 px-2 py-1 text-ui-xs text-destructive">
           {error}
         </div>
       )}

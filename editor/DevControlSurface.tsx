@@ -172,14 +172,14 @@ export const DevControlSurface: React.FC<{ defaultOpen?: boolean }> = ({
           {(["language", "tokens"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={
-                "h-6 rounded px-2 text-[11px] " +
+                "h-6 rounded px-2 text-ui-sm " +
                 (tab === t ? "bg-secondary text-foreground" : "text-muted-foreground")
               }>
               {t}
             </button>
           ))}
         </div>
-        <div className="text-[10px] text-muted-foreground">⌃⇧D</div>
+        <div className="text-ui-xs text-muted-foreground">⌃⇧D</div>
       </div>
 
       {tab === "language" && (
@@ -191,7 +191,7 @@ export const DevControlSurface: React.FC<{ defaultOpen?: boolean }> = ({
         <>
       {/* scrollable token list */}
       <div className="flex-1 overflow-y-auto px-3 py-2">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mb-1 text-ui-xs font-semibold uppercase tracking-wide text-muted-foreground">
           color
         </div>
         {colorTokens.map((t) => (
@@ -205,7 +205,7 @@ export const DevControlSurface: React.FC<{ defaultOpen?: boolean }> = ({
           />
         ))}
 
-        <div className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mb-1 mt-3 text-ui-xs font-semibold uppercase tracking-wide text-muted-foreground">
           radius
         </div>
         {radiusTokens.map((t) => (
@@ -225,14 +225,14 @@ export const DevControlSurface: React.FC<{ defaultOpen?: boolean }> = ({
         <button
           onClick={copyDiff}
           disabled={changedCount === 0}
-          className="h-7 flex-1 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground transition-opacity disabled:opacity-40"
+          className="h-7 flex-1 rounded-md bg-primary px-2 text-ui-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-40"
         >
           {copied ? "copied ✓" : "copy diff"}
         </button>
         <button
           onClick={resetAll}
           disabled={changedCount === 0}
-          className="h-7 rounded-md border border-border px-2 text-[11px] font-medium text-muted-foreground transition-opacity disabled:opacity-40"
+          className="h-7 rounded-md border border-border px-2 text-ui-sm font-medium text-muted-foreground transition-opacity disabled:opacity-40"
         >
           reset all
         </button>
@@ -254,7 +254,7 @@ const TokenRow: React.FC<{
   return (
     <div className="group flex items-center gap-2 py-0.5">
       <span
-        className="flex-1 truncate font-mono text-[11px]"
+        className="flex-1 truncate font-mono text-ui-sm"
         title={token.name}
       >
         {token.name.replace(/^--/, "")}
@@ -271,7 +271,7 @@ const TokenRow: React.FC<{
         onClick={onReset}
         disabled={!dirty}
         title="reset to stylesheet value"
-        className="w-4 text-center text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-0"
+        className="w-4 text-center text-ui-sm text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-0"
       >
         ↺
       </button>
@@ -293,7 +293,7 @@ const ColorEditor: React.FC<{
         aria-label={token.name}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-6 w-[150px] rounded border border-input bg-transparent px-1.5 font-mono text-[10px] text-foreground outline-none focus-visible:border-ring"
+        className="h-6 w-[150px] rounded border border-input bg-transparent px-1.5 font-mono text-ui-xs text-foreground outline-none focus-visible:border-ring"
       />
     );
   }
@@ -304,7 +304,7 @@ const ColorEditor: React.FC<{
         aria-label={`${token.name} hex`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-6 w-[74px] rounded border border-input bg-transparent px-1.5 font-mono text-[10px] text-foreground outline-none focus-visible:border-ring"
+        className="h-6 w-[74px] rounded border border-input bg-transparent px-1.5 font-mono text-ui-xs text-foreground outline-none focus-visible:border-ring"
       />
       <input
         type="color"
@@ -331,9 +331,9 @@ const RadiusEditor: React.FC<{
         min="0"
         value={num}
         onChange={(e) => onChange(`${e.target.value}${unit}`)}
-        className="h-6 w-[64px] rounded border border-input bg-transparent px-1.5 text-[11px] text-foreground outline-none focus-visible:border-ring"
+        className="h-6 w-[64px] rounded border border-input bg-transparent px-1.5 text-ui-sm text-foreground outline-none focus-visible:border-ring"
       />
-      <span className="w-8 font-mono text-[10px] text-muted-foreground">
+      <span className="w-8 font-mono text-ui-xs text-muted-foreground">
         {unit}
       </span>
     </div>

@@ -7,7 +7,7 @@ interface Props {
 }
 
 export const Message: React.FC<Props> = ({ text, streaming }) => (
-  <div className="max-w-[70ch] py-2.5 text-[15px] leading-relaxed text-foreground">
+  <div className="max-w-[70ch] py-2.5 text-ui-lg leading-relaxed text-foreground">
     <ReactMarkdown
       components={{
         code(props) {
@@ -15,13 +15,13 @@ export const Message: React.FC<Props> = ({ text, streaming }) => (
           const isBlock = className && className.startsWith("language-");
           if (isBlock) {
             return (
-              <pre className="my-2 overflow-auto rounded-md border border-border bg-card p-2.5 text-[13px]">
+              <pre className="my-2 overflow-auto rounded-md border border-border bg-card p-2.5 text-ui-base">
                 <code>{children}</code>
               </pre>
             );
           }
           return (
-            <code className="rounded-sm bg-secondary px-1 py-px font-mono text-[13px]">
+            <code className="rounded-sm bg-secondary px-1 py-px font-mono text-ui-base">
               {children}
             </code>
           );

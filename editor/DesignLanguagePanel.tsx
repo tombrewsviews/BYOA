@@ -78,7 +78,7 @@ export const DesignLanguagePanel: React.FC = () => {
     <div className="flex flex-col gap-3 px-3 py-2">
       <div className="flex flex-col gap-2">
         {DIAL_AXES.map((a) => (
-          <label key={a.key} className="flex items-center gap-2 text-[11px]">
+          <label key={a.key} className="flex items-center gap-2 text-ui-sm">
             <span className="w-20 capitalize text-muted-foreground">{a.label}</span>
             <input
               aria-label={a.key}
@@ -97,15 +97,15 @@ export const DesignLanguagePanel: React.FC = () => {
           value={phrase}
           onChange={(e) => setPhrase(e.target.value)}
           placeholder="warmer, airier, editorial…"
-          className="h-7 flex-1 rounded border border-input bg-transparent px-2 text-[11px] text-foreground outline-none focus-visible:border-ring"
+          className="h-7 flex-1 rounded border border-input bg-transparent px-2 text-ui-sm text-foreground outline-none focus-visible:border-ring"
         />
         <button onClick={onPhrase}
-          className="h-7 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground">
+          className="h-7 rounded-md bg-primary px-2 text-ui-sm font-semibold text-primary-foreground">
           apply phrase
         </button>
       </div>
       {unknown.length > 0 && (
-        <div className="text-[10px] text-muted-foreground">
+        <div className="text-ui-xs text-muted-foreground">
           not in lexicon: {unknown.join(", ")} — (agent fallback wired separately)
         </div>
       )}
@@ -113,7 +113,7 @@ export const DesignLanguagePanel: React.FC = () => {
       <div className="flex flex-wrap gap-1.5">
         {Object.keys(PRESETS).map((name) => (
           <button key={name} onClick={() => onPreset(name)}
-            className="h-6 rounded border border-border px-2 text-[10px] text-foreground">
+            className="h-6 rounded border border-border px-2 text-ui-xs text-foreground">
             {name}
           </button>
         ))}
@@ -121,12 +121,12 @@ export const DesignLanguagePanel: React.FC = () => {
 
       <div className="flex flex-wrap items-center gap-1.5">
         <button onClick={onSaveSnapshot}
-          className="h-6 rounded border border-border px-2 text-[10px] text-muted-foreground">
+          className="h-6 rounded border border-border px-2 text-ui-xs text-muted-foreground">
           save snapshot
         </button>
         {snapNames.map((n) => (
           <button key={n} onClick={() => onRecall(n)}
-            className="h-6 rounded border border-border px-2 text-[10px] text-foreground">
+            className="h-6 rounded border border-border px-2 text-ui-xs text-foreground">
             {n}
           </button>
         ))}
@@ -134,15 +134,15 @@ export const DesignLanguagePanel: React.FC = () => {
 
       <div className="flex items-center gap-2 border-t border-border pt-2">
         <button onClick={onCopyPatch}
-          className="h-7 flex-1 rounded-md border border-border px-2 text-[11px] text-foreground">
+          className="h-7 flex-1 rounded-md border border-border px-2 text-ui-sm text-foreground">
           {copied ? "copied ✓" : "copy patch"}
         </button>
         <button onClick={onApplyToProject}
-          className="h-7 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground">
+          className="h-7 rounded-md bg-primary px-2 text-ui-sm font-semibold text-primary-foreground">
           apply to project
         </button>
         <button onClick={onReset}
-          className="h-7 rounded-md border border-border px-2 text-[11px] text-muted-foreground">
+          className="h-7 rounded-md border border-border px-2 text-ui-sm text-muted-foreground">
           reset
         </button>
       </div>

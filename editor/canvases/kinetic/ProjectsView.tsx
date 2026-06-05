@@ -95,7 +95,7 @@ export const ProjectsView: React.FC = () => {
 
   return (
     <div className="h-full w-full overflow-y-auto bg-background p-10 text-muted-foreground">
-      <h1 className="text-[22px] font-bold text-foreground">Kinetic Studio</h1>
+      <h1 className="text-ui-xl font-bold text-foreground">Kinetic Studio</h1>
       <div className="mb-6 mt-6 flex items-center gap-3">
         <Input
           value={newName}

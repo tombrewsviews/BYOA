@@ -32,7 +32,7 @@ export const QuestionCard: React.FC<Props> = ({
       {questions.map((q, qi) => (
         <div key={qi} className={qi < questions.length - 1 ? "mb-3.5" : ""}>
           {q.header ? (
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground opacity-90">
+            <div className="mb-1 text-ui-sm uppercase tracking-wide text-muted-foreground opacity-90">
               {q.header}
             </div>
           ) : null}
@@ -45,7 +45,7 @@ export const QuestionCard: React.FC<Props> = ({
                 key={oi}
                 onClick={() => answer(q, o.label)}
                 disabled={disabled}
-                className="rounded-md border border-border bg-secondary px-2.5 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-border bg-secondary px-2.5 py-2 text-left text-ui-base text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="font-semibold">{o.label}</div>
                 {o.description ? (

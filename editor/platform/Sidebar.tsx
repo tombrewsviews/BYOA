@@ -32,11 +32,11 @@ const CATEGORY_LABEL: Record<AppCategory, string> = {
 };
 
 const SECTION_LABEL =
-  "mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground";
+  "mb-1.5 px-3 text-ui-xs font-semibold uppercase tracking-wide text-muted-foreground";
 
 const rowClass = (active: boolean): string =>
   cn(
-    "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[13px] transition-colors hover:text-foreground",
+    "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-ui-base transition-colors hover:text-foreground",
     active
       ? "font-semibold text-foreground"
       : "font-medium text-muted-foreground",

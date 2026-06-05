@@ -213,7 +213,7 @@ export const Chat: React.FC<Props> = ({
       />
       <div className="flex flex-1 flex-col gap-1.5 overflow-auto px-4 py-2.5">
         {state.sessionError ? (
-          <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/15 p-3 text-[13px] text-destructive">
+          <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/15 p-3 text-ui-base text-destructive">
             {state.sessionError}
           </div>
         ) : null}

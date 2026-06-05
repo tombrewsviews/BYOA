@@ -43,7 +43,7 @@ export const PermissionDialog: React.FC<Props> = ({ pending, onDecide }) => {
       <div className="mb-1.5 text-xs uppercase tracking-wide opacity-60">
         Permission required · {pending.scope}
       </div>
-      <div className="mb-1 text-[15px] font-semibold">{pending.tool}</div>
+      <div className="mb-1 text-ui-lg font-semibold">{pending.tool}</div>
       <div className="mb-3.5 break-all font-mono text-xs opacity-85">
         {summary}
       </div>

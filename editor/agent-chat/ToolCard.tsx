@@ -32,7 +32,7 @@ export const ToolCard: React.FC<Props> = ({ call }) => {
         : "text-destructive";
 
   return (
-    <div className="my-2 rounded-md border border-border bg-card px-2.5 py-2 text-[13px] text-muted-foreground">
+    <div className="my-2 rounded-md border border-border bg-card px-2.5 py-2 text-ui-base text-muted-foreground">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"

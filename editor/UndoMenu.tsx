@@ -78,7 +78,7 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
       </Button>
       {open && entries.length > 0 && (
         <div className="absolute left-0 top-full z-[100] mt-1 max-h-80 min-w-[220px] overflow-y-auto rounded-md border border-border bg-popover text-sm shadow-md">
-          <div className="border-b border-border px-2.5 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="border-b border-border px-2.5 py-1.5 text-ui-xs uppercase tracking-wide text-muted-foreground">
             History · {entries.length}
           </div>
           {entries.map((entry, i) => {
@@ -95,7 +95,7 @@ export const UndoMenu: React.FC<{ history: HistoryHandle<any> }> = ({ history })
                 className="flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
               >
                 <span className="flex-1">{entry.label}</span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-ui-xs text-muted-foreground">
                   {fmtAgo(now, entry.at)}
                 </span>
               </button>

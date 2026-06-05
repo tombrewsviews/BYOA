@@ -132,7 +132,7 @@ export const PerfOverlay: React.FC<{
     // Dev-only diagnostic overlay — deliberately keeps its amber/monospace
     // "instrument" look (it is never user-facing); only the chrome is
     // tokenized to match the grey system.
-    <div className="pointer-events-none fixed bottom-3 right-3 z-[1000] min-w-[200px] rounded-md border border-border bg-popover/95 px-2.5 py-2 font-mono text-[10px] text-amber-400">
+    <div className="pointer-events-none fixed bottom-3 right-3 z-[1000] min-w-[200px] rounded-md border border-border bg-popover/95 px-2.5 py-2 font-mono text-ui-xs text-amber-400">
       <div className="mb-1 font-bold">perf · ⌃P to hide</div>
       <div>setStory count: {stats.storyChanges}</div>
       <div>frameupdate Hz: {stats.frameupdateHz}</div>
