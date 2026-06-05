@@ -11,6 +11,24 @@
 :root {
   --radius: 0.5rem;
 
+  /* design-language type scale — a DEDICATED --ui-* tier (NOT a redefinition of
+     stock Tailwind text-sm/xs, which the app still uses at default sizes).
+     Base values mirror the app's real chrome sizes (px/16 = rem). Exposed via
+     @theme inline so text-ui-* utilities read these vars and reflow when the
+     `scale`/`leading` dials change them at runtime. */
+  --ui-2xs: 0.5625rem;  /* 9px  */
+  --ui-xs: 0.625rem;    /* 10px */
+  --ui-sm: 0.6875rem;   /* 11px */
+  --ui-base: 0.8125rem; /* 13px */
+  --ui-lg: 0.9375rem;   /* 15px */
+  --ui-xl: 1.375rem;    /* 22px */
+  --ui-leading-2xs: 1.3;
+  --ui-leading-xs: 1.4;
+  --ui-leading-sm: 1.45;
+  --ui-leading-base: 1.5;
+  --ui-leading-lg: 1.5;
+  --ui-leading-xl: 1.3;
+
   /* dark grey (default) */
   --background: #0a0a0a;
   --foreground: #fafafa;
@@ -92,4 +110,16 @@ input[type="number"] {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
+  --text-ui-2xs: var(--ui-2xs);
+  --text-ui-2xs--line-height: var(--ui-leading-2xs);
+  --text-ui-xs: var(--ui-xs);
+  --text-ui-xs--line-height: var(--ui-leading-xs);
+  --text-ui-sm: var(--ui-sm);
+  --text-ui-sm--line-height: var(--ui-leading-sm);
+  --text-ui-base: var(--ui-base);
+  --text-ui-base--line-height: var(--ui-leading-base);
+  --text-ui-lg: var(--ui-lg);
+  --text-ui-lg--line-height: var(--ui-leading-lg);
+  --text-ui-xl: var(--ui-xl);
+  --text-ui-xl--line-height: var(--ui-leading-xl);
 }
