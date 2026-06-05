@@ -3,18 +3,20 @@
 # The transform MATH lives in editor/design-language/fanout.ts; this file
 # documents the axes, presets, and lexicon words for humans.
 #
-# Phase 1 reach (LIVE now): color + radius + the global Tailwind --spacing
-# multiplier. Typography and the theme.ts/xterm chrome are phase 2 (deferred).
+# Reach (LIVE now): color + radius + --spacing (phase 1) AND the type scale
+# (--ui-*/--ui-leading-*) + the xterm terminal chrome (phase 2). 8 axes total.
 axes:
   temperature: { range: [-3, 3], minus: cooler, plus: warmer, touches: "hue of all neutrals (amber/blue tint)" }
   contrast:    { range: [-3, 3], minus: hushed, plus: punchy,  touches: "fg/bg lightness spread (3 pairs)" }
   density:     { range: [-3, 3], minus: airy,   plus: packed,  touches: "--spacing multiplier (rescales every px-/py-/gap-)" }
   softness:    { range: [-3, 3], minus: sharp,  plus: rounded, touches: "--radius (cascades to radius-sm/md/lg)" }
   character:   { range: [-3, 3], minus: neutral, plus: expressive, touches: "saturation of accent tokens" }
-  weight:      { range: [-3, 3], minus: light,  plus: bold,    touches: "border prominence (phase 1); type weight (phase 2)" }
+  weight:      { range: [-3, 3], minus: light,  plus: bold,    touches: "border prominence (phase 1); type weight (phase 3)" }
+  scale:       { range: [-3, 3], minus: compact, plus: large,  touches: "all --ui-* type-size tokens (×8%/step) — reflows text-ui-* sites" }
+  leading:     { range: [-3, 3], minus: tight,  plus: loose,   touches: "all --ui-leading-* tokens (+0.06/step)" }
 presets:
   default:   { all: 0 }
-  editorial: { density: 2, character: 1, contrast: 1, softness: -1 }
+  editorial: { density: 2, character: 1, contrast: 1, softness: -1, scale: 1, leading: 1 }
   brutalist: { contrast: 3, softness: -3, character: -1 }
   soft-saas: { softness: 2, density: 1, character: 1, contrast: -1 }
   terminal:  { density: -2, softness: -2, contrast: 2, temperature: 1 }
@@ -30,14 +32,21 @@ lexicon_sample:
   vivid: { character: 2 }
   muted: { character: -2 }
   bolder: { contrast: 1, weight: 1 }
-  editorial: { density: 2, character: 1, contrast: 1, softness: -1 }
-phase_2_deferred:
-  - "tokenize the type scale (--font-size-*, --leading-*, --font-weight-*)"
-  - "codemod the 66 arbitrary text-[..] sites + theme.ts font/space numbers onto tokens"
-  - "bridge xterm via getComputedStyle re-push so the terminal obeys the language"
+  larger: { scale: 1 }
+  smaller: { scale: -1 }
+  looser: { leading: 1 }
+  editorial: { density: 2, character: 1, contrast: 1, softness: -1, scale: 1, leading: 1 }
+phase_2_done:
+  - "type scale tokenized (--ui-*/--ui-leading-*); 76 text-[..px] sites codemodded onto text-ui-*"
+  - "scale + leading axes drive type size + line-height live"
+  - "xterm bridge: terminal colors + font-size follow the language"
+phase_3_deferred:
+  - "--font-weight-* tokens so the weight axis drives true font-weight (currently border-only)"
+  - "tokenize the 4 remaining theme.ts font.size inline consumers"
 how_it_flows: >
   phrase or dial -> editor/design-language: parsePhrase/lexicon + mergeDeltas ->
-  resolve(dialState) [pure fanout] -> applyTokens writes :root -> every
+  resolve(dialState) [pure fanout] -> applyTokens writes :root (text-ui-* sites
+  reflow live) + applyToTerminal pushes colors+font-size into xterm -> every
   ReUI/Tailwind subscriber repaints live. "apply to project" POSTs the
   toPatch() result to the dev-server /__apply-tokens endpoint, which writes
   index.css + theme.ts (the deliberate commit; chrome keys with no CSS-var
