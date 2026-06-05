@@ -5,10 +5,11 @@
  */
 import React, { useMemo, useState } from "react";
 import {
-  DIAL_AXES, PRESETS, emptyState, mergeDeltas, clampState,
+  DIAL_AXES, PRESETS, BASE_TOKENS, emptyState, mergeDeltas, clampState,
   resolve, parsePhrase, applyTokens, resetTokens, toPatch,
   SnapshotStore, type DialState, type AxisKey,
 } from "./design-language";
+import { applyToTerminal } from "./terminal";
 
 export const DesignLanguagePanel: React.FC = () => {
   const [state, setState] = useState<DialState>(emptyState());
@@ -21,7 +22,9 @@ export const DesignLanguagePanel: React.FC = () => {
   const applyState = (next: DialState) => {
     const clamped = clampState(next);
     setState(clamped);
-    applyTokens(resolve(clamped));
+    const tokens = resolve(clamped);
+    applyTokens(tokens);
+    applyToTerminal(tokens);
   };
 
   const onDial = (key: AxisKey, v: number) => applyState({ ...state, [key]: v });
@@ -34,7 +37,12 @@ export const DesignLanguagePanel: React.FC = () => {
 
   const onPreset = (name: string) => applyState(PRESETS[name]);
 
-  const onReset = () => { resetTokens(); setState(emptyState()); setUnknown([]); };
+  const onReset = () => {
+    resetTokens();
+    applyToTerminal(BASE_TOKENS);
+    setState(emptyState());
+    setUnknown([]);
+  };
 
   const onSaveSnapshot = () => {
     const name = `snap-${snapNames.length + 1}`;

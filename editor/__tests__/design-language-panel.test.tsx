@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import React from "react";
+vi.mock("../terminal", () => ({ applyToTerminal: vi.fn() }));
+import { applyToTerminal } from "../terminal";
 import { DesignLanguagePanel } from "../DesignLanguagePanel";
 
 afterEach(() => document.documentElement.removeAttribute("style"));
@@ -26,5 +28,10 @@ describe("DesignLanguagePanel", () => {
     const { getByText, getByLabelText } = render(<DesignLanguagePanel />);
     fireEvent.click(getByText("editorial"));
     expect(Number((getByLabelText("density") as HTMLInputElement).value)).toBe(2);
+  });
+  it("pushes tokens to the terminal bridge when a dial moves", () => {
+    const { getByLabelText } = render(<DesignLanguagePanel />);
+    fireEvent.change(getByLabelText("scale"), { target: { value: "2" } });
+    expect(applyToTerminal).toHaveBeenCalled();
   });
 });
