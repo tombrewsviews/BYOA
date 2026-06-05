@@ -49,4 +49,26 @@ describe("fanout.resolve (pure)", () => {
     const b = resolve({ ...emptyState(), temperature: 2 });
     expect(a).toEqual(b);
   });
+  it("BASE includes the 6 ui-text + 6 ui-leading tokens", () => {
+    for (const k of ["--ui-2xs","--ui-xs","--ui-sm","--ui-base","--ui-lg","--ui-xl"])
+      expect(BASE_TOKENS[k]).toBeTruthy();
+    for (const k of ["--ui-leading-2xs","--ui-leading-xs","--ui-leading-sm","--ui-leading-base","--ui-leading-lg","--ui-leading-xl"])
+      expect(BASE_TOKENS[k]).toBeTruthy();
+  });
+  it("large scale grows every --ui-* size token, compact shrinks it", () => {
+    const big = resolve({ ...emptyState(), scale: 3 });
+    const small = resolve({ ...emptyState(), scale: -3 });
+    for (const k of ["--ui-2xs","--ui-sm","--ui-xl"]) {
+      expect(parseFloat(big[k])).toBeGreaterThan(parseFloat(BASE_TOKENS[k]));
+      expect(parseFloat(small[k])).toBeLessThan(parseFloat(BASE_TOKENS[k]));
+    }
+  });
+  it("loose leading raises every --ui-leading-* token, tight lowers it", () => {
+    const loose = resolve({ ...emptyState(), leading: 3 });
+    const tight = resolve({ ...emptyState(), leading: -3 });
+    for (const k of ["--ui-leading-sm","--ui-leading-base"]) {
+      expect(parseFloat(loose[k])).toBeGreaterThan(parseFloat(BASE_TOKENS[k]));
+      expect(parseFloat(tight[k])).toBeLessThan(parseFloat(BASE_TOKENS[k]));
+    }
+  });
 });

@@ -26,6 +26,18 @@ export const BASE_TOKENS: TokenMap = {
   "--ring": "rgba(250, 250, 250, 0.22)",
   "--radius": "0.5rem",
   "--spacing": "0.25rem",
+  "--ui-2xs": "0.5625rem",
+  "--ui-xs": "0.625rem",
+  "--ui-sm": "0.6875rem",
+  "--ui-base": "0.8125rem",
+  "--ui-lg": "0.9375rem",
+  "--ui-xl": "1.375rem",
+  "--ui-leading-2xs": "1.3",
+  "--ui-leading-xs": "1.4",
+  "--ui-leading-sm": "1.45",
+  "--ui-leading-base": "1.5",
+  "--ui-leading-lg": "1.5",
+  "--ui-leading-xl": "1.3",
 };
 
 const ACCENTS = ["--primary", "--accent", "--secondary", "--destructive"];
@@ -34,6 +46,8 @@ const FG_BG_PAIRS: [string, string][] = [
   ["--card-foreground", "--card"],
   ["--popover-foreground", "--popover"],
 ];
+const UI_SIZE_TOKENS = ["--ui-2xs","--ui-xs","--ui-sm","--ui-base","--ui-lg","--ui-xl"];
+const UI_LEADING_TOKENS = ["--ui-leading-2xs","--ui-leading-xs","--ui-leading-sm","--ui-leading-base","--ui-leading-lg","--ui-leading-xl"];
 
 const isHex = (v: string) => /^#[0-9a-fA-F]{3,8}$/.test(v.trim());
 const remParts = (v: string) => parseFloat(v);
@@ -95,6 +109,20 @@ export function resolve(state: DialState, base: TokenMap = BASE_TOKENS): TokenMa
     if (isHex(out["--border"])) {
       out["--border"] = hslToHex(shiftLightness(hexToHsl(out["--border"]), state.weight * 3));
       out["--input"] = out["--border"];
+    }
+  }
+
+  // 7. scale: multiply every --ui-* size token by (1 + scale*0.08). no-op at 0.
+  if (state.scale !== 0) {
+    for (const k of UI_SIZE_TOKENS) {
+      out[k] = `${(parseFloat(base[k]) * (1 + state.scale * 0.08)).toFixed(4)}rem`;
+    }
+  }
+
+  // 8. leading: add leading*0.06 to every --ui-leading-* unitless token. no-op at 0.
+  if (state.leading !== 0) {
+    for (const k of UI_LEADING_TOKENS) {
+      out[k] = `${(parseFloat(base[k]) + state.leading * 0.06).toFixed(3)}`;
     }
   }
 
