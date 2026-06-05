@@ -57,12 +57,26 @@ const storyJsonPlugin = (): Plugin => ({
               cssVars: Record<string, string>;
               themeTs: Record<string, string>;
             };
+            // Track keys we couldn't write so the response is honest rather
+            // than reporting "ok" for a silent no-op (e.g. a key with no line
+            // to rewrite). The caller surfaces these to the user.
+            const unmatched: string[] = [];
+
             const cssPath = path.join(PROJECT_ROOT, "editor", "index.css");
             let css = fs.readFileSync(cssPath, "utf8");
             for (const [k, v] of Object.entries(patch.cssVars || {})) {
               // replace "  --k: <old>;" with the new value (first :root occurrence)
               const re = new RegExp(`(${k.replace(/-/g, "\\-")}:\\s*)([^;]+)(;)`);
-              css = css.replace(re, `$1${v}$3`);
+              if (re.test(css)) {
+                css = css.replace(re, `$1${v}$3`);
+              } else if (/:root\s*\{/.test(css)) {
+                // No existing line (e.g. --spacing, which Tailwind supplies from
+                // its @theme layer and isn't authored in :root). Inject it into
+                // :root so density can persist instead of silently vanishing.
+                css = css.replace(/(:root\s*\{)/, `$1\n  ${k}: ${v};`);
+              } else {
+                unmatched.push(k);
+              }
             }
             fs.writeFileSync(cssPath, css);
 
@@ -73,12 +87,14 @@ const storyJsonPlugin = (): Plugin => ({
               // swap only the quoted string literal next to this leaf key; first
               // occurrence (bg.* precede border.* so bg.hover wins over border.hover)
               const re = new RegExp(`(${leaf}:\\s*")(#[0-9a-fA-F]{3,8}|rgba\\([^)]*\\))(")`);
-              ts = ts.replace(re, `$1${v}$3`);
+              if (re.test(ts)) ts = ts.replace(re, `$1${v}$3`);
+              else unmatched.push(dotPath);
             }
             fs.writeFileSync(themePath, ts);
 
             res.statusCode = 200;
-            res.end("ok");
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ ok: true, unmatched }));
           } catch (e) {
             res.statusCode = 400;
             res.end(`apply failed: ${(e as Error).message}`);

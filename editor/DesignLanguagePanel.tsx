@@ -60,7 +60,15 @@ export const DesignLanguagePanel: React.FC = () => {
         body: JSON.stringify({ cssVars, themeTs }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      window.alert("Applied. Reload to see persisted values as the new BASE.");
+      const { unmatched = [] } = (await res.json().catch(() => ({}))) as {
+        unmatched?: string[];
+      };
+      const note = unmatched.length
+        ? `\nNot written (no target found): ${unmatched.join(", ")}.`
+        : "";
+      window.alert(
+        `Applied. Reload to see persisted values as the new BASE.${note}`,
+      );
     } catch (e) {
       window.alert(`Apply failed: ${(e as Error).message}`);
     }
