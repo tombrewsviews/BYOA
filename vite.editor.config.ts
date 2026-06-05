@@ -46,6 +46,46 @@ const storyJsonPlugin = (): Plugin => ({
         });
         return;
       }
+      // dev-only: apply resolved design tokens to index.css + theme.ts.
+      // Body = { cssVars: {"--x": "..."}, themeTs: {"bg.surface": "#..."} }.
+      if (req.method === "POST" && req.url === "/__apply-tokens") {
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", () => {
+          try {
+            const patch = JSON.parse(body) as {
+              cssVars: Record<string, string>;
+              themeTs: Record<string, string>;
+            };
+            const cssPath = path.join(PROJECT_ROOT, "editor", "index.css");
+            let css = fs.readFileSync(cssPath, "utf8");
+            for (const [k, v] of Object.entries(patch.cssVars || {})) {
+              // replace "  --k: <old>;" with the new value (first :root occurrence)
+              const re = new RegExp(`(${k.replace(/-/g, "\\-")}:\\s*)([^;]+)(;)`);
+              css = css.replace(re, `$1${v}$3`);
+            }
+            fs.writeFileSync(cssPath, css);
+
+            const themePath = path.join(PROJECT_ROOT, "editor", "platform", "theme.ts");
+            let ts = fs.readFileSync(themePath, "utf8");
+            for (const [dotPath, v] of Object.entries(patch.themeTs || {})) {
+              const leaf = dotPath.split(".").pop()!;
+              // swap only the quoted string literal next to this leaf key; first
+              // occurrence (bg.* precede border.* so bg.hover wins over border.hover)
+              const re = new RegExp(`(${leaf}:\\s*")(#[0-9a-fA-F]{3,8}|rgba\\([^)]*\\))(")`);
+              ts = ts.replace(re, `$1${v}$3`);
+            }
+            fs.writeFileSync(themePath, ts);
+
+            res.statusCode = 200;
+            res.end("ok");
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(`apply failed: ${(e as Error).message}`);
+          }
+        });
+        return;
+      }
       next();
     });
   },
