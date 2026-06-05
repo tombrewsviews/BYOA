@@ -1,5 +1,6 @@
 export type AxisKey =
-  | "temperature" | "contrast" | "density" | "softness" | "character" | "weight";
+  | "temperature" | "contrast" | "density" | "softness" | "character" | "weight"
+  | "scale" | "leading";
 export type DialState = Record<AxisKey, number>; // each -3..+3
 export type Delta = Partial<DialState>;
 /** Resolved output: CSS custom property name -> value string. */

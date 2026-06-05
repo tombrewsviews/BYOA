@@ -7,6 +7,8 @@ export const DIAL_AXES: DialAxis[] = [
   { key: "softness", label: "Softness", minLabel: "sharp", maxLabel: "rounded" },
   { key: "character", label: "Character", minLabel: "neutral", maxLabel: "expressive" },
   { key: "weight", label: "Weight", minLabel: "light", maxLabel: "bold" },
+  { key: "scale", label: "Scale", minLabel: "compact", maxLabel: "large" },
+  { key: "leading", label: "Leading", minLabel: "tight", maxLabel: "loose" },
 ];
 
 const KEYS = DIAL_AXES.map((a) => a.key) as AxisKey[];
@@ -26,7 +28,7 @@ export const mergeDeltas = (base: DialState, deltas: Delta[]): DialState => {
 
 export const PRESETS: Record<string, DialState> = {
   default: emptyState(),
-  editorial: clampState({ ...emptyState(), density: 2, character: 1, contrast: 1, softness: -1 }),
+  editorial: clampState({ ...emptyState(), density: 2, character: 1, contrast: 1, softness: -1, scale: 1, leading: 1 }),
   brutalist: clampState({ ...emptyState(), contrast: 3, softness: -3, density: -1, character: -1 }),
   "soft-saas": clampState({ ...emptyState(), softness: 2, density: 1, character: 1, contrast: -1 }),
   terminal: clampState({ ...emptyState(), density: -2, softness: -2, contrast: 2, temperature: 1 }),

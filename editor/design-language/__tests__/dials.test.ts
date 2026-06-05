@@ -2,15 +2,15 @@ import { describe, it, expect } from "vitest";
 import { DIAL_AXES, PRESETS, emptyState, clampState, mergeDeltas } from "../dials";
 
 describe("dials", () => {
-  it("defines exactly the 6 spec axes", () => {
+  it("defines exactly the 8 spec axes", () => {
     expect(DIAL_AXES.map((a) => a.key).sort()).toEqual(
-      ["character", "contrast", "density", "softness", "temperature", "weight"],
+      ["character", "contrast", "density", "leading", "scale", "softness", "temperature", "weight"],
     );
   });
   it("emptyState is all-zero for every axis", () => {
     const s = emptyState();
     expect(Object.values(s).every((v) => v === 0)).toBe(true);
-    expect(Object.keys(s).length).toBe(6);
+    expect(Object.keys(s).length).toBe(8);
   });
   it("clampState bounds each axis to -3..+3", () => {
     expect(clampState({ ...emptyState(), temperature: 9 }).temperature).toBe(3);
@@ -24,9 +24,11 @@ describe("dials", () => {
   it("every preset is a valid dial state", () => {
     for (const name of Object.keys(PRESETS)) {
       const s = PRESETS[name];
-      expect(Object.keys(s).length).toBe(6);
+      expect(Object.keys(s).length).toBe(8);
       expect(Object.values(s).every((v) => v >= -3 && v <= 3)).toBe(true);
     }
     expect(PRESETS.default).toEqual(emptyState());
+    expect(PRESETS.editorial.scale).toBe(1);
+    expect(PRESETS.editorial.leading).toBe(1);
   });
 });
