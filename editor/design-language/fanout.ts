@@ -1,5 +1,5 @@
 import type { DialState, TokenMap } from "./types";
-import { hexToHsl, hslToHex, shiftHue, shiftLightness, shiftSaturation, type Hsl } from "./color";
+import { hexToHsl, hslToHex, shiftLightness, shiftSaturation } from "./color";
 
 /** BASE token values — mirrors editor/index.css :root defaults, plus the
  *  Tailwind v4 spacing multiplier (default 0.25rem) which we expose so density
@@ -49,11 +49,10 @@ export function resolve(state: DialState, base: TokenMap = BASE_TOKENS): TokenMa
     for (const k of Object.keys(out)) {
       if (!isHex(out[k])) continue;
       const c = hexToHsl(out[k]);
-      const nudged: Hsl = shiftHue(c, 0);
       const diff = ((target - c.h + 540) % 360) - 180;
       const step = Math.sign(diff) * Math.min(Math.abs(diff), Math.abs(tempDeg));
       out[k] = hslToHex({
-        ...nudged,
+        ...c,
         h: (((c.h + step) % 360) + 360) % 360,
         s: Math.max(c.s, Math.abs(state.temperature) * 1.5),
       });
@@ -61,10 +60,13 @@ export function resolve(state: DialState, base: TokenMap = BASE_TOKENS): TokenMa
   }
 
   // 2. contrast: push fg lighter / bg darker (punchy +).
-  const cL = state.contrast * 4;
-  for (const [fg, bg] of FG_BG_PAIRS) {
-    if (isHex(out[fg])) out[fg] = hslToHex(shiftLightness(hexToHsl(out[fg]), cL));
-    if (isHex(out[bg])) out[bg] = hslToHex(shiftLightness(hexToHsl(out[bg]), -cL));
+  //    Skip at 0 so neutral state round-trips BASE byte-for-byte.
+  if (state.contrast !== 0) {
+    const cL = state.contrast * 4;
+    for (const [fg, bg] of FG_BG_PAIRS) {
+      if (isHex(out[fg])) out[fg] = hslToHex(shiftLightness(hexToHsl(out[fg]), cL));
+      if (isHex(out[bg])) out[bg] = hslToHex(shiftLightness(hexToHsl(out[bg]), -cL));
+    }
   }
 
   // 3. character: saturation of accents.
@@ -88,9 +90,12 @@ export function resolve(state: DialState, base: TokenMap = BASE_TOKENS): TokenMa
   }
 
   // 6. weight (phase 1): nudge --border lightness for prominence.
-  if (isHex(out["--border"])) {
-    out["--border"] = hslToHex(shiftLightness(hexToHsl(out["--border"]), state.weight * 3));
-    out["--input"] = out["--border"];
+  //    Skip at 0 so neutral state round-trips BASE byte-for-byte.
+  if (state.weight !== 0) {
+    if (isHex(out["--border"])) {
+      out["--border"] = hslToHex(shiftLightness(hexToHsl(out["--border"]), state.weight * 3));
+      out["--input"] = out["--border"];
+    }
   }
 
   return out;
