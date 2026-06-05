@@ -2,6 +2,7 @@ import "./index.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { DevControlSurface } from "./DevControlSurface";
 import { color, primaryBtn } from "./platform/theme";
 
 type EBState = { err: Error | null; info: string | null };
@@ -81,6 +82,9 @@ createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <RootErrorBoundary>
       <App />
+      {/* Dev-only token control surface — hidden until ⌃⇧D. Mounts here so it
+          overlays every view (Square / FirstRun / Projects / Editor). */}
+      <DevControlSurface />
     </RootErrorBoundary>
   </React.StrictMode>,
 );

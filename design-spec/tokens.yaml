@@ -1,0 +1,172 @@
+# design-spec/tokens.yaml
+# Token tier — DEEP. Extracted from the repo's ground truth, not idealized.
+#
+# Substrate: Tailwind v4 (no tailwind.config; `@import "tailwindcss"` +
+# `@theme inline`). The single source of truth for the runtime-bound token
+# tier is editor/index.css `:root`. Tailwind exposes each var as a utility
+# class (bg-*, text-*, border-*, ring-*, rounded-*) via the `@theme inline`
+# block — that block IS the subscription mechanism for every ReUI component.
+#
+# IMPORTANT GROUND-TRUTH NOTE: there is a SECOND, parallel token plane in
+# editor/platform/theme.ts (a JS object with a finer palette) that drives the
+# inline-styled chrome and the xterm terminal. It does NOT share names with
+# this CSS-var plane and is NOT bound to it. It is documented as the #1
+# deviation in binding.manifest.yaml — it is OUT OF SCOPE for the live tier.
+
+meta:
+  source_of_truth: editor/index.css
+  styling_substrate: tailwind-v4 # @import "tailwindcss"; @theme inline (editor/index.css:1, 72)
+  theme_mode: dark-by-default # dark values applied at :root, no .dark class (editor/index.css:6-11)
+  exposure_mechanism: "@theme inline block maps --token -> Tailwind utility (editor/index.css:72-95)"
+  light_mode: present-but-unused # .light block kept for future (editor/index.css:36-56)
+
+# --- COLOR ------------------------------------------------------------------
+# Dimension type: each color is a DIAL (a single value), but the SET of
+# semantic roles (primary/secondary/muted/accent/destructive…) is a VOCABULARY.
+# `value` = the literal as authored for the default (dark) theme.
+# `source` = where it is defined. `exposed_as` = the @theme inline line that
+# turns it into a Tailwind class. `light` = the .light override, for reference.
+color:
+  - name: --background
+    value: "#0a0a0a"
+    source: editor/index.css:15
+    exposed_as: --color-background (editor/index.css:73)
+    light: "#f5f5f5" # editor/index.css:37
+  - name: --foreground
+    value: "#fafafa"
+    source: editor/index.css:16
+    exposed_as: --color-foreground (editor/index.css:74)
+    light: "#0a0a0a"
+  - name: --card
+    value: "#121212"
+    source: editor/index.css:17
+    exposed_as: --color-card (editor/index.css:75)
+    light: "#ffffff"
+  - name: --card-foreground
+    value: "#fafafa"
+    source: editor/index.css:18
+    exposed_as: --color-card-foreground (editor/index.css:76)
+    light: "#0a0a0a"
+  - name: --popover
+    value: "#18181a"
+    source: editor/index.css:19
+    exposed_as: --color-popover (editor/index.css:77)
+    light: "#ffffff"
+  - name: --popover-foreground
+    value: "#fafafa"
+    source: editor/index.css:20
+    exposed_as: --color-popover-foreground (editor/index.css:78)
+    light: "#0a0a0a"
+  - name: --primary
+    value: "#fafafa"
+    source: editor/index.css:21
+    exposed_as: --color-primary (editor/index.css:79)
+    light: "#18181b"
+  - name: --primary-foreground
+    value: "#0a0a0a"
+    source: editor/index.css:22
+    exposed_as: --color-primary-foreground (editor/index.css:80)
+    light: "#fafafa"
+  - name: --secondary
+    value: "#242427"
+    source: editor/index.css:23
+    exposed_as: --color-secondary (editor/index.css:81)
+    light: "#e7e7e9"
+  - name: --secondary-foreground
+    value: "#fafafa"
+    source: editor/index.css:24
+    exposed_as: --color-secondary-foreground (editor/index.css:82)
+    light: "#18181b"
+  - name: --muted
+    value: "#1e1e20"
+    source: editor/index.css:25
+    exposed_as: --color-muted (editor/index.css:83)
+    light: "#e7e7e9"
+  - name: --muted-foreground
+    value: "#9a9a9d"
+    source: editor/index.css:26
+    exposed_as: --color-muted-foreground (editor/index.css:84)
+    light: "#6e6e72"
+  - name: --accent
+    value: "#242427"
+    source: editor/index.css:27
+    exposed_as: --color-accent (editor/index.css:85)
+    light: "#e7e7e9"
+  - name: --accent-foreground
+    value: "#fafafa"
+    source: editor/index.css:28
+    exposed_as: --color-accent-foreground (editor/index.css:86)
+    light: "#18181b"
+  - name: --destructive
+    value: "#f87171"
+    source: editor/index.css:29
+    exposed_as: --color-destructive (editor/index.css:87)
+    light: "#dc2626"
+  - name: --destructive-foreground
+    value: "#0a0a0a"
+    source: editor/index.css:30
+    exposed_as: --color-destructive-foreground (editor/index.css:88)
+    light: "#fafafa"
+  - name: --border
+    value: "#2a2a2c"
+    source: editor/index.css:31
+    exposed_as: --color-border (editor/index.css:89)
+    light: "#d4d4d8"
+  - name: --input
+    value: "#2a2a2c"
+    source: editor/index.css:32
+    exposed_as: --color-input (editor/index.css:90)
+    light: "#d4d4d8"
+  - name: --ring
+    value: "rgba(250, 250, 250, 0.22)" # translucent focus ring (rgba, not hex)
+    source: editor/index.css:33
+    exposed_as: --color-ring (editor/index.css:91)
+    light: "rgba(10, 10, 10, 0.22)"
+
+# --- RADIUS -----------------------------------------------------------------
+# DIAL. One base radius; sm/md/lg are derived by calc() in @theme inline, so
+# editing the single --radius value cascades to all three Tailwind rounded-*
+# utilities at runtime.
+radius:
+  - name: --radius
+    value: "0.5rem"
+    source: editor/index.css:12
+    derived:
+      - name: --radius-sm
+        formula: "calc(var(--radius) - 4px)"
+        source: editor/index.css:92
+      - name: --radius-md
+        formula: "calc(var(--radius) - 2px)"
+        source: editor/index.css:93
+      - name: --radius-lg
+        formula: "var(--radius)"
+        source: editor/index.css:94
+
+# --- COVERAGE GAPS (ground truth — these tiers are NOT in the CSS-var plane) -
+# Recorded as gaps, NOT invented. The control surface cannot bind what the
+# repo never tokenized as a CSS custom property.
+not_in_css_var_plane:
+  type_scale:
+    status: absent
+    where_it_lives:
+      - "Tailwind text-* defaults (text-[10px], text-[11px], text-sm, etc.) — ad hoc per element"
+      - "editor/platform/theme.ts:font.size {xs:10 … display:36} — JS literals (theme.ts:91), inline-style only"
+  spacing:
+    status: absent
+    where_it_lives:
+      - "Tailwind spacing scale (px-3, py-2, gap-2) — utility defaults"
+      - "editor/platform/theme.ts:space {s2:2 … s40:40} — JS literals (theme.ts:74), inline-style only"
+  elevation:
+    status: minimal
+    where_it_lives:
+      - "Tailwind shadow-xs / shadow-md utilities; no shadow token in :root"
+      - "editor/platform/theme.ts:focusRing — inline box-shadow string (theme.ts ~ focusRing export)"
+  motion:
+    status: absent
+    where_it_lives:
+      - "Hard-coded transition strings, e.g. 'background 120ms ease…' (editor/platform/theme.ts btnBase) and 'transition-all' / 'transition-[color,box-shadow]' Tailwind utilities in editor/components/ui/*"
+    note: "Durations/easings are literals; cannot be made live by a static CSS-var control."
+  z_index:
+    status: ad-hoc
+    where_it_lives:
+      - "Literal Tailwind z-[1000] / z-[100] in PerfOverlay, UndoMenu, DevControlSurface — no token"

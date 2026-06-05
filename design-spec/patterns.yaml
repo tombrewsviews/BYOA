@@ -1,0 +1,35 @@
+# design-spec/patterns.yaml
+# Cross-component patterns — SKETCH ONLY. Name + dominant technique + one
+# citation each. NO deep deviation audit here (that is a separate task).
+#
+# Translation tier for patterns = TRANSFORM-APPLIED: structural changes happen
+# via codemod (propose -> simulate -> apply), NOT via the live token control.
+# These are recorded, not made toggleable.
+
+patterns:
+  error_display:
+    technique: "tinted-destructive band — bg-destructive/15 + text-destructive"
+    dominant_example: editor/FirstRun.tsx:107
+    also: editor/agent-chat/Chat.tsx:216
+    deviation_flag: "an inline-styled variant exists in AddVideo.tsx errorStyle (hard-coded #ff8b8b / #3a1414 / #5a2020, AddVideo.tsx:378-380) — bypasses the token pattern"
+
+  disclosure:
+    technique: "Radix popover/menu surfaces on bg-popover with border-border"
+    dominant_example: editor/components/ui/select.tsx:63 # SelectContent
+    also: editor/UndoMenu.tsx:80 # absolute-positioned menu, outside-click close
+
+  focus_feedback:
+    technique: "3px translucent ring — focus-visible:ring-ring/50 (+ border-ring)"
+    dominant_example: editor/components/ui/button.tsx:8
+    also: editor/components/ui/input.tsx:12
+    note: "inline-styled zones use a separate focusRing box-shadow from theme.ts (not this token)"
+
+  validation_timing:
+    technique: "aria-invalid attribute drives destructive ring/border (no live-validation library)"
+    dominant_example: editor/components/ui/input.tsx:13
+    also: editor/components/ui/select.tsx:38 # aria-invalid:border-destructive
+
+  dev_overlay:
+    technique: "fixed z-[1000] panel, localStorage visibility flag, hotkey toggle, tokenized chrome"
+    dominant_example: editor/PerfOverlay.tsx:135 # ⌃P perf overlay
+    also: editor/DevControlSurface.tsx # ⌃⇧D token control (this task)

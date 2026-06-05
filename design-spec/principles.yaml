@@ -1,0 +1,38 @@
+# design-spec/principles.yaml
+# Principles — INFERRED from explicit code comments and observed structure.
+# Principles map to NOTHING the UI reads directly; they DECOMPOSE into
+# lower-tier moves. Recorded as directives, not values.
+
+principles:
+  - directive: "Dark-by-default, grey, no purple"
+    evidence:
+      - editor/index.css:6 # "app runs DARK by default… dark values applied at :root"
+      - editor/platform/theme.ts:13 # "Neutral-grey scheme"
+      - 'git log: "de-purple the timeline", "no-purple grey system" (terminal.tsx:74)'
+    decomposes_to:
+      token: "all --* color values are neutral greys; --ring is grey-translucent not blue (index.css:33)"
+      pattern: "selection bg is translucent grey #ffffff33 not purple (terminal.tsx:80)"
+    deviation_flag: "amber #facc15 persists for playhead/cursor/stale markers — an intentional accent that escaped the grey directive (timeline.tsx:992, terminal.tsx:79, player.tsx:355)"
+
+  - directive: "One shared button rhythm — variants differ only in fill, never in size"
+    evidence:
+      - editor/platform/theme.ts:btnBase # "One shared height/padding/font/radius for ALL chrome buttons"
+    decomposes_to:
+      variant: "buttonVariants varies color per variant; size is an orthogonal DIAL (button.tsx:11-32)"
+      token: "shared --radius; height/padding are literals (28px/22px in theme.ts), NOT tokens"
+    deviation_flag: "two button systems coexist — CVA buttonVariants (ReUI) AND primaryBtn/secondaryBtn/ghostBtn/tabBtn helpers (theme.ts). They share intent but not code."
+
+  - directive: "Two token planes kept in sync by hand until migration retires the inline one"
+    evidence:
+      - editor/index.css:8 # "theme.ts mirrors the same hex for the inline-styled parts"
+      - editor/platform/theme.ts:11 # "Keep the two in sync until later migration phases"
+    decomposes_to:
+      token: "CSS-var plane (index.css) is the runtime-bound source; theme.ts plane is a hand-mirrored duplicate"
+    deviation_flag: "THE central deviation — see binding.manifest.yaml. The planes share no names and one (xterm) cannot read CSS vars, so they can drift silently."
+
+  - directive: "Dev instrumentation is gated, never shipped to users"
+    evidence:
+      - editor/PerfOverlay.tsx:5 # "Never shipped to production users"
+      - editor/panel.tsx:56 # PILLAR3 localStorage dev flag
+    decomposes_to:
+      pattern: "localStorage key + hotkey gates dev surfaces (studio.perf, PILLAR3, studio.devControls)"

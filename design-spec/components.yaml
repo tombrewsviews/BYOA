@@ -1,0 +1,101 @@
+# design-spec/components.yaml
+# Component contracts — SKETCH (structure only; no exhaustive call-site list).
+#
+# Scope: the 6 ReUI/shadcn components in editor/components/ui/. These are the
+# ONLY components with a formal variant/contract surface. The rest of the app
+# is hand-styled (Tailwind utilities or inline theme.ts) with no variant table.
+#
+# Dimension types:
+#   VOCABULARY = a set of named techniques/looks (e.g. button `variant`).
+#   DIAL       = an ordinal/numeric scale (e.g. button `size`).
+# Translation tier for everything here = BUILD-BOUND (CVA tables / class
+# strings compile at build; not runtime-editable by the token control surface).
+# Tokens consumed below ARE runtime-bound (they resolve var(--…) live).
+
+substrate:
+  variant_lib: class-variance-authority # only one cva() table in the repo
+  cva_tables:
+    - buttonVariants: editor/components/ui/button.tsx:7
+  cn_helper: editor/lib/utils.ts # used by all 6 components
+
+components:
+  button:
+    file: editor/components/ui/button.tsx
+    dimensions:
+      variant: # VOCABULARY — editor/components/ui/button.tsx:11-22
+        type: VOCABULARY
+        values: [default, destructive, outline, secondary, ghost, link]
+        tokens_consumed:
+          default: [--primary, --primary-foreground] # :12 bg-primary text-primary-foreground
+          destructive: [--destructive] # :13-14 bg-destructive (+ ring-destructive/20)
+          outline: [--background, --input, --accent, --accent-foreground] # :15-16
+          secondary: [--secondary, --secondary-foreground] # :17-18
+          ghost: [--accent, --accent-foreground] # :19-20
+          link: [--primary] # :21
+      size: # DIAL — editor/components/ui/button.tsx:23-32
+        type: DIAL
+        values: [xs, sm, default, lg, icon, icon-xs, icon-sm, icon-lg]
+        tokens_consumed: [--radius] # rounded-md across sizes
+    states:
+      base: [--ring, --destructive] # focus-visible ring + aria-invalid (button.tsx:8)
+      disabled: opacity-50 (button.tsx:8) # no token, opacity literal
+
+  input:
+    file: editor/components/ui/input.tsx
+    dimensions:
+      variant: { type: VOCABULARY, values: [single] } # no variant prop; one look
+    tokens_consumed: [--input, --foreground, --muted-foreground, --primary, --primary-foreground, --radius] # input.tsx:11
+    states:
+      focus: [--ring] # focus-visible:border-ring ring-ring/50 (input.tsx:12)
+      invalid: [--destructive] # aria-invalid (input.tsx:13)
+
+  label:
+    file: editor/components/ui/label.tsx
+    dimensions:
+      variant: { type: VOCABULARY, values: [single] }
+    tokens_consumed: [] # layout-only utilities; inherits text color (label.tsx:15)
+
+  select:
+    file: editor/components/ui/select.tsx
+    parts: [SelectTrigger, SelectContent, SelectLabel, SelectItem]
+    tokens_consumed:
+      SelectTrigger: [--input, --muted-foreground, --ring, --destructive, --radius] # select.tsx:38
+      SelectContent: [--popover, --popover-foreground, --border, --radius] # select.tsx:63
+      SelectLabel: [--muted-foreground] # select.tsx:95
+      SelectItem: [--accent, --accent-foreground, --muted-foreground] # select.tsx:110
+    states:
+      focus_item: [--accent, --accent-foreground] # focus:bg-accent (select.tsx:110)
+
+  slider:
+    file: editor/components/ui/slider.tsx
+    parts: [Track, Range, Thumb]
+    tokens_consumed:
+      Track: [--muted] # bg-muted (slider.tsx:42)
+      Range: [--primary] # bg-primary (slider.tsx:48)
+      Thumb: [--primary, --ring] # border-primary, ring-ring/50 (slider.tsx:56)
+
+  switch:
+    file: editor/components/ui/switch.tsx
+    parts: [Root, Thumb]
+    tokens_consumed:
+      Root: [--primary, --input, --ring] # checked bg-primary / unchecked bg-input (switch.tsx:18)
+      Thumb: [--background, --primary-foreground, --foreground] # switch.tsx:26
+
+# --- BROADER SUBSCRIPTION (non-ui components) -------------------------------
+# These are hand-styled views, not contract components, but they DO subscribe
+# to the token tier via Tailwind utility classes — so they respond live too.
+# ~122 token-class usages across ~25 files. Representative:
+broader_token_subscribers:
+  count_usages: 122
+  count_files: 25
+  representative:
+    - editor/App.tsx:67 # border-border bg-card text-muted-foreground
+    - editor/Library.tsx:140 # border-border bg-secondary text-foreground
+    - editor/FirstRun.tsx:107 # bg-destructive/15 text-destructive
+    - editor/agent-chat/Composer.tsx:228 # border-input bg-card text-foreground
+    - editor/agent-chat/Message.tsx:18 # border-border bg-card
+    - editor/platform/Sidebar.tsx:70 # border-border bg-card
+    - editor/UndoMenu.tsx:80 # border-border bg-popover text-muted-foreground
+    - editor/canvases/kinetic/ProjectsView.tsx:116 # border-border bg-secondary text-foreground
+    - editor/player.tsx:420 # border-border bg-secondary
+    - editor/PerfOverlay.tsx:135 # border-border bg-popover/95 (the dev-overlay pattern)

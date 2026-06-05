@@ -1,0 +1,229 @@
+# design-spec/binding.manifest.yaml
+# The mapping: which code reads which spec entry, and the translation
+# mechanism per layer. This is the control-plane wiring diagram.
+#
+# Mental model: the spec is a CONTROL PLANE, not a compiler. Components are
+# hand-written and SUBSCRIBE to token entries at specific points. Changing a
+# token changes the UI ONLY where code has subscribed. Below: (1) the
+# subscription points, (2) the BYPASS points (hard-coded values that will NOT
+# respond), (3) the per-layer translation mechanism.
+
+# ============================================================================
+# PART 1 — TOKEN SUBSCRIBERS  (runtime-bound)
+# ============================================================================
+# HOW every subscriber reads a token: Tailwind utility class -> resolved to
+# var(--…) by the `@theme inline` block (editor/index.css:72-95). There are no
+# JS `import` subscribers of the CSS-var plane; it is 100% class-based.
+# Editing the var on :root (what DevControlSurface does) updates all of these.
+#
+# Listing is REPRESENTATIVE per token (the contract components + a few views),
+# not exhaustive — 122 usages across 25 files.
+
+token_subscribers:
+  --primary:
+    how: tailwind-class -> var(--color-primary)
+    at:
+      - editor/components/ui/button.tsx:12 # bg-primary text-primary-foreground (default variant)
+      - editor/components/ui/slider.tsx:48 # bg-primary (Range)
+      - editor/components/ui/switch.tsx:18 # bg-primary (checked)
+      - editor/components/ui/input.tsx:11 # selection:bg-primary
+  --primary-foreground:
+    how: tailwind-class -> var(--color-primary-foreground)
+    at:
+      - editor/components/ui/button.tsx:12
+      - editor/components/ui/switch.tsx:26
+  --secondary:
+    how: tailwind-class -> var(--color-secondary)
+    at:
+      - editor/components/ui/button.tsx:17 # bg-secondary (secondary variant)
+      - editor/Library.tsx:140
+      - editor/player.tsx:420
+  --destructive:
+    how: tailwind-class -> var(--color-destructive)
+    at:
+      - editor/components/ui/button.tsx:13 # bg-destructive
+      - editor/FirstRun.tsx:107 # bg-destructive/15 text-destructive
+      - editor/agent-chat/Chat.tsx:216
+  --background:
+    how: tailwind-class -> var(--color-background)
+    at:
+      - editor/components/ui/button.tsx:16 # outline variant
+      - editor/components/ui/switch.tsx:26
+      - editor/canvases/kinetic/ProjectsView.tsx:97
+  --foreground:
+    how: tailwind-class -> var(--color-foreground)
+    at:
+      - editor/components/ui/input.tsx:11
+      - editor/App.tsx:89
+  --card:
+    how: tailwind-class -> var(--color-card)
+    at:
+      - editor/App.tsx:67
+      - editor/agent-chat/Message.tsx:18
+      - editor/platform/Sidebar.tsx:70
+  --muted:
+    how: tailwind-class -> var(--color-muted)
+    at:
+      - editor/components/ui/slider.tsx:42 # bg-muted (Track)
+  --muted-foreground:
+    how: tailwind-class -> var(--color-muted-foreground)
+    at:
+      - editor/components/ui/select.tsx:95
+      - editor/UndoMenu.tsx:80
+  --accent:
+    how: tailwind-class -> var(--color-accent)
+    at:
+      - editor/components/ui/button.tsx:20 # ghost hover
+      - editor/components/ui/select.tsx:110 # focus:bg-accent
+  --popover:
+    how: tailwind-class -> var(--color-popover)
+    at:
+      - editor/components/ui/select.tsx:63 # SelectContent
+      - editor/UndoMenu.tsx:80
+      - editor/PerfOverlay.tsx:135
+  --border:
+    how: tailwind-class -> var(--color-border)
+    at:
+      - editor/App.tsx:67
+      - editor/platform/Sidebar.tsx:70
+      - editor/PerfOverlay.tsx:135
+  --input:
+    how: tailwind-class -> var(--color-input)
+    at:
+      - editor/components/ui/input.tsx:11 # border-input
+      - editor/components/ui/select.tsx:38
+      - editor/components/ui/switch.tsx:18 # unchecked bg-input
+  --ring:
+    how: tailwind-class -> var(--color-ring)
+    at:
+      - editor/components/ui/button.tsx:8 # focus-visible:ring-ring/50
+      - editor/components/ui/input.tsx:12
+      - editor/components/ui/slider.tsx:56
+  --radius:
+    how: tailwind rounded-* -> var(--radius{,-sm,-md,-lg})
+    at:
+      - editor/components/ui/button.tsx:8 # rounded-md
+      - editor/components/ui/input.tsx:11
+      - editor/components/ui/select.tsx:63
+    note: "editing --radius cascades to --radius-sm/md/lg via calc (index.css:92-94)"
+
+# ============================================================================
+# PART 2 — UNBOUND POINTS  (will NOT respond to spec changes)
+# ============================================================================
+# Ranked by frequency / blast radius. These are the deviation-first findings:
+# hard-coded design values that bypass the token plane. Editing tokens in the
+# control surface does NOTHING to these — that contrast is visible on screen.
+
+unbound_points:
+  # --- RANK 1: the entire theme.ts plane (highest blast radius) -------------
+  - rank: 1
+    name: theme.ts parallel token plane
+    kind: duplicate-token-plane
+    source: editor/platform/theme.ts
+    consumed_by: 11 files, ~112 inline style={{}} usages
+    importers:
+      - editor/App.tsx # font
+      - editor/main.tsx # color, primaryBtn
+      - editor/panel.tsx # color, font, secondaryBtn
+      - editor/controls.tsx # color
+      - editor/timeline.tsx # color, font
+      - editor/AddVideo.tsx # color, primaryBtn, secondaryBtn
+      - editor/player.tsx # color
+      - editor/canvases/kinetic/KineticApp.tsx # color, focusRing, font
+      - editor/canvases/kinetic/ProjectsView.tsx # color, radius
+      - editor/platform/AppRow.tsx # color, font, radius
+      - editor/platform/AppDrawer.tsx # radius
+    why_unbound: "hex/number literals in a JS object, applied as React inline styles. No var(--…) indirection. Finer palette (5 bg / 5 text / 4 border shades) with NO name overlap with the CSS-var plane."
+    fixability: MANUAL # bridging requires lossy remap + still excludes the xterm sink; out of scope (user decision)
+
+  # --- RANK 2: amber accent #facc15 (escaped the grey directive) -----------
+  - rank: 2
+    name: amber feedback color #facc15
+    kind: hard-coded-hex
+    occurrences: ~7
+    at:
+      - editor/timeline.tsx:992 # playhead indicator
+      - editor/timeline.tsx:1011 # position indicator
+      - editor/player.tsx:245 # rotation handle border
+      - editor/player.tsx:355 # rotation handle knob
+      - editor/player.tsx:375 # position indicator ring
+      - editor/player.tsx:381 # position dot gradient
+      - editor/terminal.tsx:79 # xterm cursor (JS API, can't be a CSS var)
+      - editor/canvases/kinetic/ProjectsView.tsx:328 # stale-preview marker
+    why_unbound: "raw hex literal; no token named for 'feedback amber'. Would need a new --accent-warning token AND code edits to subscribe."
+    fixability: MANUAL
+
+  # --- RANK 3: timeline clip-type discriminators ---------------------------
+  - rank: 3
+    name: timeline clip backgrounds/borders
+    kind: hard-coded-hex
+    occurrences: 4
+    at:
+      - editor/timeline.tsx:559 # #1a2230 video clip bg
+      - editor/timeline.tsx:561 # #231f29 image clip bg
+      - editor/timeline.tsx:566 # #2c3a4e video clip border
+      - editor/timeline.tsx:568 # #3a3340 image clip border
+    fixability: MANUAL
+
+  # --- RANK 4: AddVideo menu/error inline helpers --------------------------
+  - rank: 4
+    name: AddVideo menuBtn / errorStyle literals
+    kind: hard-coded-hex
+    occurrences: 5
+    at:
+      - editor/AddVideo.tsx:367 # #2e2e3c menu border
+      - editor/AddVideo.tsx:368 # #e4e4ee menu text
+      - editor/AddVideo.tsx:378 # #ff8b8b error text
+      - editor/AddVideo.tsx:379 # #3a1414 error bg
+      - editor/AddVideo.tsx:380 # #5a2020 error border
+    fixability: MANUAL
+
+  # --- RANK 5: xterm terminal theme (structurally can't read CSS vars) -----
+  - rank: 5
+    name: xterm terminal theme object
+    kind: non-css-sink
+    at:
+      - editor/terminal.tsx:77 # background #0a0a0a
+      - editor/terminal.tsx:78 # foreground #fafafa
+      - editor/terminal.tsx:79 # cursor #facc15
+      - editor/terminal.tsx:80 # selectionBackground #ffffff33
+    why_unbound: "xterm colors are a JS API, not CSS. var(--…) cannot resolve here even if we wanted to bind it. Mirrors --background/--foreground by hand."
+    fixability: MANUAL # would require reading computed styles via getComputedStyle and re-pushing to xterm on token change
+
+  # --- RANK 6: ProjectsView preview gradient -------------------------------
+  - rank: 6
+    name: ProjectsView preview gradient
+    kind: hard-coded-hex
+    at:
+      - editor/canvases/kinetic/ProjectsView.tsx:263 # linear-gradient(#1c1432 … #0b0b14 … #14141c)
+    fixability: MANUAL
+
+# ============================================================================
+# PART 3 — PER-LAYER TRANSLATION
+# ============================================================================
+translation:
+  token:
+    mechanism: runtime
+    binding: "CSS custom property on :root, read via var(--…) through Tailwind @theme inline"
+    propagation_latency: instant # next paint; no rebuild
+    live_control: editor/DevControlSurface.tsx # this task's proof
+    coverage: "19 tokens (18 color + 1 radius) fully bound; type/spacing/motion/elevation/z-index NOT in this plane (see tokens.yaml not_in_css_var_plane)"
+
+  variant:
+    mechanism: build
+    binding: "CVA table (buttonVariants, button.tsx:7) + per-component class strings; class strings compile at build"
+    propagation_latency: rebuild # editing the table changes all instances at next build
+    per_instance: "choosing which variant an instance uses is a per-call-site code change"
+    live_control: none # documented, not made live
+
+  pattern:
+    mechanism: transform
+    binding: "structural — error display, disclosure, focus feedback, validation timing"
+    propagation_latency: codemod # propose -> simulate -> apply
+    live_control: none # deliberately not toggleable
+
+  principle:
+    mechanism: decompose
+    binding: "UX stances ('grey, no purple', 'one button rhythm') map to nothing the UI reads"
+    propagation_latency: n/a # expands into lower-tier moves, not a value
+    live_control: none
