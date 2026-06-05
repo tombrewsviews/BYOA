@@ -19,8 +19,13 @@ export const LEXICON: Record<string, Delta> = {
   // character
   expressive: { character: 2 }, vivid: { character: 2 }, vibrant: { character: 2 },
   muted: { character: -2 }, neutral: { character: -1 }, restrained: { character: -1 },
+  // scale (type size)
+  larger: { scale: 1 }, bigger: { scale: 1 }, huge: { scale: 2 },
+  smaller: { scale: -1 }, tiny: { scale: -2 },
+  // leading (line-height)
+  looser: { leading: 1 }, loose: { leading: 1 }, relaxed: { leading: 1 },
   // multi-axis "mini presets"
-  editorial: { density: 2, character: 1, contrast: 1, softness: -1 },
+  editorial: { density: 2, character: 1, contrast: 1, softness: -1, scale: 1, leading: 1 },
   brutalist: { contrast: 3, softness: -3, character: -1 },
   terminal: { density: -2, softness: -2, contrast: 2 },
 };
