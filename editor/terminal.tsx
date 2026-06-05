@@ -97,9 +97,27 @@ const TerminalInner: React.FC = () => {
 
     const cleanupFns: Array<() => void | Promise<void>> = [];
 
-    const onWinResize = () => fit.fit();
-    window.addEventListener("resize", onWinResize);
-    cleanupFns.push(() => window.removeEventListener("resize", onWinResize));
+    // Re-fit on ANY size change of the host element, not just window
+    // resize. The terminal column is resized by dragging the column
+    // divider, which updates a CSS custom property (--col-terminal) — that
+    // does NOT fire a window 'resize' event, so without this the xterm grid
+    // keeps its mount-time column count and content gets clipped when the
+    // panel narrows. A ResizeObserver catches column drags, panel show/
+    // hide, and window resizes alike. fit() throws on a zero-size element
+    // (e.g. the terminal hidden behind a display:none Chat view), so skip
+    // those; the next observable resize when it becomes visible re-fits.
+    const refit = () => {
+      const el = hostRef.current;
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+      try {
+        fit.fit();
+      } catch {
+        // transient layout state — ignore; a later resize re-fits
+      }
+    };
+    const ro = new ResizeObserver(refit);
+    ro.observe(hostRef.current);
+    cleanupFns.push(() => ro.disconnect());
 
     if (!isTauri()) {
       term.writeln(
