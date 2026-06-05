@@ -1,0 +1,44 @@
+# design-spec/language.yaml
+# Human-readable source-of-truth for the design-language vocabulary.
+# The transform MATH lives in editor/design-language/fanout.ts; this file
+# documents the axes, presets, and lexicon words for humans.
+#
+# Phase 1 reach (LIVE now): color + radius + the global Tailwind --spacing
+# multiplier. Typography and the theme.ts/xterm chrome are phase 2 (deferred).
+axes:
+  temperature: { range: [-3, 3], minus: cooler, plus: warmer, touches: "hue of all neutrals (amber/blue tint)" }
+  contrast:    { range: [-3, 3], minus: hushed, plus: punchy,  touches: "fg/bg lightness spread (3 pairs)" }
+  density:     { range: [-3, 3], minus: airy,   plus: packed,  touches: "--spacing multiplier (rescales every px-/py-/gap-)" }
+  softness:    { range: [-3, 3], minus: sharp,  plus: rounded, touches: "--radius (cascades to radius-sm/md/lg)" }
+  character:   { range: [-3, 3], minus: neutral, plus: expressive, touches: "saturation of accent tokens" }
+  weight:      { range: [-3, 3], minus: light,  plus: bold,    touches: "border prominence (phase 1); type weight (phase 2)" }
+presets:
+  default:   { all: 0 }
+  editorial: { density: 2, character: 1, contrast: 1, softness: -1 }
+  brutalist: { contrast: 3, softness: -3, character: -1 }
+  soft-saas: { softness: 2, density: 1, character: 1, contrast: -1 }
+  terminal:  { density: -2, softness: -2, contrast: 2, temperature: 1 }
+# A sample of the lexicon (full set in editor/design-language/lexicon.ts).
+# Each word is a small dial nudge; multi-axis words act as mini-presets.
+lexicon_sample:
+  warmer: { temperature: 1 }
+  cooler: { temperature: -1 }
+  airier: { density: -1 }
+  packed: { density: 2 }
+  rounder: { softness: 1 }
+  sharp: { softness: -1 }
+  vivid: { character: 2 }
+  muted: { character: -2 }
+  bolder: { contrast: 1, weight: 1 }
+  editorial: { density: 2, character: 1, contrast: 1, softness: -1 }
+phase_2_deferred:
+  - "tokenize the type scale (--font-size-*, --leading-*, --font-weight-*)"
+  - "codemod the 66 arbitrary text-[..] sites + theme.ts font/space numbers onto tokens"
+  - "bridge xterm via getComputedStyle re-push so the terminal obeys the language"
+how_it_flows: >
+  phrase or dial -> editor/design-language: parsePhrase/lexicon + mergeDeltas ->
+  resolve(dialState) [pure fanout] -> applyTokens writes :root -> every
+  ReUI/Tailwind subscriber repaints live. "apply to project" POSTs the
+  toPatch() result to the dev-server /__apply-tokens endpoint, which writes
+  index.css + theme.ts (the deliberate commit; chrome keys with no CSS-var
+  source are reported as notReached, never guessed).
