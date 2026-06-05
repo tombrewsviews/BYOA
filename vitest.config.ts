@@ -13,6 +13,8 @@ export default defineConfig({
     include: [
       "editor/agent-chat/__tests__/**/*.test.{ts,tsx}",
       "editor/__tests__/**/*.test.{ts,tsx}",
+      "editor/design-language/__tests__/**/*.test.{ts,tsx}",
+      "src/kinetic/__tests__/**/*.test.{ts,tsx}",
     ],
     globals: false,
     setupFiles: ["./vitest.setup.ts"],
