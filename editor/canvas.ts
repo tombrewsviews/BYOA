@@ -95,6 +95,18 @@ export interface CanvasPlugin<Doc = unknown> {
 }
 
 import { kineticCanvas } from "./canvases/kinetic";
+import { musicCanvas } from "./canvases/music";
 
 export const activeCanvas: CanvasPlugin<unknown> =
   kineticCanvas as CanvasPlugin<unknown>;
+
+/**
+ * Resolve the canvas plugin for a given platform app id. The Pulse app
+ * uses its own audio-reactive canvas; everything else falls back to the
+ * kinetic canvas. `activeCanvas` stays as the kinetic default so existing
+ * imports are unaffected.
+ */
+export function resolveCanvas(appId: string): CanvasPlugin<unknown> {
+  if (appId === "pulse") return musicCanvas as CanvasPlugin<unknown>;
+  return kineticCanvas as CanvasPlugin<unknown>;
+}

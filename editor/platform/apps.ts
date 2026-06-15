@@ -19,6 +19,7 @@
  */
 import type React from "react";
 import { KineticApp } from "../canvases/kinetic/KineticApp";
+import { PulseApp } from "../canvases/music/PulseApp";
 
 export type AppStatus = "available" | "coming-soon";
 
@@ -113,23 +114,24 @@ export const APPS: AppManifest[] = [
     runtime: { model: "Opus 4.7", context: "1M", effort: "xhigh" },
   },
   {
-    id: "tonebench",
-    name: "Tonebench",
-    blurb: "Agent-native music production",
+    id: "pulse",
+    name: "Pulse",
+    blurb: "Agent-native music visualizer",
     description:
-      "A timeline-driven sampler the agent can compose into. Sketch a track with words, scrub, refine. Coming soon.",
-    creator: "tonebench-labs",
-    version: "0.0.1",
-    tokens: 3_100_000,
-    files: 48,
-    loc: 2_900,
+      "Pick a folder of stems; Pulse analyzes each into a live timeline and drives GPU shader effects from the music. Bind stems to visuals, author the next look with the agent, and crossfade it onto a fullscreen stage.",
+    creator: "altramanera",
+    version: "0.1.0",
+    tokens: 0,
+    files: 30,
+    loc: 2_200,
     rating: 0,
     ratingCount: 0,
-    tags: ["music", "audio", "agent-native"],
+    tags: ["music", "visualizer", "agent-native"],
     hue: 142,
-    status: "coming-soon",
-    releasedAt: "2026-04-22",
-    sizeBytes: 2_900_000,
+    status: "available",
+    Root: PulseApp,
+    releasedAt: "2026-06-15",
+    sizeBytes: 3_000_000,
     category: "audio",
   },
   {

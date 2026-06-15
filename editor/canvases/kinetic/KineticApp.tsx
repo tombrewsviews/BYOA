@@ -42,7 +42,7 @@ import { useHistory } from "./history";
 import { FirstRun } from "../../FirstRun";
 import { PromptModeBar } from "../../PromptModeBar";
 import { activeCanvas } from "../../canvas";
-import type { Story } from "../../../src/kinetic/schema";
+import { formatStoryIssues, type Story } from "../../../src/kinetic/schema";
 import type { Selection } from "../../selection";
 import { color, focusRing, font } from "../../platform/theme";
 import { Button } from "@/components/ui/button";
@@ -215,8 +215,8 @@ const EditorView: React.FC<{
 
   useEffect(() => {
     const load = async () => {
+      let raw: unknown;
       try {
-        let raw: unknown;
         if (isTauri()) {
           const { invoke } = await import("@tauri-apps/api/core");
           const text = await invoke<string>("load_doc");
@@ -229,7 +229,7 @@ const EditorView: React.FC<{
         history.resetTo(parsed as Story);
         setSavedJson(JSON.stringify(parsed));
       } catch (e) {
-        setError(`Failed to load ${canvas.docFilename}: ${(e as Error).message}`);
+        setError(`Failed to load ${canvas.docFilename}:\n${formatStoryIssues(e, raw)}`);
       }
     };
     void load();
@@ -244,9 +244,11 @@ const EditorView: React.FC<{
       const { listen } = await import("@tauri-apps/api/event");
       const off = await listen<void>("doc://changed", async () => {
         if (!docRef.current) return;
+        let rawDoc: unknown;
         try {
           const text = await invoke<string>("load_doc");
-          const fresh = canvas.parse(JSON.parse(text)) as Doc;
+          rawDoc = JSON.parse(text);
+          const fresh = canvas.parse(rawDoc) as Doc;
           setError(null);
           // Self-echo shortcut: if the disk content equals what we
           // last saved, this watcher event is just our own autosave
@@ -279,7 +281,17 @@ const EditorView: React.FC<{
             }
           }
         } catch (e) {
-          setError(`External reload failed: ${(e as Error).message}`);
+          // The external write (CLI or chat agent) produced a doc that
+          // fails the schema. The in-memory doc is untouched — the editor
+          // stays on the last good version — so this is recoverable: the
+          // next valid write clears it. Surface the exact field + allowed
+          // values so the agent reading the terminal can fix its write.
+          setError(
+            "Ignoring an invalid external edit to " +
+              canvas.docFilename +
+              " — kept your current version. Fix:\n" +
+              formatStoryIssues(e, rawDoc),
+          );
         }
       });
       unlisten = () => off();
@@ -694,7 +706,7 @@ const EditorView: React.FC<{
                       className="flex w-full flex-col items-start px-3 py-2 text-left transition-colors hover:bg-accent"
                     >
                       <span className="text-foreground">Quick draft</span>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-ui-sm text-muted-foreground">
                         1× · fast, slight shimmer
                       </span>
                     </button>
@@ -706,7 +718,7 @@ const EditorView: React.FC<{
                       className="flex w-full flex-col items-start border-t border-border px-3 py-2 text-left transition-colors hover:bg-accent"
                     >
                       <span className="text-foreground">High res</span>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-ui-sm text-muted-foreground">
                         3× · slower, crisp &amp; stable
                       </span>
                     </button>
@@ -845,7 +857,7 @@ const EditorView: React.FC<{
                     ) : (
                       <>
                         Agent
-                        <kbd className="rounded-sm border border-border px-1 py-px text-[9px] font-semibold text-muted-foreground">
+                        <kbd className="rounded-sm border border-border px-1 py-px text-ui-2xs font-semibold text-muted-foreground">
                           ⌥C
                         </kbd>
                       </>
