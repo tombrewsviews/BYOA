@@ -65,7 +65,7 @@ fn write_recents(map: &std::collections::HashMap<String, String>) {
 /// mtime (or preview doesn't exist at all but the doc does).
 fn preview_meta(project_dir: &Path) -> (Option<String>, bool) {
     let preview = project_dir.join(".kinetic-studio").join("preview.mp4");
-    let doc = project_dir.join(canvas::active().doc_filename());
+    let doc = project_dir.join(canvas::for_project(project_dir).doc_filename());
     let preview_mtime = fs::metadata(&preview).ok().and_then(|m| m.modified().ok());
     let doc_mtime = fs::metadata(&doc).ok().and_then(|m| m.modified().ok());
     match (preview_mtime, doc_mtime) {
@@ -89,13 +89,15 @@ pub fn projects_list() -> Result<Vec<ProjectMeta>, String> {
     let recents = read_recents();
     let mut out: Vec<ProjectMeta> = vec![];
 
-    let canvas = canvas::active();
     for entry in fs::read_dir(&home).map_err(|e| format!("readdir: {}", e))? {
         let entry = entry.map_err(|e| format!("entry: {}", e))?;
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
+        // Detect the canvas per-folder (project.json => pulse, story.json
+        // => kinetic). A folder with neither doc is skipped.
+        let canvas = canvas::for_project(&path);
         let doc = path.join(canvas.doc_filename());
         if !doc.exists() {
             continue;
@@ -131,7 +133,10 @@ pub fn projects_list() -> Result<Vec<ProjectMeta>, String> {
 }
 
 #[tauri::command]
-pub fn projects_create(name: String) -> Result<ProjectMeta, String> {
+pub fn projects_create(
+    name: String,
+    canvas: Option<String>,
+) -> Result<ProjectMeta, String> {
     let home = home_dir();
     fs::create_dir_all(&home).map_err(|e| format!("mkdir home: {}", e))?;
 
@@ -147,7 +152,9 @@ pub fn projects_create(name: String) -> Result<ProjectMeta, String> {
         n += 1;
     }
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir project: {}", e))?;
-    let canvas = canvas::active();
+    // Which canvas to seed. Defaults to kinetic for back-compat; the
+    // Pulse app passes "pulse" so the seed doc is project.json.
+    let canvas = canvas::by_id(canvas.as_deref().unwrap_or("kinetic"));
     fs::write(dir.join(canvas.doc_filename()), canvas.seed_bytes())
         .map_err(|e| format!("write doc: {}", e))?;
     fs::create_dir_all(dir.join(".kinetic-studio"))
@@ -182,7 +189,7 @@ pub fn project_open(
     app: AppHandle,
 ) -> Result<ProjectMeta, String> {
     let path_buf = PathBuf::from(&path);
-    let canvas = canvas::active();
+    let canvas = canvas::for_project(&path_buf);
     let doc = path_buf.join(canvas.doc_filename());
     if !doc.exists() {
         return Err(format!("no {} in folder", canvas.doc_filename()));

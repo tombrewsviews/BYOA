@@ -2,3 +2,4 @@
 //! through the `Canvas` trait — including its agent skill bundle.
 
 pub mod kinetic;
+pub mod music;

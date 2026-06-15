@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "song": { "sourceFolder": "", "durationSec": 0, "tempoBpm": 0 },
+  "stems": [],
+  "decks": { "A": { "effects": [] }, "B": { "effects": [] } },
+  "mix": { "active": "A", "template": "crossfade", "durationSec": 4, "curve": "ease", "progress": 0 }
+}

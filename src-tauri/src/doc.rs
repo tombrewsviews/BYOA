@@ -28,7 +28,8 @@ fn active_path(state: &AppState) -> Result<PathBuf, String> {
 }
 
 fn doc_path(state: &AppState) -> Result<PathBuf, String> {
-    Ok(active_path(state)?.join(canvas::active().doc_filename()))
+    let dir = active_path(state)?;
+    Ok(dir.join(canvas::for_project(&dir).doc_filename()))
 }
 
 #[tauri::command]

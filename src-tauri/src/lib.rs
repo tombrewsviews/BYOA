@@ -10,6 +10,7 @@ mod preview;
 mod projects;
 mod prompt_mode;
 mod pty;
+mod pulse;
 mod selection;
 mod settings;
 mod skill;
@@ -77,6 +78,8 @@ pub fn run() {
             settings::get_settings,
             settings::set_default_agent,
             settings::set_skip_permissions,
+            pulse::pulse_import,
+            pulse::pulse_write_analysis,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

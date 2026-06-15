@@ -28,7 +28,9 @@
         "scope": [
           "$HOME/KineticStudio/**",
           "$HOME/KineticStudio/**/.kinetic-studio/**",
-          "$HOME/KineticStudio/**/assets/**"
+          "$HOME/KineticStudio/**/assets/**",
+          "$HOME/KineticStudio/**/stems/**",
+          "$HOME/KineticStudio/**/analysis.json"
         ]
       }
     }

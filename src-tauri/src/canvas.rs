@@ -72,9 +72,62 @@ impl Canvas for KineticCanvas {
     }
 }
 
-/// The active canvas for this build. Hardcoded for now; when a second
-/// canvas lands this becomes a per-project setting (the project's
-/// canvas id lives in `.kinetic-studio/canvas` or similar).
+/// The music-visualizer canvas (Pulse). Its document is `project.json`.
+pub struct MusicCanvas;
+
+impl Canvas for MusicCanvas {
+    fn id(&self) -> &'static str {
+        "pulse"
+    }
+
+    fn doc_filename(&self) -> &'static str {
+        "project.json"
+    }
+
+    fn seed_bytes(&self) -> &'static [u8] {
+        include_bytes!("../templates/seed-pulse.json")
+    }
+
+    fn summarise(&self, project_dir: &Path) -> ProjectSummary {
+        let count = std::fs::read_to_string(project_dir.join(self.doc_filename()))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("stems").and_then(|b| b.as_array()).map(|a| a.len()))
+            .unwrap_or(0);
+        ProjectSummary { count }
+    }
+
+    fn skill_bundle(&self) -> &'static crate::skill::SkillBundle {
+        &crate::canvases::music::BUNDLE
+    }
+}
+
+/// Resolve a canvas by its stable id. Falls back to kinetic for any
+/// unknown id. Used at project-create time where the caller knows which
+/// app it is.
+pub fn by_id(id: &str) -> &'static dyn Canvas {
+    match id {
+        "pulse" => &MusicCanvas,
+        _ => &KineticCanvas,
+    }
+}
+
+/// Resolve the canvas for a specific project folder by detecting which
+/// canvas document it contains. A folder with `project.json` is a Pulse
+/// project; otherwise it's treated as kinetic (the default, `story.json`).
+///
+/// This lets both apps share one `~/KineticStudio/` pool without a
+/// separate per-project canvas-id file: the seed document IS the marker.
+pub fn for_project(project_dir: &Path) -> &'static dyn Canvas {
+    if project_dir.join("project.json").exists() {
+        &MusicCanvas
+    } else {
+        &KineticCanvas
+    }
+}
+
+/// The default canvas when no project context is available. Kinetic for
+/// back-compat; project-aware call sites should prefer `for_project`.
 pub fn active() -> &'static dyn Canvas {
     &KineticCanvas
 }
