@@ -1,6 +1,7 @@
 import React from "react";
 import { EFFECTS, effectTypes } from "../../../src/pulse/effects/registry";
 import type { PulseProject, Deck, Stem, Binding, Feature } from "../../../src/pulse/schema";
+import { Button } from "@/components/ui/button";
 
 const FEATURES: Feature[] = [
   "level",
@@ -89,12 +90,12 @@ export const EffectStack: React.FC<{
               onChange={(e) => update(i, (x) => ({ ...x, enabled: e.target.checked }))}
             />
             <span style={{ flex: 1, color: "#ddd" }}>{EFFECTS[eff.type]?.label ?? eff.type}</span>
-            <button title="lock" onClick={() => update(i, (x) => ({ ...x, locked: !x.locked }))}>
+            <Button title="lock" variant="ghost" size="icon-xs" onClick={() => update(i, (x) => ({ ...x, locked: !x.locked }))}>
               {eff.locked ? "🔒" : "🔓"}
-            </button>
-            <button title="move up" onClick={() => move(i, -1)}>↑</button>
-            <button title="move down" onClick={() => move(i, 1)}>↓</button>
-            <button title="remove" onClick={() => remove(i)}>✕</button>
+            </Button>
+            <Button title="move up" variant="ghost" size="icon-xs" onClick={() => move(i, -1)}>↑</Button>
+            <Button title="move down" variant="ghost" size="icon-xs" onClick={() => move(i, 1)}>↓</Button>
+            <Button title="remove" variant="ghost" size="icon-xs" onClick={() => remove(i)}>✕</Button>
           </div>
           {(EFFECTS[eff.type]?.params ?? []).map((spec) => (
             <div key={spec.name} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
@@ -114,10 +115,11 @@ export const EffectStack: React.FC<{
               </span>
             </div>
           ))}
-          <div style={{ marginTop: 6, color: "#8ab" }}>
+          <div style={{ marginTop: 6, color: "#8ab", display: "flex", alignItems: "center", gap: 8 }}>
             bindings
-            <button
-              style={{ marginLeft: 8 }}
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() =>
                 update(i, (x) => ({
                   ...x,
@@ -135,7 +137,7 @@ export const EffectStack: React.FC<{
               }
             >
               + bind
-            </button>
+            </Button>
           </div>
           {eff.bindings.map((b, bi) => {
             const setB = (fn: (b: Binding) => Binding) =>
@@ -184,9 +186,9 @@ export const EffectStack: React.FC<{
                   <option>log</option>
                   <option>smooth</option>
                 </select>
-                <button onClick={() => update(i, (x) => ({ ...x, bindings: x.bindings.filter((_, j) => j !== bi) }))}>
+                <Button variant="ghost" size="icon-xs" onClick={() => update(i, (x) => ({ ...x, bindings: x.bindings.filter((_, j) => j !== bi) }))}>
                   ✕
-                </button>
+                </Button>
               </div>
             );
           })}

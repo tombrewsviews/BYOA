@@ -4,6 +4,7 @@ import { Stage } from "../../../src/pulse/Stage";
 import type { Analysis } from "../../../src/pulse/analysis";
 import type { AudioGraph } from "../../../src/pulse/audioGraph";
 import { computeGains } from "../../../src/pulse/audioGraph";
+import { Button } from "@/components/ui/button";
 
 /**
  * The bench preview in the MAIN window. Always renders Deck A — the
@@ -24,18 +25,28 @@ export const Renderer: React.FC<{
   const getTime = () => engine?.currentTime() ?? 0;
 
   const deck = doc.decks[previewDeck];
+  const hasStems = doc.stems.length > 0;
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: "#000" }}>
       <div style={{ flex: 1, minHeight: 0, display: "grid", placeItems: "center" }}>
-        <Stage
-          deck={deck}
-          analysis={analysis}
-          stemVolumes={stemVolumes}
-          getTime={getTime}
-          width={width}
-          height={height}
-        />
+        {hasStems ? (
+          <Stage
+            deck={deck}
+            analysis={analysis}
+            stemVolumes={stemVolumes}
+            getTime={getTime}
+            width={width}
+            height={height}
+          />
+        ) : (
+          <div style={{ color: "#555", fontSize: 13, textAlign: "center", lineHeight: 1.6 }}>
+            <div style={{ fontSize: 15, color: "#888", marginBottom: 6 }}>Bench (Deck A)</div>
+            Click <b style={{ color: "#9ad" }}>Import stems folder…</b> on the left to load a song.
+            <br />
+            Add effects in the <b>Effects</b> tab, then <b>Send Bench → Preview</b>.
+          </div>
+        )}
       </div>
       <Transport engine={engine} />
     </div>
@@ -53,9 +64,9 @@ const Transport: React.FC<{ engine: AudioGraph | null }> = ({ engine }) => {
   const dur = engine.duration();
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 6, borderTop: "1px solid #222", color: "#aaa", fontSize: 12 }}>
-      <button onClick={() => (engine.isPlaying() ? engine.pause() : engine.play())} style={{ width: 56 }}>
+      <Button onClick={() => (engine.isPlaying() ? engine.pause() : engine.play())} variant="secondary" size="sm">
         {engine.isPlaying() ? "Pause" : "Play"}
-      </button>
+      </Button>
       <input
         type="range"
         min={0}

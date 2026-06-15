@@ -1,5 +1,6 @@
 import React from "react";
 import type { PulseProject, MixState } from "../../../src/pulse/schema";
+import { Button } from "@/components/ui/button";
 
 const TEMPLATES: MixState["template"][] = [
   "cut",
@@ -32,9 +33,9 @@ export const MixPanel: React.FC<{
   return (
     <div style={{ padding: 8, borderTop: "1px solid #222", fontSize: 12, color: "#bbb" }}>
       <div style={{ fontWeight: 600, color: "#ddd", marginBottom: 6 }}>Preview window</div>
-      <button onClick={onOpenPreview} style={{ width: "100%", padding: 6, marginBottom: 8 }}>
+      <Button onClick={onOpenPreview} variant="secondary" size="sm" className="mb-2 w-full">
         Open Preview Window ⤢
-      </button>
+      </Button>
       <div style={{ color: "#888", marginBottom: 6 }}>Transition (how the new look appears)</div>
       <label style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
         template
@@ -63,9 +64,9 @@ export const MixPanel: React.FC<{
           ))}
         </select>
       </label>
-      <button onClick={onSendToPreview} disabled={transitioning} style={{ width: "100%", padding: 8 }}>
+      <Button onClick={onSendToPreview} disabled={transitioning} variant="default" size="sm" className="w-full">
         {transitioning ? `Transitioning… ${(doc.mix.progress * 100) | 0}%` : "Send Bench → Preview"}
-      </button>
+      </Button>
     </div>
   );
 };

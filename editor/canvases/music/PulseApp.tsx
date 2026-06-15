@@ -11,6 +11,8 @@ import { Timeline } from "./Timeline";
 import { MixPanel } from "./MixPanel";
 import { useAudioEngine } from "./useAudioEngine";
 import { blendDecks, shapeCurve } from "../../../src/pulse/transitions";
+import { Button } from "@/components/ui/button";
+import { Folder, Play, Pause } from "../../icons";
 import type { Selection } from "../../selection";
 
 type ProjectMeta = { name: string; path: string };
@@ -250,12 +252,16 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     <div style={{ display: "grid", gridTemplateColumns: "320px 1fr 320px", gridTemplateRows: "1fr auto", height: "100%", background: "#000" }}>
       {/* Left: import + transport + agent terminal */}
       <div style={{ gridRow: "1 / span 2", borderRight: "1px solid #222", display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ padding: 8, borderBottom: "1px solid #222", display: "flex", flexDirection: "column", gap: 6 }}>
-          <button onClick={pickAndImport} style={{ padding: 8 }}>Import stems folder…</button>
-          <button onClick={togglePlay} style={{ padding: 6 }} disabled={!engine}>
+        <div className="flex flex-none flex-col gap-2 border-b border-border p-2">
+          <Button onClick={pickAndImport} variant="default" size="sm" className="w-full">
+            <Folder />
+            Import stems folder…
+          </Button>
+          <Button onClick={togglePlay} variant="secondary" size="sm" className="w-full" disabled={!engine}>
+            {engine?.isPlaying() ? <Pause /> : <Play />}
             {engine?.isPlaying() ? "Pause" : "Play"}
-          </button>
-          {status && <div style={{ fontSize: 12, color: "#9ad" }}>{status}</div>}
+          </Button>
+          {status && <div className="text-ui-sm text-sky-400">{status}</div>}
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>
           <Terminal />
