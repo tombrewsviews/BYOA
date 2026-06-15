@@ -1,8 +1,24 @@
 import React, { useState } from "react";
 import type { PulseProject, Deck, EffectInstance, Binding, Feature } from "../../../src/pulse/schema";
-import { EFFECTS, effectTypes } from "../../../src/pulse/effects/registry";
+import { EFFECTS, effectTypesByKind } from "../../../src/pulse/effects/registry";
 import { EFFECT_HELP, STACK_TIP } from "../../../src/pulse/effects/help";
 import { Button } from "@/components/ui/button";
+
+// Grouped <optgroup>s for any effect-picker <select> (Generators / Effects).
+const KindGroups: React.FC = () => (
+  <>
+    <optgroup label="Generators">
+      {effectTypesByKind("generator").map((t) => (
+        <option key={t} value={t}>{EFFECTS[t].label}</option>
+      ))}
+    </optgroup>
+    <optgroup label="Effects">
+      {effectTypesByKind("effect").map((t) => (
+        <option key={t} value={t}>{EFFECTS[t].label}</option>
+      ))}
+    </optgroup>
+  </>
+);
 
 const FEATURES: Feature[] = [
   "level", "bandLow", "bandMid", "bandHigh", "onset", "tempoPhase", "brightness", "flux",
@@ -64,8 +80,27 @@ export const StemRack: React.FC<{
     { id: "master", label: "Master (whole mix)", role: "master" },
   ];
 
+  // Cmd/Ctrl-click any label to copy its full nesting path to the clipboard
+  // (e.g. "drums / Pixelate / tint"), so it can be pasted to the agent to
+  // point it at exactly what was clicked. We walk up the DOM collecting
+  // `data-copy-label` markers placed on each labeled element.
+  const onCopyClick = (e: React.MouseEvent) => {
+    if (!e.metaKey && !e.ctrlKey) return;
+    const parts: string[] = [];
+    let el = e.target as HTMLElement | null;
+    while (el && el !== e.currentTarget) {
+      const lbl = el.getAttribute?.("data-copy-label");
+      if (lbl) parts.push(lbl);
+      el = el.parentElement;
+    }
+    if (!parts.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void navigator.clipboard?.writeText(parts.reverse().join(" / "));
+  };
+
   return (
-    <div style={{ fontSize: 12, color: "#bbb" }}>
+    <div style={{ fontSize: 12, color: "#bbb" }} onClickCapture={onCopyClick}>
       <div style={{ padding: "8px 4px", color: "#888", lineHeight: 1.5, borderBottom: "1px solid #1c1c1c" }}>
         {STACK_TIP}
       </div>
@@ -119,18 +154,24 @@ const StemDeck: React.FC<{
 }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ borderBottom: "1px solid #1c1c1c", background: "#0c0c0c" }}>
-      {/* Deck header row — like a DAW track strip */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 6px" }}>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          style={{ width: 16, background: "transparent", border: 0, color: "#888", cursor: "pointer" }}
-          title={open ? "collapse" : "expand"}
-        >
-          {open ? "▾" : "▸"}
-        </button>
+    <div data-copy-label={role} style={{ borderBottom: "1px solid #1c1c1c", background: "#0c0c0c" }}>
+      {/* Deck header row — like a DAW track strip. Clicking the row toggles
+          the accordion; the mute checkbox and volume slider stop propagation
+          so they stay independently usable. */}
+      <div
+        onClick={() => setOpen((o) => !o)}
+        title={open ? "collapse" : "expand"}
+        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 6px", cursor: "pointer" }}
+      >
+        <span style={{ width: 16, color: "#888", textAlign: "center" }}>{open ? "▾" : "▸"}</span>
         {isStem && (
-          <input type="checkbox" title="mute" checked={!stemMuted} onChange={(e) => onMute(!e.target.checked)} />
+          <input
+            type="checkbox"
+            title="mute"
+            checked={!stemMuted}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onMute(!e.target.checked)}
+          />
         )}
         <span style={{ width: 56, color: "#6a9", fontVariant: "small-caps", fontSize: 11 }}>{role}</span>
         <span style={{ flex: 1, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -146,6 +187,7 @@ const StemDeck: React.FC<{
             max={1}
             step={0.01}
             value={stemVolume}
+            onClick={(e) => e.stopPropagation()}
             onChange={(e) => onVolume(Number(e.target.value))}
             style={{ width: 90 }}
             title="audio level (also scales visual amplitude)"
@@ -162,12 +204,16 @@ const StemDeck: React.FC<{
               onChange={(e) => e.target.value && onAddEffect(e.target.value)}
               style={{ marginLeft: "auto" }}
             >
-              <option value="">+ add effect…</option>
-              {effectTypes.map((t) => (
-                <option key={t} value={t}>{EFFECTS[t].label}</option>
-              ))}
+              <option value="">+ add…</option>
+              <KindGroups />
             </select>
           </div>
+          {/* A stack with effects but no generator renders black — warn. */}
+          {effects.length > 0 && !effects.some((e) => EFFECTS[e.type]?.kind === "generator") && (
+            <div style={{ color: "#c96", marginBottom: 6, fontSize: 11 }}>
+              No generator here — this stays black. Add a generator (Plasma, Noise Field, Gradient…).
+            </div>
+          )}
           {effects.length === 0 && (
             <div style={{ color: "#555", fontStyle: "italic", marginBottom: 6 }}>
               No effects yet — add one and it will react to this {isStem ? "stem" : "group"}.
@@ -197,17 +243,76 @@ const EffectCard: React.FC<{
   const [showHelp, setShowHelp] = useState(false);
   const spec = EFFECTS[eff.type];
   const help = EFFECT_HELP[eff.type];
+
+  // Image/Video generators: pick a file, copy it into <project>/assets/, and
+  // store the returned relative path in the effect's `src`.
+  const pickMedia = async () => {
+    const isVideo = spec?.media === "video";
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({
+      multiple: false,
+      filters: [
+        isVideo
+          ? { name: "Video", extensions: ["mp4", "mov", "webm", "m4v"] }
+          : { name: "Image", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
+      ],
+    });
+    if (!picked || typeof picked !== "string") return;
+    const { invoke } = await import("@tauri-apps/api/core");
+    const projectPath = await invoke<string>("active_project_path").catch(() => "");
+    if (!projectPath) return;
+    const rel = await invoke<string>("pulse_import_asset", { projectPath, srcPath: picked }).catch(() => null);
+    if (rel) onUpdate((x) => ({ ...x, src: rel }));
+  };
   return (
-    <div style={{ border: "1px solid #222", borderRadius: 6, padding: 6, marginBottom: 6, background: "#111" }}>
+    <div data-copy-label={spec?.label ?? eff.type} style={{ border: "1px solid #222", borderRadius: 6, padding: 6, marginBottom: 6, background: "#111" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <input type="checkbox" checked={eff.enabled} onChange={(e) => onUpdate((x) => ({ ...x, enabled: e.target.checked }))} />
-        <span style={{ flex: 1, color: "#ddd" }}>{spec?.label ?? eff.type}</span>
+        {/* Effect type is a dropdown — changing it swaps the effect and
+            re-seeds params to the new type's defaults (params differ per
+            effect). Bindings are kept; the user can re-point them. */}
+        {/* GEN/FX badge makes the effect's role obvious at a glance. */}
+        <span
+          title={spec?.kind === "generator" ? "Generator — makes visuals" : "Effect — distorts what's below"}
+          style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: 0.5, padding: "1px 4px", borderRadius: 3,
+            color: spec?.kind === "generator" ? "#7cf" : "#c9a",
+            background: spec?.kind === "generator" ? "#123" : "#221",
+          }}
+        >
+          {spec?.kind === "generator" ? "GEN" : "FX"}
+        </span>
+        <select
+          value={eff.type}
+          onChange={(e) => {
+            const type = e.target.value;
+            onUpdate((x) => ({
+              ...x,
+              type,
+              params: Object.fromEntries(EFFECTS[type].params.map((s) => [s.name, s.default])),
+            }));
+          }}
+          style={{ flex: 1, color: "#ddd", background: "#0c0c0c", border: "1px solid #222", borderRadius: 4, padding: "2px 4px" }}
+        >
+          <KindGroups />
+        </select>
         <Button variant="ghost" size="icon-xs" title="what is this?" onClick={() => setShowHelp((s) => !s)}>?</Button>
         <Button variant="ghost" size="icon-xs" title="lock" onClick={() => onUpdate((x) => ({ ...x, locked: !x.locked }))}>
           {eff.locked ? "🔒" : "🔓"}
         </Button>
         <Button variant="ghost" size="icon-xs" title="remove" onClick={onRemove}>✕</Button>
       </div>
+      {/* Media generators: file picker + current filename. */}
+      {spec?.media && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+          <Button variant="outline" size="xs" onClick={pickMedia}>
+            {eff.src ? `Change ${spec.media}…` : `Choose ${spec.media}…`}
+          </Button>
+          <span style={{ color: "#789", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {eff.src ? eff.src.replace(/^assets\//, "") : "no file yet"}
+          </span>
+        </div>
+      )}
       {showHelp && help && (
         <div style={{ margin: "4px 0", padding: 6, borderRadius: 4, background: "#0a0a0a", color: "#9ab", fontSize: 11, lineHeight: 1.5 }}>
           <div style={{ color: "#cde" }}>{help.what}</div>
@@ -216,7 +321,7 @@ const EffectCard: React.FC<{
       )}
       {(spec?.params ?? []).map((p) => (
         <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-          <span style={{ width: 84 }}>{p.name}</span>
+          <span data-copy-label={p.name} style={{ width: 84, cursor: "default" }}>{p.name}</span>
           <input
             type="range"
             min={p.min}

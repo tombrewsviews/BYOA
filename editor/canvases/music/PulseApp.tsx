@@ -37,6 +37,9 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
   const [convert, setConvert] = useState<((p: string) => string) | null>(null);
   const [status, setStatus] = useState<string>("");
   const [loop, setLoop] = useState(true); // loop ON by default
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [leftW, setLeftW] = useState(300); // terminal panel width (drag right edge)
+  const [rightW, setRightW] = useState(380); // properties panel width (drag left edge)
   const savedRef = useRef("");
   const docRef = useRef<PulseProject | null>(null);
   docRef.current = doc;
@@ -245,20 +248,83 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     if (docRef.current) void emit("pulse://doc", docRef.current);
   }, []);
 
-  // Mirror play/pause to the preview window.
+  // Mirror play/pause to the preview window. Tracks isPlaying in React state
+  // so the transport button re-renders (engine.isPlaying() alone is a ref read
+  // that doesn't trigger a render).
   const togglePlay = useCallback(() => {
     if (!engine) return;
     if (engine.isPlaying()) {
       engine.pause();
+      setIsPlaying(false);
       void emit("pulse://pause");
+      void emit("pulse://time", engine.currentTime()); // land preview on the paused frame
     } else {
       engine.play();
+      setIsPlaying(true);
       void emit("pulse://play");
     }
   }, [engine]);
 
+  // Broadcast the master clock to the preview window every frame while
+  // playing. The preview owns no audio engine — it renders from this time, so
+  // there is no second copy of the song and its visuals stay in sync.
+  useEffect(() => {
+    if (!engine || !isPlaying) return;
+    let raf = 0;
+    const tick = () => {
+      void emit("pulse://time", engine.currentTime());
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engine, isPlaying]);
+
+  // Shift+Space toggles play/pause from anywhere in the editor (plain Space is
+  // left alone so it still works in text inputs / the terminal).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Space" && e.shiftKey) {
+        e.preventDefault();
+        togglePlay();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [togglePlay]);
+
   const update = (next: PulseProject | ((prev: PulseProject) => PulseProject)) =>
     setDoc((prev) => (typeof next === "function" ? next(prev as PulseProject) : next));
+
+  // Resolve a media effect's relative `src` (under <project>/assets/) to a
+  // webview-loadable URL for the Stage to texture.
+  const mediaUrlFor = useCallback(
+    (effect: PulseProject["decks"]["A"]["effects"][number]) =>
+      effect.src && convert ? convert(`${project.path}/${effect.src}`) : null,
+    [convert, project.path],
+  );
+
+  // Drag a panel edge to resize. `side` says whether the panel grows as the
+  // pointer moves right ("left" panel) or left ("right" panel). Clamped so a
+  // panel can't swallow the bench.
+  const startDrag = (side: "left" | "right", set: (w: number) => void) =>
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = side === "left" ? leftW : rightW;
+      const onMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - startX;
+        const w = side === "left" ? startW + dx : startW - dx;
+        set(Math.max(200, Math.min(640, w)));
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+      };
+      document.body.style.cursor = "col-resize";
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    };
 
   if (!doc) return <div style={{ padding: 40, color: "#888" }}>Loading…</div>;
 
@@ -266,7 +332,8 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "300px minmax(0, 1fr) 380px",
+        // left | handle | bench | handle | right
+        gridTemplateColumns: `${leftW}px 5px minmax(0, 1fr) 5px ${rightW}px`,
         gridTemplateRows: "minmax(0, 1fr) auto",
         height: "100%",
         background: "#000",
@@ -284,14 +351,14 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         }}
       >
         <div className="flex flex-none flex-col gap-2 border-b border-border p-2">
-          <Button onClick={pickAndImport} variant="default" size="sm" className="w-full">
+          <Button onClick={pickAndImport} variant="secondary" size="sm" className="w-full">
             <Folder />
             Import stems folder…
           </Button>
           <div className="flex gap-2">
             <Button onClick={togglePlay} variant="secondary" size="sm" className="flex-1" disabled={!engine}>
-              {engine?.isPlaying() ? <Pause /> : <Play />}
-              {engine?.isPlaying() ? "Pause" : "Play"}
+              {isPlaying ? <Pause /> : <Play />}
+              {isPlaying ? "Pause" : "Play"}
             </Button>
             <Button
               onClick={toggleLoop}
@@ -310,20 +377,34 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         </div>
       </div>
 
-      {/* CENTER (col 2, row 1): the BENCH — Deck A live preview */}
-      <div style={{ gridColumn: 2, gridRow: 1, minWidth: 0, minHeight: 0 }}>
-        <Renderer doc={doc} analysis={analysis} engine={engine} previewDeck="A" />
+      {/* HANDLE (col 2): drag to resize the terminal panel's right edge */}
+      <div
+        onMouseDown={startDrag("left", setLeftW)}
+        title="Drag to resize"
+        style={{ gridColumn: 2, gridRow: "1 / span 2", cursor: "col-resize", background: "transparent" }}
+      />
+
+      {/* CENTER (col 3, row 1): the BENCH — Deck A live preview */}
+      <div style={{ gridColumn: 3, gridRow: 1, minWidth: 0, minHeight: 0 }}>
+        <Renderer doc={doc} analysis={analysis} engine={engine} previewDeck="A" mediaUrlFor={mediaUrlFor} />
       </div>
 
-      {/* CENTER (col 2, row 2): waveform timeline */}
-      <div style={{ gridColumn: 2, gridRow: 2, borderTop: "1px solid #222", minWidth: 0 }}>
+      {/* CENTER (col 3, row 2): waveform timeline */}
+      <div style={{ gridColumn: 3, gridRow: 2, borderTop: "1px solid #222", minWidth: 0 }}>
         <Timeline analysis={analysis} engine={engine} />
       </div>
 
-      {/* RIGHT (col 3, both rows): the stem rack + preview-window panel */}
+      {/* HANDLE (col 4): drag to resize the properties panel's left edge */}
+      <div
+        onMouseDown={startDrag("right", setRightW)}
+        title="Drag to resize"
+        style={{ gridColumn: 4, gridRow: "1 / span 2", cursor: "col-resize", background: "transparent" }}
+      />
+
+      {/* RIGHT (col 5, both rows): the stem rack + preview-window panel */}
       <div
         style={{
-          gridColumn: 3,
+          gridColumn: 5,
           gridRow: "1 / span 2",
           borderLeft: "1px solid #222",
           display: "flex",

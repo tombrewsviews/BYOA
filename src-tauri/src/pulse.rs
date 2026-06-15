@@ -111,3 +111,20 @@ pub fn pulse_write_analysis(project_path: String, json: String) -> Result<(), St
     std::fs::rename(&tmp, &dst).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Copy a picked image/video into `<project>/assets/` and return the path
+/// relative to the project root (e.g. "assets/clip.mp4"). Media-source
+/// effects store this relative path so the project stays self-contained.
+#[tauri::command]
+pub fn pulse_import_asset(project_path: String, src_path: String) -> Result<String, String> {
+    let src = PathBuf::from(&src_path);
+    let name = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "bad source filename".to_string())?;
+    let assets = PathBuf::from(&project_path).join("assets");
+    std::fs::create_dir_all(&assets).map_err(|e| format!("mkdir assets: {}", e))?;
+    let dst = assets.join(name);
+    std::fs::copy(&src, &dst).map_err(|e| format!("copy: {}", e))?;
+    Ok(format!("assets/{}", name))
+}

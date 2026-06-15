@@ -22,7 +22,8 @@ import { APPS, findApp, type AppManifest } from "./platform/apps";
 import { Square } from "./platform/Square";
 import { font } from "./platform/theme";
 import { Button } from "@/components/ui/button";
-import { LayoutGrid } from "./icons";
+import { LayoutGrid, Settings } from "./icons";
+import { SettingsDialog } from "./platform/SettingsDialog";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
@@ -61,10 +62,11 @@ const MAC_LEFT_PAD = 84;
 const PlatformChrome: React.FC<{
   app: AppManifest | null;
   onExit: () => void;
-}> = ({ app, onExit }) => (
+  onSettings: () => void;
+}> = ({ app, onExit, onSettings }) => (
   <div
     data-tauri-drag-region
-    className="relative flex flex-none select-none items-center gap-2.5 border-b border-border bg-card pr-3 text-sm text-muted-foreground"
+    className="relative flex flex-none select-none items-center gap-2.5 border-b border-border bg-card pr-2 text-sm text-muted-foreground"
     style={{
       height: CHROME_HEIGHT,
       paddingLeft: isMac ? MAC_LEFT_PAD : 12,
@@ -95,11 +97,23 @@ const PlatformChrome: React.FC<{
         The Square
       </span>
     )}
+    {/* Right-aligned global settings gear. ml-auto pushes it to the edge. */}
+    <Button
+      data-tauri-drag-region={false}
+      variant="ghost"
+      size="icon-sm"
+      onClick={onSettings}
+      title="Settings"
+      className="ml-auto"
+    >
+      <Settings />
+    </Button>
   </div>
 );
 
 export const App: React.FC = () => {
   const [currentId, setCurrentId] = useState<string | null>(() => loadCurrentApp());
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     saveCurrentApp(currentId);
@@ -118,7 +132,12 @@ export const App: React.FC = () => {
         overflow: "hidden",
       }}
     >
-      <PlatformChrome app={currentApp} onExit={() => setCurrentId(null)} />
+      <PlatformChrome
+        app={currentApp}
+        onExit={() => setCurrentId(null)}
+        onSettings={() => setSettingsOpen(true)}
+      />
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         {Root ? (
           <Root key={currentApp!.id} onExit={() => setCurrentId(null)} />

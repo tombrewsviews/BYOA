@@ -15,7 +15,8 @@ export const Renderer: React.FC<{
   analysis: Analysis | null;
   engine: AudioGraph | null;
   previewDeck?: "A" | "B";
-}> = ({ doc, analysis, engine, previewDeck = "A" }) => {
+  mediaUrlFor?: (effect: PulseProject["decks"]["A"]["effects"][number]) => string | null | undefined;
+}> = ({ doc, analysis, engine, previewDeck = "A", mediaUrlFor }) => {
   const stemVolumes = useMemo(() => computeGains(doc.stems), [doc.stems]);
   const getTime = () => engine?.currentTime() ?? 0;
   const deck = doc.decks[previewDeck];
@@ -47,6 +48,7 @@ export const Renderer: React.FC<{
             getTime={getTime}
             width={size.w}
             height={size.h}
+            mediaUrlFor={mediaUrlFor}
           />
         ) : (
           <div style={{ color: "#555", fontSize: 13, textAlign: "center", lineHeight: 1.6 }}>

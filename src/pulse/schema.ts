@@ -27,6 +27,9 @@ export const effectInstanceSchema = z.object({
   locked: z.boolean().default(false),
   params: z.record(z.string(), z.number()).default({}),
   bindings: z.array(bindingSchema).default([]),
+  // Media generators (imageSource/videoSource) store a path RELATIVE to
+  // <project>/assets/ here (e.g. "assets/clip.mp4"). Other effects ignore it.
+  src: z.string().optional(),
 });
 export type EffectInstance = z.infer<typeof effectInstanceSchema>;
 
@@ -49,6 +52,11 @@ export const mixSchema = z.object({
   durationSec: z.number().default(4),
   curve: z.enum(["linear", "ease", "exp", "seesaw", "step"]).default("ease"),
   progress: z.number().min(0).max(1).default(0),
+  // How the preview (Deck B) tracks the bench (Deck A):
+  //  - "continuous": preview mirrors the bench live (edits apply instantly).
+  //  - "manual": preview is independent; it only updates when the user
+  //    clicks "Send Bench → Preview" (black until the first send).
+  previewSync: z.enum(["continuous", "manual"]).default("continuous"),
 });
 export type MixState = z.infer<typeof mixSchema>;
 
@@ -71,6 +79,6 @@ export function seedProject(sourceFolder: string): PulseProject {
     song: { sourceFolder, durationSec: 0, tempoBpm: 0 },
     stems: [],
     decks: { A: { effects: [] }, B: { effects: [] } },
-    mix: { active: "A", template: "crossfade", durationSec: 4, curve: "ease", progress: 0 },
+    mix: { active: "A", template: "crossfade", durationSec: 4, curve: "ease", progress: 0, previewSync: "continuous" },
   };
 }

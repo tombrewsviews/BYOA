@@ -23,4 +23,5 @@ export {
   Plus,
   LayoutGrid,
   Star,
+  Settings,
 } from "lucide-react";

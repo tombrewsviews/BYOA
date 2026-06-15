@@ -1,7 +1,7 @@
 import frag from "./spectrumBars.frag.glsl?raw";
 import type { EffectDescriptor } from "../types";
 export const spectrumBars: EffectDescriptor = {
-  type: "spectrumBars", label: "Spectrum Bars", frag, blend: "add",
+  type: "spectrumBars", label: "Spectrum Bars", kind: "generator", frag, blend: "add",
   params: [
     { name: "low", min: 0, max: 1, default: 0.5, step: 0.01 },
     { name: "mid", min: 0, max: 1, default: 0.5, step: 0.01 },

@@ -7,5 +7,6 @@ void main(){
   vec2 uv = gl_FragCoord.xy / uRes;
   float n = noise(uv * uScale + uTime * uSpeed);
   vec3 prev = texture2D(uPrev, uv).rgb;
-  gl_FragColor = vec4(mix(prev, vec3(n, n*0.6, 1.0-n), 0.5), 1.0);
+  vec3 col = mix(vec3(0.9, 0.1, 0.2), vec3(1.0, 0.4, 0.7), n);
+  gl_FragColor = vec4(mix(prev, col, 0.5), 1.0);
 }

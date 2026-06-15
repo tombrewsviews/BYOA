@@ -73,20 +73,27 @@ pub fn pty_open(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let agent_launch = settings::default_agent()
-        .map(|a: AgentKind| {
-            let flag = if settings::skip_permissions() {
-                a.skip_permissions_flag().unwrap_or("")
-            } else {
-                ""
-            };
-            if flag.is_empty() {
-                format!("{} ; ", a.binary())
-            } else {
-                format!("{} {} ; ", a.binary(), flag)
-            }
-        })
-        .unwrap_or_default();
+    // A user-set free-text command overrides the built-in agent launcher:
+    // run it verbatim (then the interactive shell). Otherwise fall back to
+    // the configured default_agent + skip-permissions flag.
+    let agent_launch = if let Some(custom) = settings::agent_starting_command() {
+        format!("{} ; ", custom)
+    } else {
+        settings::default_agent()
+            .map(|a: AgentKind| {
+                let flag = if settings::skip_permissions() {
+                    a.skip_permissions_flag().unwrap_or("")
+                } else {
+                    ""
+                };
+                if flag.is_empty() {
+                    format!("{} ; ", a.binary())
+                } else {
+                    format!("{} {} ; ", a.binary(), flag)
+                }
+            })
+            .unwrap_or_default()
+    };
     if shell_name == "zsh" && rc_path.exists() {
         let rc_str = rc_path.to_string_lossy().to_string();
         cmd.arg("-c");

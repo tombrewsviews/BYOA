@@ -29,6 +29,14 @@ pub struct Settings {
     /// nothing in the studio escalates beyond that.
     #[serde(default)]
     pub skip_permissions: bool,
+    /// Free-text command used to launch the agent in new terminals. When
+    /// set (non-empty), it OVERRIDES `default_agent` / `skip_permissions`
+    /// entirely — the string is run verbatim before the interactive shell,
+    /// so the user can launch any agent in any mode (e.g.
+    /// `claude --dangerously-skip-permissions`). Empty/None falls back to
+    /// the built-in `default_agent` launcher.
+    #[serde(default)]
+    pub agent_starting_command: Option<String>,
 }
 
 fn path() -> PathBuf {
@@ -62,6 +70,14 @@ pub fn skip_permissions() -> bool {
     load().skip_permissions
 }
 
+/// The user's verbatim agent launch command, if set and non-empty.
+pub fn agent_starting_command() -> Option<String> {
+    load()
+        .agent_starting_command
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+}
+
 #[tauri::command]
 pub fn get_settings() -> Settings {
     load()
@@ -84,5 +100,12 @@ pub fn set_default_agent(agent: Option<String>) -> Result<(), String> {
 pub fn set_skip_permissions(skip: bool) -> Result<(), String> {
     let mut s = load();
     s.skip_permissions = skip;
+    save(&s)
+}
+
+#[tauri::command]
+pub fn set_agent_starting_command(command: Option<String>) -> Result<(), String> {
+    let mut s = load();
+    s.agent_starting_command = command;
     save(&s)
 }
