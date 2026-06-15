@@ -36,6 +36,7 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [convert, setConvert] = useState<((p: string) => string) | null>(null);
   const [status, setStatus] = useState<string>("");
+  const [loop, setLoop] = useState(true); // loop ON by default
   const savedRef = useRef("");
   const docRef = useRef<PulseProject | null>(null);
   docRef.current = doc;
@@ -83,6 +84,19 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     [convert, project.path],
   );
   const engine = useAudioEngine(doc?.stems ?? [], urlFor);
+
+  // Apply loop state to the engine (and when a fresh engine is created).
+  useEffect(() => {
+    engine?.setLoop(loop);
+  }, [engine, loop]);
+
+  const toggleLoop = useCallback(() => {
+    setLoop((on) => {
+      const next = !on;
+      engine?.setLoop(next);
+      return next;
+    });
+  }, [engine]);
 
   // Autosave project.json (debounced) + mirror to the stage window.
   useEffect(() => {
@@ -249,18 +263,46 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
   if (!doc) return <div style={{ padding: 40, color: "#888" }}>Loading…</div>;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "320px 1fr 320px", gridTemplateRows: "1fr auto", height: "100%", background: "#000" }}>
-      {/* Left: import + transport + agent terminal */}
-      <div style={{ gridRow: "1 / span 2", borderRight: "1px solid #222", display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "300px minmax(0, 1fr) 380px",
+        gridTemplateRows: "minmax(0, 1fr) auto",
+        height: "100%",
+        background: "#000",
+      }}
+    >
+      {/* LEFT (col 1, both rows): import + transport + agent terminal */}
+      <div
+        style={{
+          gridColumn: 1,
+          gridRow: "1 / span 2",
+          borderRight: "1px solid #222",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
+      >
         <div className="flex flex-none flex-col gap-2 border-b border-border p-2">
           <Button onClick={pickAndImport} variant="default" size="sm" className="w-full">
             <Folder />
             Import stems folder…
           </Button>
-          <Button onClick={togglePlay} variant="secondary" size="sm" className="w-full" disabled={!engine}>
-            {engine?.isPlaying() ? <Pause /> : <Play />}
-            {engine?.isPlaying() ? "Pause" : "Play"}
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={togglePlay} variant="secondary" size="sm" className="flex-1" disabled={!engine}>
+              {engine?.isPlaying() ? <Pause /> : <Play />}
+              {engine?.isPlaying() ? "Pause" : "Play"}
+            </Button>
+            <Button
+              onClick={toggleLoop}
+              variant={loop ? "default" : "outline"}
+              size="sm"
+              disabled={!engine}
+              title="Loop the song"
+            >
+              ↻ Loop
+            </Button>
+          </div>
           {status && <div className="text-ui-sm text-sky-400">{status}</div>}
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>
@@ -268,22 +310,31 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         </div>
       </div>
 
-      {/* Center: the BENCH — Deck A, the working deck you + the agent author */}
-      <div style={{ minWidth: 0, minHeight: 0 }}>
+      {/* CENTER (col 2, row 1): the BENCH — Deck A live preview */}
+      <div style={{ gridColumn: 2, gridRow: 1, minWidth: 0, minHeight: 0 }}>
         <Renderer doc={doc} analysis={analysis} engine={engine} previewDeck="A" />
       </div>
 
-      {/* Right: inspector (stems / effects) + preview-window panel */}
-      <div style={{ gridRow: "1 / span 2", borderLeft: "1px solid #222", display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ flex: 1, minHeight: 0 }}>
+      {/* CENTER (col 2, row 2): waveform timeline */}
+      <div style={{ gridColumn: 2, gridRow: 2, borderTop: "1px solid #222", minWidth: 0 }}>
+        <Timeline analysis={analysis} engine={engine} />
+      </div>
+
+      {/* RIGHT (col 3, both rows): the stem rack + preview-window panel */}
+      <div
+        style={{
+          gridColumn: 3,
+          gridRow: "1 / span 2",
+          borderLeft: "1px solid #222",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
+      >
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           <Inspector doc={doc} selection={STORY_SELECTION} onSelect={() => {}} onChange={update} />
         </div>
         <MixPanel doc={doc} onChange={update} onOpenPreview={onOpenPreview} onSendToPreview={onSendToPreview} />
-      </div>
-
-      {/* Bottom-center: timeline */}
-      <div style={{ gridColumn: "2", borderTop: "1px solid #222" }}>
-        <Timeline analysis={analysis} engine={engine} />
       </div>
     </div>
   );

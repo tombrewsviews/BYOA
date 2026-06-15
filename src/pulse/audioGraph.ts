@@ -21,6 +21,8 @@ export type AudioGraph = {
   duration: () => number;
   isPlaying: () => boolean;
   setGains: (g: Gains) => void;
+  setLoop: (on: boolean) => void;
+  isLooping: () => boolean;
   dispose: () => void;
 };
 
@@ -44,6 +46,7 @@ export async function createAudioGraph(
   let startedAt = 0;       // ctx.currentTime when playback (re)started
   let offset = 0;          // seconds into the song at last (re)start
   let playing = false;
+  let loop = true;         // loop on by default
 
   const stopSources = () => {
     for (const s of sources) { try { s.stop(); } catch { /* already stopped */ } }
@@ -57,21 +60,37 @@ export async function createAudioGraph(
     sources = buffers.map((b) => {
       const src = ctx.createBufferSource();
       src.buffer = b.buffer;
+      src.loop = loop;
+      src.loopStart = 0;
+      src.loopEnd = duration;
       src.connect(b.gain);
       src.start(0, offset);
       return src;
     });
   };
 
+  // Elapsed time since the last (re)start, wrapped to the loop length when
+  // looping so currentTime() stays within [0, duration).
+  const elapsed = () => {
+    const raw = offset + (ctx.currentTime - startedAt);
+    if (loop && duration > 0) return raw % duration;
+    return Math.min(duration, raw);
+  };
+
   return {
     ctx,
     play: () => { if (playing) return; void ctx.resume(); startSources(offset); playing = true; },
-    pause: () => { if (!playing) return; offset = offset + (ctx.currentTime - startedAt); stopSources(); playing = false; },
+    pause: () => { if (!playing) return; offset = elapsed(); stopSources(); playing = false; },
     seek: (sec: number) => { offset = Math.max(0, Math.min(duration, sec)); if (playing) startSources(offset); },
-    currentTime: () => playing ? Math.min(duration, offset + (ctx.currentTime - startedAt)) : offset,
+    currentTime: () => (playing ? elapsed() : offset),
     duration: () => duration,
     isPlaying: () => playing,
     setGains: (g) => { for (const b of buffers) { const v = g[b.id]; if (v != null) b.gain.gain.value = v; } },
+    setLoop: (on: boolean) => {
+      loop = on;
+      for (const s of sources) s.loop = on;
+    },
+    isLooping: () => loop,
     dispose: () => { stopSources(); void ctx.close(); },
   };
 }

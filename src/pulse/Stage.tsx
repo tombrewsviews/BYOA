@@ -40,14 +40,33 @@ type StageProps = {
 };
 
 // WebGL2 ping-pong compositor. Each pass samples uPrev (previous pass output).
+//
+// GL setup (context, compiled programs, FBOs) runs ONCE per effect-structure
+// + size change — NOT every render. The per-frame values (deck params,
+// getTime, analysis, stem volumes) are read from refs inside the rAF loop, so
+// scrubbing a slider or the clock ticking never tears down the GL context.
 export const Stage: React.FC<StageProps> = ({ deck, analysis, stemVolumes, getTime, width, height }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
 
+  // Live values the draw loop reads without re-running the GL setup effect.
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
+  const analysisRef = useRef(analysis);
+  analysisRef.current = analysis;
+  const volRef = useRef(stemVolumes);
+  volRef.current = stemVolumes;
+  const getTimeRef = useRef(getTime);
+  getTimeRef.current = getTime;
+
+  // Structure key: only the ordered list of ENABLED effect types. Changing a
+  // param or binding does NOT change this, so GL is not rebuilt for tweaks.
+  const structureKey = deck.effects.filter((e) => e.enabled).map((e) => e.type).join("|");
+
   useEffect(() => {
     const canvas = ref.current; if (!canvas) return;
     const gl = canvas.getContext("webgl2"); if (!gl) return;
-    const passes = buildDeckPasses(deck);
+    const passes = buildDeckPasses(deckRef.current);
 
     const quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -76,9 +95,14 @@ export const Stage: React.FC<StageProps> = ({ deck, analysis, stemVolumes, getTi
     let a = makeTarget(), b = makeTarget();
 
     const draw = () => {
-      const time = getTime();
-      const frame: FeatureFrame = analysis
-        ? sampleFeatures(analysis, time)
+      const time = getTimeRef.current();
+      const an = analysisRef.current;
+      const vols = volRef.current;
+      // Live effect data this frame, in the SAME enabled order the programs
+      // were compiled for (so program[i] matches livePasses[i]).
+      const livePasses = buildDeckPasses(deckRef.current);
+      const frame: FeatureFrame = an
+        ? sampleFeatures(an, time)
         : { timeSec: time, tempoPhase: 0, master: { level: 0, bandLow: 0, bandMid: 0, bandHigh: 0, brightness: 0, flux: 0 }, stems: {} };
 
       gl.viewport(0, 0, width, height);
@@ -86,24 +110,27 @@ export const Stage: React.FC<StageProps> = ({ deck, analysis, stemVolumes, getTi
       gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
 
       passes.forEach((pass, i) => {
+        // Prefer the live effect if its type still matches at this index
+        // (params/bindings may have changed without a rebuild).
+        const live = livePasses[i] && livePasses[i].type === pass.type ? livePasses[i] : pass;
         const prog = programs[i]; gl.useProgram(prog);
         const loc = gl.getAttribLocation(prog, "aPos");
         gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
         // resolve params
         const resolved: Record<string, number> = {};
-        const vol = pass.effect.bindings.length ? (stemVolumes[pass.effect.bindings[0].source.stem] ?? 1) : 1;
-        for (const spec of pass.descriptor.params) {
-          const base = pass.effect.params[spec.name] ?? spec.default;
-          resolved[spec.name] = resolveParam(base, pass.effect.bindings, spec.name, frame, vol);
+        const vol = live.effect.bindings.length ? (vols[live.effect.bindings[0].source.stem] ?? 1) : 1;
+        for (const spec of live.descriptor.params) {
+          const base = live.effect.params[spec.name] ?? spec.default;
+          resolved[spec.name] = resolveParam(base, live.effect.bindings, spec.name, frame, vol);
         }
-        const uniforms = pass.descriptor.uniforms(resolved, frame);
+        const uniforms = live.descriptor.uniforms(resolved, frame);
         gl.uniform2f(gl.getUniformLocation(prog, "uRes"), width, height);
         for (const [name, val] of Object.entries(uniforms)) {
           const ul = gl.getUniformLocation(prog, name); if (ul == null) continue;
           if (Array.isArray(val)) { if (val.length === 2) gl.uniform2f(ul, val[0], val[1]); }
           else gl.uniform1f(ul, val);
         }
-        gl.uniform1f(gl.getUniformLocation(prog, "uAlpha"), passAlpha(pass.effect));
+        gl.uniform1f(gl.getUniformLocation(prog, "uAlpha"), passAlpha(live.effect));
         // bind previous output as uPrev
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, a.tex);
         gl.uniform1i(gl.getUniformLocation(prog, "uPrev"), 0);
@@ -122,7 +149,8 @@ export const Stage: React.FC<StageProps> = ({ deck, analysis, stemVolumes, getTi
     };
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [deck, analysis, stemVolumes, getTime, width, height]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureKey, width, height]);
 
   return <canvas ref={ref} width={width} height={height} style={{ width: "100%", height: "100%", display: "block", background: "#000" }} />;
 };
