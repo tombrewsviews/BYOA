@@ -1,6 +1,6 @@
 // src/pulse/__tests__/stage-compile.test.ts
 import { describe, it, expect } from "vitest";
-import { buildDeckPasses } from "../Stage";
+import { buildDeckPasses, passAlpha } from "../Stage";
 import type { Deck } from "../schema";
 
 describe("buildDeckPasses", () => {
@@ -14,5 +14,12 @@ describe("buildDeckPasses", () => {
     expect(passes.length).toBe(1);
     expect(passes[0].type).toBe("wave");
     expect(passes[0].frag.length).toBeGreaterThan(20);
+  });
+});
+
+describe("passAlpha", () => {
+  it("defaults to 1 and reads _alpha", () => {
+    expect(passAlpha({ params: {} } as any)).toBe(1);
+    expect(passAlpha({ params: { _alpha: 0.3 } } as any)).toBeCloseTo(0.3);
   });
 });

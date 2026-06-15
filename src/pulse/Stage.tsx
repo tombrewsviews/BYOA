@@ -8,6 +8,11 @@ import { sampleFeatures, type FeatureFrame } from "./featureBus";
 
 export type DeckPass = { type: string; frag: string; effect: Deck["effects"][number]; descriptor: (typeof EFFECTS)[string] };
 
+export function passAlpha(e: { params: Record<string, number> }): number {
+  const a = e.params._alpha;
+  return a == null ? 1 : Math.max(0, Math.min(1, a));
+}
+
 // Pure helper (unit-tested): deck -> ordered render passes.
 export function buildDeckPasses(deck: Deck): DeckPass[] {
   const out: DeckPass[] = [];
@@ -98,6 +103,7 @@ export const Stage: React.FC<StageProps> = ({ deck, analysis, stemVolumes, getTi
           if (Array.isArray(val)) { if (val.length === 2) gl.uniform2f(ul, val[0], val[1]); }
           else gl.uniform1f(ul, val);
         }
+        gl.uniform1f(gl.getUniformLocation(prog, "uAlpha"), passAlpha(pass.effect));
         // bind previous output as uPrev
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, a.tex);
         gl.uniform1i(gl.getUniformLocation(prog, "uPrev"), 0);
