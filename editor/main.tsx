@@ -78,13 +78,29 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <RootErrorBoundary>
-      <App />
-      {/* Dev-only token control surface — hidden until ⌃⇧D. Mounts here so it
-          overlays every view (Square / FirstRun / Projects / Editor). */}
-      <DevControlSurface />
-    </RootErrorBoundary>
-  </React.StrictMode>,
-);
+const root = createRoot(document.getElementById("root")!);
+
+// The Pulse "stage" window loads on the /stage route — a chrome-free
+// fullscreen live visualizer. Everything else mounts the platform shell.
+if (window.location.pathname.startsWith("/stage")) {
+  void import("./canvases/music/StageWindow").then(({ StageWindow }) => {
+    root.render(
+      <React.StrictMode>
+        <RootErrorBoundary>
+          <StageWindow />
+        </RootErrorBoundary>
+      </React.StrictMode>,
+    );
+  });
+} else {
+  root.render(
+    <React.StrictMode>
+      <RootErrorBoundary>
+        <App />
+        {/* Dev-only token control surface — hidden until ⌃⇧D. Mounts here so it
+            overlays every view (Square / FirstRun / Projects / Editor). */}
+        <DevControlSurface />
+      </RootErrorBoundary>
+    </React.StrictMode>,
+  );
+}

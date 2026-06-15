@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "primitiv": {
+      "command": "npx",
+      "args": [
+        "@ai-by-design/primitiv",
+        "serve",
+        "./primitiv.config.js"
+      ]
+    }
+  }
+}

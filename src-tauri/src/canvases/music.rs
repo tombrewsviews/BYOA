@@ -7,6 +7,9 @@
 use crate::skill::SkillBundle;
 
 const SKILL_ROUTING: &str = include_str!("../../skills/pulse/SKILL.md");
+const SKILL_EFFECTS: &str = include_str!("../../skills/pulse/effects.md");
+const SKILL_BINDINGS: &str = include_str!("../../skills/pulse/bindings.md");
+const SKILL_TRANSITIONS: &str = include_str!("../../skills/pulse/transitions.md");
 
 const CLAUDE_MD: &str = r#"# Pulse project
 
@@ -27,6 +30,11 @@ Short version:
 
 pub const BUNDLE: SkillBundle = SkillBundle {
     canvas_id: "pulse",
-    files: &[("SKILL.md", SKILL_ROUTING)],
+    files: &[
+        ("SKILL.md", SKILL_ROUTING),
+        ("effects.md", SKILL_EFFECTS),
+        ("bindings.md", SKILL_BINDINGS),
+        ("transitions.md", SKILL_TRANSITIONS),
+    ],
     claude_md: CLAUDE_MD,
 };

@@ -36,14 +36,15 @@ editor). Shape:
   "bgColor": "#0a0a14", "bgColor2": "#1a1030",   // gradient background
   "textColor": "#fafafa",
   "accentColor": "#7c5cff", "accent2Color": "#ff5ca8",
-  "glowIntensity": 1, "backgroundMotion": 0.5,
+  "glowIntensity": 1,
   "beats": [
     {
       "text": "every",                  // the word/phrase
-      "kind": "reveal",                 // reveal | morph | generativeFill
+      "kind": "reveal",                 // see "valid enum values" below
       "durationInSeconds": 1.4,
-      "easing": "power3.out",           // power3.out|power3.inOut|power4.out|spring
-      "direction": "up",                // up|down|left|right|scale
+      "easing": "power3.out",
+      "enterDirection": "vertical-roll",
+      "exitKind": "rotate",
       "dynamics": 0.5,                  // 0 subtle .. 1 punchy
       "staggerSeconds": 0.04,
       "scale": 1,
@@ -59,13 +60,50 @@ Edit `story.json` directly for sequence changes. `storySchema.parse()`
 fills defaults — you only need to write the fields you care about.
 Composition duration is derived from the sum of beat durations.
 
-## The three beat kinds
+### ⚠️ Valid enum values — DO NOT invent strings
+
+`enterDirection`, `exitKind`, `kind`, `easing` and friends are **closed
+enums**. Writing any value outside these lists makes `story.json` fail the
+schema: the editor rejects the external edit with a toast, and the CLI
+refuses to write it. The schema in `src/kinetic/schema.ts` is the source of
+truth — when in doubt, read it. Current values:
+
+```
+kind:           reveal | morph | generativeFill | tile | oscillate |
+                cinema | shape | videoClip | imageClip
+easing:         power3.out | power3.inOut | power4.out | spring |
+                elastic | back.out
+enterDirection: up | down | left | right | scale | vertical-roll
+exitKind:       none | rotate | drop | scatter | blur | echo |
+                morphOut | zoom
+fontFamily:     SpaceGrotesk | RobotoFlex | Recursive | InterVF |
+                Fraunces | BricolageGrotesque | InstrumentSans | Archivo
+```
+
+`direction` is **deprecated** — use `enterDirection`. (An old `direction`
+still aliases to it on load, but don't write new ones.) After editing
+`story.json`, run `npx tsc --noEmit` to confirm the schema still validates
+(see "Verifying your work").
+
+## The beat kinds
+
+The storytelling workhorses:
 
 - **`reveal`** — word builds in letter-by-letter. The storytelling backbone.
 - **`morph`** — a vector shape morphs into the word's FIRST letter, then
   the rest assembles. Needs a `shape` path (generate it — see below).
 - **`generativeFill`** — the word is a mask over a churning gradient blob
   field. Use for emphasis / payoff beats.
+
+Plus, for richer sequences (see schema for their extra fields):
+
+- **`tile`** — word tiled into a scrolling marquee grid (`tileRows`,
+  `tileScrollAngle`).
+- **`oscillate`** — letters wobble on weight + scale around 1.0 (elastic).
+- **`cinema`** — massive zoom-in on a single letter or short word.
+- **`shape`** — a standalone illustration (one or more `shapePaths`), no text.
+- **`videoClip`** / **`imageClip`** — a local MP4 or still image as a
+  timeline clip (`videoSrc` / `imageSrc`, both under `<project>/assets/`).
 
 ## ⚠️ COST DISCIPLINE — read this first
 

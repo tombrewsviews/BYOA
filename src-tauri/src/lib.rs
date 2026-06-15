@@ -5,6 +5,7 @@ mod agents;
 mod canvas;
 mod canvases;
 mod doc;
+mod git;
 mod history;
 mod preview;
 mod projects;
@@ -14,6 +15,7 @@ mod pulse;
 mod selection;
 mod settings;
 mod skill;
+mod stage;
 mod video;
 mod watch;
 mod window_state;
@@ -54,6 +56,7 @@ pub fn run() {
             projects::project_close,
             projects::project_reveal,
             projects::project_delete,
+            projects::active_project_path,
             doc::apply_patch,
             doc::load_doc,
             doc::save_doc,
@@ -80,6 +83,12 @@ pub fn run() {
             settings::set_skip_permissions,
             pulse::pulse_import,
             pulse::pulse_write_analysis,
+            git::git_current_branch,
+            git::git_branch,
+            git::git_commit_all,
+            git::git_merge,
+            stage::open_stage_window,
+            stage::close_stage_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

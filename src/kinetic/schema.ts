@@ -708,3 +708,61 @@ export const normalizeBeat = (b: Beat): Beat => {
   }
   return b;
 };
+
+// ---------------------------------------------------------------------------
+// Human-readable validation errors
+// ---------------------------------------------------------------------------
+
+/** Read the value at a Zod issue path out of the original input, so the
+ * message can echo what was actually written. Returns undefined if the
+ * path can't be walked (e.g. a missing key). */
+const valueAtPath = (data: unknown, path: PropertyKey[]): unknown => {
+  let cur: unknown = data;
+  for (const key of path) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<PropertyKey, unknown>)[key];
+  }
+  return cur;
+};
+
+/**
+ * Turn a ZodError from `storySchema.parse(...)` into a compact, actionable
+ * message: which field failed, and — for enum mismatches — exactly which
+ * values are allowed.
+ *
+ * This is the difference between the old cryptic toast ("External reload
+ * failed: [ { code: invalid_value, ... } ]") and a line a human (or the
+ * chat agent reading the terminal) can act on:
+ *
+ *   beats[3].exitKind: "slide" is not valid — use one of:
+ *   none, rotate, drop, scatter, blur, echo, morphOut, zoom
+ *
+ * Accepts either a ZodError or any thrown value, so callers can pass a
+ * caught `unknown` straight in. Pass the original input as `data` to echo
+ * the offending value (Zod doesn't always carry it on the issue).
+ */
+export const formatStoryIssues = (err: unknown, data?: unknown): string => {
+  if (!(err instanceof z.ZodError)) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  return err.issues
+    .map((issue) => {
+      const path = issue.path
+        .map((p) => (typeof p === "number" ? `[${p}]` : `.${String(p)}`))
+        .join("")
+        .replace(/^\./, "");
+      const where = path || "(root)";
+      // Enum mismatches carry the allowed options — surface them.
+      if (issue.code === "invalid_value" && Array.isArray((issue as { values?: unknown[] }).values)) {
+        const opts = (issue as { values: unknown[] }).values.join(", ");
+        const bad =
+          data !== undefined
+            ? valueAtPath(data, issue.path as PropertyKey[])
+            : ("received" in issue ? (issue as { received?: unknown }).received : undefined);
+        const got = bad === undefined ? "value" : JSON.stringify(bad);
+        return `${where}: ${got} is not valid — use one of: ${opts}`;
+      }
+      return `${where}: ${issue.message}`;
+    })
+    .join("\n");
+};

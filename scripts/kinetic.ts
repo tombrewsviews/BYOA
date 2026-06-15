@@ -40,7 +40,7 @@ import {
   getLibraryShape,
   listShapes,
 } from "../src/kinetic/providers/shape-store";
-import { storySchema, type Story } from "../src/kinetic/schema";
+import { storySchema, formatStoryIssues, type Story } from "../src/kinetic/schema";
 
 const DEFAULT_STORY = path.resolve(process.cwd(), "story.json");
 
@@ -61,6 +61,14 @@ const loadStory = (file: string): Story => {
 };
 
 const saveStory = (file: string, story: Story) => {
+  // Validate before writing. The editor re-parses story.json through the
+  // same schema on every external change, so an invalid write here would
+  // surface there as a confusing toast. Fail loudly at the source instead,
+  // naming the field and (for enums) the allowed values.
+  const check = storySchema.safeParse(story);
+  if (!check.success) {
+    die(`refusing to write invalid story:\n${formatStoryIssues(check.error, story)}`);
+  }
   fs.writeFileSync(file, JSON.stringify(story, null, 2) + "\n");
   console.log(`✓ wrote ${file}`);
 };

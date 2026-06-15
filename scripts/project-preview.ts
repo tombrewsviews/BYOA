@@ -32,6 +32,56 @@ const fileExists = async (p: string): Promise<boolean> => {
   }
 };
 
+/**
+ * A media file copied into Remotion's `public/` for the duration of a
+ * render. `owned` is true only when WE created it (it wasn't already
+ * there) — so cleanup never deletes a file that legitimately ships in
+ * public/. Mirrors `stage_media` / `StagedMedia` in src-tauri/src/video.rs;
+ * the export path stages the same way, and the preview render must too or
+ * any project with an imageClip/videoClip 404s on staticFile().
+ */
+type StagedMedia = { dest: string; owned: boolean };
+
+/** Collect absolute imageSrc / videoSrc paths a story references. */
+const storyMediaPaths = (story: ReturnType<typeof storySchema.parse>): string[] => {
+  const paths: string[] = [];
+  for (const beat of story.beats) {
+    for (const p of [beat.imageSrc, beat.videoSrc]) {
+      if (typeof p === "string" && p.startsWith("/")) paths.push(p);
+    }
+  }
+  return paths;
+};
+
+/** Copy referenced media into `<root>/public/<basename>`. Files already
+ * present are left untouched (owned=false). Missing sources are skipped —
+ * the render shows the placeholder rather than failing. */
+const stageMedia = async (root: string, media: string[]): Promise<StagedMedia[]> => {
+  const publicDir = path.join(root, "public");
+  await fs.mkdir(publicDir, { recursive: true });
+  const staged: StagedMedia[] = [];
+  for (const src of media) {
+    if (!(await fileExists(src))) continue;
+    const dest = path.join(publicDir, path.basename(src));
+    const owned = !(await fileExists(dest));
+    if (owned) await fs.copyFile(src, dest);
+    staged.push({ dest, owned });
+  }
+  return staged;
+};
+
+/** Remove the copies we created (leave pre-existing public/ files alone). */
+const unstageMedia = async (staged: StagedMedia[]): Promise<void> => {
+  for (const s of staged) {
+    if (!s.owned) continue;
+    try {
+      await fs.unlink(s.dest);
+    } catch {
+      /* ignore — interrupted render or already gone */
+    }
+  }
+};
+
 const main = async () => {
   const projectPath = process.argv[2];
   if (!projectPath) {
@@ -69,6 +119,12 @@ const main = async () => {
 
   console.log(`[render] ${projectPath} (${duration} frames)`);
 
+  // Stage project media (imageClip / videoClip sources) into the repo's
+  // public/ so the composition's staticFile(basename) resolves. Without
+  // this, headless Chromium 404s on absolute paths and the render exits 1.
+  const media = storyMediaPaths(story);
+  const staged = await stageMedia(ROOT, media);
+
   const args = [
     "remotion",
     "render",
@@ -95,6 +151,7 @@ const main = async () => {
     await fs.rename(tmpPath, outPath);
     console.log(`[ok] ${outPath}`);
   } finally {
+    await unstageMedia(staged);
     try {
       await fs.unlink(propsPath);
     } catch {

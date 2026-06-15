@@ -266,3 +266,17 @@ pub fn project_reveal(path: String) -> Result<(), String> {
 pub fn project_delete(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| format!("trash: {}", e))
 }
+
+/// The active project's absolute path. Used by the stage window (a
+/// separate webview) to locate `stems/` and `analysis.json` for the
+/// project the main window has open.
+#[tauri::command]
+pub fn active_project_path(state: State<'_, AppState>) -> Result<String, String> {
+    state
+        .active_project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .map(|p| p.path.to_string_lossy().to_string())
+        .ok_or_else(|| "no active project".into())
+}
