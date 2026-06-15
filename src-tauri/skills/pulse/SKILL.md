@@ -26,8 +26,13 @@ music visualizer.
   stem). It is read-only state, regenerated only on re-import.
 - Preserve any binding marked `"locked": true` — these are conditions
   the user has locked in.
-- Author the *next* look in deck `B`. The user releases B onto the live
-  stage (deck `A`) via the Mix panel; do not swap A and B yourself.
+- **Deck `A` is the WORKING BENCH** (the main window) — this is where you
+  and the user author the visualization. Edit Deck `A`'s effects/bindings in
+  `project.json`, and edit/create shader code in `src/pulse/effects/` to
+  change how the bench looks. The user then clicks "Send Bench → Preview"
+  to push Deck A's look into Deck `B`, which renders in a separate Preview
+  window the user puts fullscreen on another screen. Do NOT touch Deck `B`
+  yourself or swap A/B — the user drives the hand-off from the Preview panel.
 - Stem volume scales the **visual amplitude** of effects bound to that
   stem, not just audio loudness. Respect it.
 

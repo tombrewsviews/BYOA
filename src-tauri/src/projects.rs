@@ -82,12 +82,13 @@ fn preview_meta(project_dir: &Path) -> (Option<String>, bool) {
 }
 
 #[tauri::command]
-pub fn projects_list() -> Result<Vec<ProjectMeta>, String> {
+pub fn projects_list(canvas: Option<String>) -> Result<Vec<ProjectMeta>, String> {
     let home = home_dir();
     fs::create_dir_all(&home).map_err(|e| format!("mkdir home: {}", e))?;
 
     let recents = read_recents();
     let mut out: Vec<ProjectMeta> = vec![];
+    let filter = canvas.as_deref();
 
     for entry in fs::read_dir(&home).map_err(|e| format!("readdir: {}", e))? {
         let entry = entry.map_err(|e| format!("entry: {}", e))?;
@@ -96,8 +97,15 @@ pub fn projects_list() -> Result<Vec<ProjectMeta>, String> {
             continue;
         }
         // Detect the canvas per-folder (project.json => pulse, story.json
-        // => kinetic). A folder with neither doc is skipped.
+        // => kinetic). A folder with neither doc is skipped. When a `canvas`
+        // filter is given, only that canvas's projects are returned so the
+        // pulse and kinetic apps each list only their own projects.
         let canvas = canvas::for_project(&path);
+        if let Some(want) = filter {
+            if canvas.id() != want {
+                continue;
+            }
+        }
         let doc = path.join(canvas.doc_filename());
         if !doc.exists() {
             continue;

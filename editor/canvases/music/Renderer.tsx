@@ -4,38 +4,26 @@ import { Stage } from "../../../src/pulse/Stage";
 import type { Analysis } from "../../../src/pulse/analysis";
 import type { AudioGraph } from "../../../src/pulse/audioGraph";
 import { computeGains } from "../../../src/pulse/audioGraph";
-import { blendDecks, shapeCurve } from "../../../src/pulse/transitions";
 
 /**
- * Editor preview. Renders the deck that should currently be on screen:
- * Deck B while authoring (so the user previews the *next* look), or the
- * live transition blend while a release is in flight. Driven by the
- * shared audio clock from the engine. A small transport sits under the
- * canvas.
+ * The bench preview in the MAIN window. Always renders Deck A — the
+ * working deck you author and the agent edits. (The separate Preview
+ * window renders Deck B.) Driven by the shared audio clock; a small
+ * transport sits under the canvas.
  */
 export const Renderer: React.FC<{
   doc: PulseProject;
   analysis: Analysis | null;
   engine: AudioGraph | null;
-  /** Which deck the preview authors. Defaults to "B" (the next look). */
+  /** Which deck the bench shows. Defaults to "A" (the working deck). */
   previewDeck?: "A" | "B";
   width?: number;
   height?: number;
-}> = ({ doc, analysis, engine, previewDeck = "B", width = 960, height = 540 }) => {
+}> = ({ doc, analysis, engine, previewDeck = "A", width = 960, height = 540 }) => {
   const stemVolumes = useMemo(() => computeGains(doc.stems), [doc.stems]);
   const getTime = () => engine?.currentTime() ?? 0;
 
-  const deck = useMemo(() => {
-    if (doc.mix.active === "transitioning") {
-      return blendDecks(
-        doc.decks.A,
-        doc.decks.B,
-        shapeCurve(doc.mix.progress, doc.mix.curve),
-        doc.mix.template,
-      );
-    }
-    return doc.decks[previewDeck];
-  }, [doc.mix.active, doc.mix.progress, doc.mix.curve, doc.mix.template, doc.decks, previewDeck]);
+  const deck = doc.decks[previewDeck];
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: "#000" }}>

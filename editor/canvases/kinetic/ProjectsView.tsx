@@ -40,7 +40,7 @@ export const ProjectsView: React.FC = () => {
   const refresh = async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     try {
-      const list = await invoke<ProjectMeta[]>("projects_list");
+      const list = await invoke<ProjectMeta[]>("projects_list", { canvas: "kinetic" });
       setProjects(list);
     } catch (e) {
       setError(`Failed to list projects: ${(e as Error).message}`);

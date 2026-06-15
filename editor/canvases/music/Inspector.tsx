@@ -3,11 +3,14 @@ import type { CanvasInspectorProps } from "../../canvas";
 import type { PulseProject } from "../../../src/pulse/schema";
 import { EffectStack } from "./EffectStack";
 
-type Tab = "stems" | "A" | "B";
+type Tab = "stems" | "effects";
 
 /**
- * Pulse inspector: a Stems mixer (volume + mute, where volume scales the
- * stem's visual amplitude) plus an effect-stack editor per deck.
+ * Pulse bench inspector. The MAIN window is the working bench (Deck A),
+ * so this edits Deck A only: a Stems mixer (volume = visual amplitude,
+ * plus mute) and the Deck A effect stack + bindings. Deck B is the live
+ * preview window and is authored by "sending" the bench to it — not
+ * edited here.
  */
 export const Inspector: React.FC<CanvasInspectorProps<PulseProject>> = ({ doc, onChange }) => {
   const [tab, setTab] = useState<Tab>("stems");
@@ -16,13 +19,13 @@ export const Inspector: React.FC<CanvasInspectorProps<PulseProject>> = ({ doc, o
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", color: "#aaa" }}>
       <div style={{ display: "flex", flex: "none", borderBottom: "1px solid #222" }}>
-        {(["stems", "A", "B"] as Tab[]).map((t) => (
+        {(["stems", "effects"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             style={{
               flex: 1,
-              padding: "6px 4px",
+              padding: "8px 4px",
               background: tab === t ? "#181818" : "transparent",
               color: tab === t ? "#ddd" : "#888",
               border: 0,
@@ -31,7 +34,7 @@ export const Inspector: React.FC<CanvasInspectorProps<PulseProject>> = ({ doc, o
               fontSize: 12,
             }}
           >
-            {t === "stems" ? "Stems" : `Deck ${t}`}
+            {t === "stems" ? "Stems" : "Effects"}
           </button>
         ))}
       </div>
@@ -76,7 +79,7 @@ export const Inspector: React.FC<CanvasInspectorProps<PulseProject>> = ({ doc, o
             ))}
           </>
         ) : (
-          <EffectStack project={doc} deckKey={tab} onChange={update} />
+          <EffectStack project={doc} deckKey="A" onChange={update} />
         )}
       </div>
     </div>

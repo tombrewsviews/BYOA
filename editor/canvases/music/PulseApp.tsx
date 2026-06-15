@@ -10,6 +10,7 @@ import { Inspector } from "./Inspector";
 import { Timeline } from "./Timeline";
 import { MixPanel } from "./MixPanel";
 import { useAudioEngine } from "./useAudioEngine";
+import { blendDecks, shapeCurve } from "../../../src/pulse/transitions";
 import type { Selection } from "../../selection";
 
 type ProjectMeta = { name: string; path: string };
@@ -99,8 +100,13 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     return () => window.clearTimeout(t);
   }, [doc]);
 
-  // Transition animation loop: while releasing, advance mix.progress; at the
-  // end, promote Deck B to Deck A and reset.
+  // Transition animation loop. "Send Bench → Preview" snapshots Deck A into
+  // `pendingB` and transitions the preview's Deck B from its old look to that
+  // snapshot over mix.durationSec. The bench (Deck A) is never altered. We
+  // push the interpolated Deck B to the preview window each frame via
+  // `pulse://doc`. At t=1, Deck B becomes the snapshot.
+  const pendingBRef = useRef<PulseProject["decks"]["B"] | null>(null);
+  const oldBRef = useRef<PulseProject["decks"]["B"] | null>(null);
   useEffect(() => {
     if (doc?.mix.active !== "transitioning") return;
     let last = -1;
@@ -113,20 +119,17 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       last = ts;
       const step = dt / Math.max(0.2, cur.mix.durationSec);
       const next = cur.mix.progress + step;
+      const target = pendingBRef.current ?? cur.decks.A;
+      const oldB = oldBRef.current ?? { effects: [] };
       if (next >= 1) {
-        // Promote B → A, reset B, go live on A.
-        setDoc((p) =>
-          p
-            ? {
-                ...p,
-                decks: { A: p.decks.B, B: { effects: [] } },
-                mix: { ...p.mix, active: "A", progress: 0 },
-              }
-            : p,
-        );
+        // Preview's Deck B is now the snapshot; transition done.
+        setDoc((p) => (p ? { ...p, decks: { ...p.decks, B: target }, mix: { ...p.mix, active: "A", progress: 0 } } : p));
+        pendingBRef.current = null;
+        oldBRef.current = null;
         return;
       }
-      setDoc((p) => (p ? { ...p, mix: { ...p.mix, progress: next } } : p));
+      const blended = blendDecks(oldB, target, shapeCurve(next, cur.mix.curve), cur.mix.template);
+      setDoc((p) => (p ? { ...p, decks: { ...p.decks, B: blended }, mix: { ...p.mix, progress: next } } : p));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -197,15 +200,19 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     setStatus("");
   }, [project.path]);
 
-  const onRelease = useCallback(() => {
-    // Best-effort: snapshot project.json into git history, then start the
-    // templated A→B transition. Effect-code commits are the agent's job; the
-    // app-level release is the visual handoff.
+  // Send the current bench (Deck A) to the live Preview window (Deck B),
+  // animating the chosen transition. Snapshots A as the target and the
+  // current B as the starting look; the transition loop interpolates.
+  const onSendToPreview = useCallback(() => {
+    const cur = docRef.current;
+    if (!cur) return;
+    pendingBRef.current = cur.decks.A;
+    oldBRef.current = cur.decks.B;
     void (async () => {
       if (isTauri()) {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("git_commit_all", { repo: project.path, message: "pulse: release deck B" }).catch(() => {});
+          await invoke("git_commit_all", { repo: project.path, message: "pulse: send bench to preview" }).catch(() => {});
         } catch {
           /* not a git repo — fine */
         }
@@ -214,13 +221,15 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     setDoc((p) => (p ? { ...p, mix: { ...p.mix, active: "transitioning", progress: 0 } } : p));
   }, [project.path]);
 
-  const openStage = useCallback(async () => {
+  const onOpenPreview = useCallback(async () => {
     if (!isTauri()) return;
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("open_stage_window").catch(() => {});
+    // Push current doc so the freshly-opened window has state immediately.
+    if (docRef.current) void emit("pulse://doc", docRef.current);
   }, []);
 
-  // Mirror play/pause to the stage window.
+  // Mirror play/pause to the preview window.
   const togglePlay = useCallback(() => {
     if (!engine) return;
     if (engine.isPlaying()) {
@@ -243,12 +252,9 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       <div style={{ gridRow: "1 / span 2", borderRight: "1px solid #222", display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ padding: 8, borderBottom: "1px solid #222", display: "flex", flexDirection: "column", gap: 6 }}>
           <button onClick={pickAndImport} style={{ padding: 8 }}>Import stems folder…</button>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={togglePlay} style={{ flex: 1, padding: 6 }} disabled={!engine}>
-              {engine?.isPlaying() ? "Pause" : "Play"}
-            </button>
-            <button onClick={openStage} style={{ flex: 1, padding: 6 }}>Open Stage ⤢</button>
-          </div>
+          <button onClick={togglePlay} style={{ padding: 6 }} disabled={!engine}>
+            {engine?.isPlaying() ? "Pause" : "Play"}
+          </button>
           {status && <div style={{ fontSize: 12, color: "#9ad" }}>{status}</div>}
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>
@@ -256,17 +262,17 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         </div>
       </div>
 
-      {/* Center: preview (Deck B / transition blend) */}
+      {/* Center: the BENCH — Deck A, the working deck you + the agent author */}
       <div style={{ minWidth: 0, minHeight: 0 }}>
-        <Renderer doc={doc} analysis={analysis} engine={engine} previewDeck="B" />
+        <Renderer doc={doc} analysis={analysis} engine={engine} previewDeck="A" />
       </div>
 
-      {/* Right: inspector (stems / deck A / deck B) + mix panel */}
+      {/* Right: inspector (stems / effects) + preview-window panel */}
       <div style={{ gridRow: "1 / span 2", borderLeft: "1px solid #222", display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ flex: 1, minHeight: 0 }}>
           <Inspector doc={doc} selection={STORY_SELECTION} onSelect={() => {}} onChange={update} />
         </div>
-        <MixPanel doc={doc} onChange={update} onRelease={onRelease} />
+        <MixPanel doc={doc} onChange={update} onOpenPreview={onOpenPreview} onSendToPreview={onSendToPreview} />
       </div>
 
       {/* Bottom-center: timeline */}
@@ -278,23 +284,31 @@ const PulseEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
 };
 
 const PulseBootstrap: React.FC<{ onReady: (m: ProjectMeta) => void }> = ({ onReady }) => {
+  const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     void (async () => {
       if (!isTauri()) return;
       const { invoke } = await import("@tauri-apps/api/core");
       try {
-        const list = await invoke<ProjectMeta[]>("projects_list").catch(() => [] as ProjectMeta[]);
-        const existing = Array.isArray(list) ? list.find((p) => p.path) : null;
+        // IMPORTANT: only ever open a PULSE project. The projects pool is
+        // shared with kinetic (which uses story.json); picking the first
+        // project would open a kinetic project with no stems. We ask the
+        // backend specifically for pulse projects (project.json).
+        const list = await invoke<ProjectMeta[]>("projects_list", { canvas: "pulse" }).catch(
+          () => [] as ProjectMeta[],
+        );
+        const existing = Array.isArray(list) && list.length > 0 ? list[0] : null;
         const meta =
           existing ??
           (await invoke<ProjectMeta>("projects_create", { name: "Pulse Session", canvas: "pulse" }));
         await invoke("project_open", { path: meta.path }).catch(() => {});
         onReady(meta);
-      } catch {
-        /* surfaced via Loading */
+      } catch (e) {
+        setErr(String(e));
       }
     })();
   }, [onReady]);
+  if (err) return <div style={{ padding: 40, color: "#e66" }}>Pulse failed to open a project: {err}</div>;
   return <div style={{ padding: 40, color: "#888" }}>Opening Pulse session…</div>;
 };
 

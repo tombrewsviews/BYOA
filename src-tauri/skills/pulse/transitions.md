@@ -1,10 +1,12 @@
 # Pulse transitions
 
-The user authors the next look in **Deck B**, then **releases** it onto the
-live **Deck A** via the Mix panel. On release, `mix.active` becomes
-`"transitioning"`, `mix.progress` animates 0→1 over `mix.durationSec`, and the
-renderer shows `blendDecks(A, B, shapeCurve(progress, curve), template)` each
-frame. At progress 1, Deck B becomes the new Deck A and B resets.
+**Deck A** is the working bench (main window). The user authors it (with your
+help), then clicks **"Send Bench → Preview"** to push Deck A's look into
+**Deck B**, the live look shown in the separate Preview window. On send,
+`mix.active` becomes `"transitioning"` and `mix.progress` animates 0→1 over
+`mix.durationSec`; Deck B interpolates from its old look to the snapshot of
+Deck A. At progress 1, Deck B holds the new look. Deck A (the bench) is never
+altered by a send.
 
 `mix.template` (in `project.json`):
 

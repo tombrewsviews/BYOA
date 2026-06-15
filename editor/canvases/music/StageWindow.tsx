@@ -3,7 +3,6 @@ import { Stage } from "../../../src/pulse/Stage";
 import { pulseProjectSchema, type PulseProject } from "../../../src/pulse/schema";
 import type { Analysis } from "../../../src/pulse/analysis";
 import { createAudioGraph, computeGains, type AudioGraph } from "../../../src/pulse/audioGraph";
-import { blendDecks, shapeCurve } from "../../../src/pulse/transitions";
 
 /**
  * The fullscreen live "stage" — rendered in a separate Tauri window on
@@ -70,21 +69,33 @@ export const StageWindow: React.FC = () => {
     return () => cleanup?.();
   }, []);
 
+  const toggleFullscreen = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const w = getCurrentWindow();
+      const fs = await w.isFullscreen();
+      await w.setFullscreen(!fs);
+    } catch {
+      /* not in tauri */
+    }
+  };
+
   if (!doc) {
     return (
       <div style={{ width: "100vw", height: "100vh", background: "#000", color: "#444", display: "grid", placeItems: "center" }}>
-        Pulse Stage — open a project in the main window
+        Pulse Preview — open a project in the main window
       </div>
     );
   }
 
-  const deck =
-    doc.mix.active === "transitioning"
-      ? blendDecks(doc.decks.A, doc.decks.B, shapeCurve(doc.mix.progress, doc.mix.curve), doc.mix.template)
-      : doc.decks.A;
+  // The preview window renders Deck B (the look you send from the bench).
+  // During a send-to-preview transition, Deck B already holds the
+  // interpolated blend (computed in the main window and pushed via
+  // pulse://doc), so we render it directly.
+  const deck = doc.decks.B;
 
   return (
-    <div style={{ width: "100vw", height: "100vh", background: "#000" }}>
+    <div style={{ width: "100vw", height: "100vh", background: "#000" }} onDoubleClick={toggleFullscreen}>
       <Stage
         deck={deck}
         analysis={analysis}

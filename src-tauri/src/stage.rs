@@ -11,19 +11,23 @@ pub fn open_stage_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let win = WebviewWindowBuilder::new(&app, "stage", WebviewUrl::App("/stage".into()))
-        .title("Pulse Stage")
-        .decorations(false)
+        .title("Pulse Preview")
+        .inner_size(960.0, 540.0)
         .build()
         .map_err(|e| e.to_string())?;
 
-    // Place on the secondary monitor if there is one, then go fullscreen.
+    // Open on the secondary monitor if there is one (the user can then
+    // double-click the window to toggle fullscreen). We do NOT force
+    // fullscreen on open so it's easy to drag between screens first.
     if let Ok(monitors) = win.available_monitors() {
         if monitors.len() > 1 {
             let pos = monitors[1].position();
-            let _ = win.set_position(tauri::PhysicalPosition { x: pos.x, y: pos.y });
+            let _ = win.set_position(tauri::PhysicalPosition {
+                x: pos.x + 60,
+                y: pos.y + 60,
+            });
         }
     }
-    let _ = win.set_fullscreen(true);
     Ok(())
 }
 
