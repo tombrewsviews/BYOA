@@ -20,4 +20,10 @@ describe("effect registry", () => {
     const u = EFFECTS.wave.uniforms({ amplitude: 0.3, wavelength: 0.2 }, frame as any);
     expect(typeof u.uAmplitude).toBe("number");
   });
+  it("registers all ten effects", () => {
+    for (const t of ["wave","pixelate","noiseField","bloomPulse","spectrumBars","feedbackTrails","kaleido","chromaShift","contourLines","particleBurst"]) {
+      expect(effectTypes).toContain(t);
+      expect(EFFECTS[t].frag.length).toBeGreaterThan(20);
+    }
+  });
 });
