@@ -56,11 +56,13 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     })();
   }, []);
 
-  // Start the canvas server and get its URL for the webview.
+  // Start the canvas server, then open the board in its own window. The board
+  // is a separate Tauri window (loading the server URL as a first-party
+  // top-level document) rather than an embedded iframe — WKWebView partitions
+  // cross-origin iframe storage, which left the embedded Excalidraw app blank.
   useEffect(() => {
     void (async () => {
       if (!isTauri()) {
-        // Browser dev: assume a server already running on the preferred port.
         setCanvasUrl("http://127.0.0.1:3939");
         return;
       }
@@ -68,11 +70,18 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         const { invoke } = await import("@tauri-apps/api/core");
         const url = await invoke<string>("brainstorm_canvas_start");
         setCanvasUrl(url);
+        await invoke("brainstorm_canvas_open_window", { url }).catch(() => {});
       } catch (e) {
         setError(String(e));
       }
     })();
   }, [project.path]);
+
+  const openBoard = useCallback(async () => {
+    if (!isTauri() || !canvasUrl) return;
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("brainstorm_canvas_open_window", { url: canvasUrl }).catch(() => {});
+  }, [canvasUrl]);
 
   // Drive the watch loop in continuous mode. Tears down on mode change /
   // unmount so leaving continuous mode stops watching immediately.
@@ -212,20 +221,42 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         style={{ gridColumn: 2, cursor: "col-resize", background: "transparent" }}
       />
 
-      {/* RIGHT: the live Excalidraw board */}
-      <div style={{ gridColumn: 3, minWidth: 0, minHeight: 0, position: "relative" }}>
+      {/* RIGHT: board status + controls. The live board renders in its own
+          window (opened automatically on launch); this panel manages it. */}
+      <div
+        style={{
+          gridColumn: 3,
+          minWidth: 0,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+          padding: 40,
+          textAlign: "center",
+          color: "#aaa",
+        }}
+      >
         {error ? (
-          <div style={{ padding: 40, color: "#e66" }}>
-            Canvas server failed to start: {error}
-          </div>
+          <div style={{ color: "#e66" }}>Canvas server failed to start: {error}</div>
         ) : canvasUrl ? (
-          <iframe
-            title="Brainstorm board"
-            src={canvasUrl}
-            style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
-          />
+          <>
+            <div style={{ fontSize: 18, color: "#ddd" }}>Brainstorm board is live</div>
+            <div style={{ fontSize: 13, maxWidth: 420, lineHeight: 1.5 }}>
+              The Excalidraw board opens in its own window — draw there, and the
+              agent sees and draws on the same board. If you closed it, reopen
+              it below.
+            </div>
+            <Button variant="default" size="sm" onClick={openBoard}>
+              Open board window
+            </Button>
+            <div style={{ fontSize: 11, fontFamily: "monospace", color: "#666" }}>
+              {canvasUrl}
+            </div>
+          </>
         ) : (
-          <div style={{ padding: 40, color: "#888" }}>Starting canvas…</div>
+          <div>Starting canvas…</div>
         )}
       </div>
     </div>

@@ -104,6 +104,8 @@ pub fn run() {
             stage::open_stage_window,
             stage::close_stage_window,
             brainstorm_canvas::brainstorm_canvas_start,
+            brainstorm_canvas::brainstorm_canvas_open_window,
+            brainstorm_canvas::brainstorm_canvas_close_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

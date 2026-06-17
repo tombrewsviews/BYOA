@@ -21,9 +21,10 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
-use tauri::State;
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::AppState;
 
@@ -133,12 +134,55 @@ pub fn brainstorm_canvas_start(state: State<'_, AppState>) -> Result<String, Str
         write_mcp_config(&dir, &url).map_err(|e| format!("write .mcp.json: {}", e))?;
     }
 
+    // Wait until the server is actually accepting connections before returning,
+    // so the webview never navigates to a not-yet-listening port (boots in
+    // ~200ms; we allow up to 5s).
+    wait_until_listening(port, Duration::from_secs(5));
+
     let mut guard = state.canvas_server.inner.lock().map_err(|e| e.to_string())?;
     *guard = Some(RunningServer {
         child,
         url: url.clone(),
     });
     Ok(url)
+}
+
+/// Block until something is listening on the port, or the timeout elapses.
+fn wait_until_listening(port: u16, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Open the live Excalidraw board in its own Tauri window, loading the canvas
+/// server URL as a first-party top-level document. This avoids the cross-origin
+/// iframe storage-partitioning that left the embedded board blank in WKWebView.
+#[tauri::command]
+pub fn brainstorm_canvas_open_window(app: AppHandle, url: String) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("board") {
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let parsed = url.parse().map_err(|e| format!("bad url {}: {}", url, e))?;
+    WebviewWindowBuilder::new(&app, "board", WebviewUrl::External(parsed))
+        .title("Brainstorm Board")
+        .inner_size(1100.0, 800.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Close the board window if open.
+#[tauri::command]
+pub fn brainstorm_canvas_close_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("board") {
+        let _ = w.close();
+    }
+    Ok(())
 }
 
 fn active_project_dir(state: &State<'_, AppState>) -> Option<std::path::PathBuf> {
