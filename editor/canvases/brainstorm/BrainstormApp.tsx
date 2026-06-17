@@ -3,6 +3,7 @@ import { isTauri } from "../../runtime";
 import { Chat, type ChatHandle } from "../../agent-chat/Chat";
 import { Terminal } from "../../terminal";
 import { startWatchLoop } from "./watch";
+import { restoreBoard, startAutosave } from "./persistence";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, MessageSquare, PanelRight, Plus, Trash2 } from "../../icons";
@@ -59,6 +60,11 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const url = await invoke<string>("brainstorm_canvas_start");
+        // Restore this board's saved content into the (empty) canvas server
+        // BEFORE opening the window or starting autosave, so the user sees
+        // their work and autosave doesn't overwrite the saved scene with the
+        // empty live one.
+        await restoreBoard(url, true);
         setCanvasUrl(url);
         await invoke("brainstorm_canvas_open_window", { url }).catch(() => {});
       } catch (e) {
@@ -66,6 +72,13 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       }
     })();
   }, [project.path]);
+
+  // Autosave the board to board.json (debounced) on any canvas change. Only
+  // starts once the URL is known (i.e. after restore).
+  useEffect(() => {
+    if (!canvasUrl || !isTauri()) return;
+    return startAutosave(canvasUrl, true);
+  }, [canvasUrl]);
 
   const openBoard = useCallback(async () => {
     if (!isTauri() || !canvasUrl) return;
