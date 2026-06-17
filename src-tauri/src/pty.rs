@@ -76,12 +76,17 @@ pub fn pty_open(
     // A user-set free-text command overrides the built-in agent launcher:
     // run it verbatim (then the interactive shell). Otherwise fall back to
     // the configured default_agent + skip-permissions flag.
+    // Brainstorm Canvas always launches the agent with skip-permissions: the
+    // agent collaborates on the live board through the excalidraw MCP and a
+    // y/n prompt per tool call would make that unusable. Scoped to this canvas
+    // so kinetic/pulse keep honouring the global skip_permissions setting.
+    let force_skip = crate::canvas::for_project(&project_path).id() == "brainstorm";
     let agent_launch = if let Some(custom) = settings::agent_starting_command() {
         format!("{} ; ", custom)
     } else {
         settings::default_agent()
             .map(|a: AgentKind| {
-                let flag = if settings::skip_permissions() {
+                let flag = if force_skip || settings::skip_permissions() {
                     a.skip_permissions_flag().unwrap_or("")
                 } else {
                     ""

@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isTauri } from "../../runtime";
 import { Chat, type ChatHandle } from "../../agent-chat/Chat";
+import { Terminal } from "../../terminal";
 import { startWatchLoop } from "./watch";
 import { Button } from "@/components/ui/button";
 import { Eye, MessageSquare } from "../../icons";
 
 type ProjectMeta = { name: string; path: string };
 type Mode = "prompted" | "continuous";
+type ViewMode = "terminal" | "chat";
 
 const agentLabelFor = (id: string): string =>
   id === "codex" ? "Codex" : id === "gemini" ? "Gemini" : "Claude";
@@ -25,10 +27,17 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("prompted");
+  // Default to the terminal (interactive `claude --dangerously-skip-permissions`
+  // launched by the PTY). The Chat view is the structured agent UI. Continuous
+  // mode forces the Chat view so the watch observations are visible.
+  const [viewMode, setViewMode] = useState<ViewMode>("terminal");
   const [agentId, setAgentId] = useState<"claude" | "codex" | "gemini">("claude");
   const [leftW, setLeftW] = useState(360);
 
   const chatHandleRef = useRef<ChatHandle | null>(null);
+  // The view actually shown: continuous mode pins chat (watch comments land in
+  // the chat transcript); otherwise the user's toggle wins.
+  const shownView: ViewMode = mode === "continuous" ? "chat" : viewMode;
 
   // Resolve the default agent (same source as the other apps).
   useEffect(() => {
@@ -119,7 +128,7 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
           <span className="text-xs text-muted-foreground">Mode</span>
           <div className="flex gap-1">
             <Button
-              variant={mode === "prompted" ? "default" : "outline"}
+              variant={mode === "prompted" ? "default" : "secondary"}
               size="sm"
               onClick={() => setMode("prompted")}
               title="Agent responds when you prompt it"
@@ -128,7 +137,7 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
               Prompted
             </Button>
             <Button
-              variant={mode === "continuous" ? "default" : "outline"}
+              variant={mode === "continuous" ? "default" : "secondary"}
               size="sm"
               onClick={() => setMode("continuous")}
               title="Agent watches the board and chimes in like a collaborator"
@@ -138,22 +147,61 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
             </Button>
           </div>
         </div>
-        {mode === "continuous" ? (
+        {/* Terminal/Chat switch. Hidden in continuous mode, which pins the
+            chat view so watch observations are visible. */}
+        {mode === "prompted" ? (
+          <div className="flex flex-none items-center gap-1 border-b border-border px-2 py-1">
+            <Button
+              size="sm"
+              variant={viewMode === "terminal" ? "default" : "secondary"}
+              onClick={() => setViewMode("terminal")}
+            >
+              Terminal
+            </Button>
+            <Button
+              size="sm"
+              variant={viewMode === "chat" ? "default" : "secondary"}
+              onClick={() => setViewMode("chat")}
+            >
+              {`Chat · ${agentLabelFor(agentId)}`}
+            </Button>
+          </div>
+        ) : (
           <div className="flex-none border-b border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
             Watching the board — {agentLabelFor(agentId)} will comment when it
             has something useful.
           </div>
-        ) : null}
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <Chat
-            agentId={agentId}
-            agentLabel={agentLabelFor(agentId)}
-            cwd={project.path}
-            onSwitchToTerminal={() => {}}
-            onReady={(h) => {
-              chatHandleRef.current = h;
+        )}
+        {/* Content: both views are mounted; visibility is toggled. Chat stays
+            mounted always so its watch handle (onReady) stays live for the
+            continuous-mode loop even while the terminal is showing. */}
+        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: shownView === "terminal" ? "block" : "none",
             }}
-          />
+          >
+            <Terminal />
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: shownView === "chat" ? "block" : "none",
+            }}
+          >
+            <Chat
+              agentId={agentId}
+              agentLabel={agentLabelFor(agentId)}
+              cwd={project.path}
+              onSwitchToTerminal={() => setViewMode("terminal")}
+              onReady={(h) => {
+                chatHandleRef.current = h;
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -165,7 +213,7 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       />
 
       {/* RIGHT: the live Excalidraw board */}
-      <div style={{ gridColumn: 3, minWidth: 0, minHeight: 0 }}>
+      <div style={{ gridColumn: 3, minWidth: 0, minHeight: 0, position: "relative" }}>
         {error ? (
           <div style={{ padding: 40, color: "#e66" }}>
             Canvas server failed to start: {error}
