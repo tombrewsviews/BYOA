@@ -26,4 +26,6 @@ export {
   Settings,
   Eye,
   MessageSquare,
+  PanelRight,
+  Trash2,
 } from "lucide-react";

@@ -165,6 +165,7 @@ fn wait_until_listening(port: u16, timeout: Duration) {
 pub fn brainstorm_canvas_open_window(app: AppHandle, url: String) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("board") {
         let _ = w.set_focus();
+        tile_windows(&app);
         return Ok(());
     }
     let parsed = url.parse().map_err(|e| format!("bad url {}: {}", url, e))?;
@@ -173,7 +174,50 @@ pub fn brainstorm_canvas_open_window(app: AppHandle, url: String) -> Result<(), 
         .inner_size(1100.0, 800.0)
         .build()
         .map_err(|e| e.to_string())?;
+    tile_windows(&app);
     Ok(())
+}
+
+/// Width reserved for the agent panel (main window) when tiling.
+const AGENT_PANEL_W: f64 = 380.0;
+
+/// Tile the two windows to fill the work area: the agent panel (main window) on
+/// the left at a fixed width, the board window filling the rest.
+fn tile_windows(app: &AppHandle) {
+    use tauri::{PhysicalPosition, PhysicalSize};
+    let main = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => return,
+    };
+    let board = match app.get_webview_window("board") {
+        Some(w) => w,
+        None => return,
+    };
+    // Work area of the monitor the main window is on (excludes the menu bar).
+    let monitor = match main.current_monitor() {
+        Ok(Some(m)) => m,
+        _ => return,
+    };
+    let scale = monitor.scale_factor();
+    let pos = monitor.position();
+    let size = monitor.size();
+    let panel_px = (AGENT_PANEL_W * scale).round() as u32;
+    let panel_px = panel_px.min(size.width.saturating_sub(200));
+
+    let _ = main.set_position(PhysicalPosition { x: pos.x, y: pos.y });
+    let _ = main.set_size(PhysicalSize {
+        width: panel_px,
+        height: size.height,
+    });
+    let _ = board.set_position(PhysicalPosition {
+        x: pos.x + panel_px as i32,
+        y: pos.y,
+    });
+    let _ = board.set_size(PhysicalSize {
+        width: size.width.saturating_sub(panel_px),
+        height: size.height,
+    });
+    let _ = board.set_focus();
 }
 
 /// Close the board window if open.
