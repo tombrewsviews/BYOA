@@ -102,12 +102,49 @@ impl Canvas for MusicCanvas {
     }
 }
 
+/// The Brainstorm Canvas (live Excalidraw board). Its document is a seed
+/// marker `board.json`; the live scene lives in the canvas server, not the
+/// file. The marker exists only so `for_project` can detect this canvas and
+/// so the project lists at all.
+pub struct BrainstormCanvas;
+
+impl Canvas for BrainstormCanvas {
+    fn id(&self) -> &'static str {
+        "brainstorm"
+    }
+
+    fn doc_filename(&self) -> &'static str {
+        "board.json"
+    }
+
+    fn seed_bytes(&self) -> &'static [u8] {
+        include_bytes!("../templates/seed-board.json")
+    }
+
+    fn summarise(&self, project_dir: &Path) -> ProjectSummary {
+        // Element count from the seed marker, if present. The live scene is
+        // in the canvas server, so this is only meaningful right after seed
+        // (0) — good enough for the project card.
+        let count = std::fs::read_to_string(project_dir.join(self.doc_filename()))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("elements").and_then(|b| b.as_array()).map(|a| a.len()))
+            .unwrap_or(0);
+        ProjectSummary { count }
+    }
+
+    fn skill_bundle(&self) -> &'static crate::skill::SkillBundle {
+        &crate::canvases::brainstorm::BUNDLE
+    }
+}
+
 /// Resolve a canvas by its stable id. Falls back to kinetic for any
 /// unknown id. Used at project-create time where the caller knows which
 /// app it is.
 pub fn by_id(id: &str) -> &'static dyn Canvas {
     match id {
         "pulse" => &MusicCanvas,
+        "brainstorm" => &BrainstormCanvas,
         _ => &KineticCanvas,
     }
 }
@@ -121,6 +158,8 @@ pub fn by_id(id: &str) -> &'static dyn Canvas {
 pub fn for_project(project_dir: &Path) -> &'static dyn Canvas {
     if project_dir.join("project.json").exists() {
         &MusicCanvas
+    } else if project_dir.join("board.json").exists() {
+        &BrainstormCanvas
     } else {
         &KineticCanvas
     }

@@ -1,0 +1,133 @@
+/**
+ * Continuous-mode watch loop for Brainstorm Canvas.
+ *
+ * "Watching" doesn't mean a long-lived agent — the agent runs one-shot per
+ * turn. This controller decides WHEN to wake it: it listens to the canvas
+ * server's WebSocket (which broadcasts every element change), debounces until
+ * the user pauses, then fires a single observe-only turn via the Chat handle.
+ *
+ * Guards that keep it feeling like a collaborator, not a bot (and prevent a
+ * self-triggering runaway):
+ *   - Debounce: wake only after ~QUIET_MS of no canvas changes.
+ *   - Running gate: never wake while a turn is in flight (the agent's own
+ *     reads/edits could otherwise re-trigger the loop). Also means a flurry of
+ *     edits collapses into one wake after the user stops.
+ *   - Scene-hash dedup: if the scene is identical to what we last sent the
+ *     agent (e.g. a pure pan/zoom, or edits that net out), don't wake.
+ */
+
+const QUIET_MS = 4000;
+
+/** The watch prompt sent on each wake. Mirrors the brainstorm SKILL.md
+ *  contract: observe, suggest briefly if useful, else NOTHING_TO_ADD, never
+ *  modify the canvas. */
+const WATCH_PROMPT = [
+  "[continuous watch] The user just paused editing the Excalidraw board.",
+  "Look at it now (describe_scene and/or get_canvas_screenshot).",
+  "If you have something genuinely useful — a suggestion, a question, a",
+  "connection you notice, a gap, a grouping idea — say it briefly (1–3",
+  "sentences), like a collaborator in the room. If you have nothing worth",
+  "interrupting for, reply with exactly NOTHING_TO_ADD and stop. Do NOT",
+  "modify the canvas.",
+].join(" ");
+
+export interface WatchHandle {
+  sendWatch: (prompt: string) => void;
+  isRunning: () => boolean;
+}
+
+/** A cheap, order-independent hash of the scene's element ids + versions so we
+ *  can tell whether anything substantive changed since the last wake.
+ *  Exported for testing the dedup guard. */
+export function hashElements(elements: Array<Record<string, unknown>>): string {
+  return elements
+    .map((e) => `${e.id ?? ""}:${e.version ?? ""}:${e.versionNonce ?? ""}`)
+    .sort()
+    .join("|");
+}
+
+/**
+ * Start the watch loop against a running canvas server. Returns a stop fn that
+ * tears down the socket + timer. Safe to call only when in continuous mode;
+ * the caller (BrainstormApp) starts/stops it as the mode toggles.
+ */
+export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => void {
+  const wsUrl = canvasUrl.replace(/^http/, "ws");
+  let socket: WebSocket | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastSentHash = "";
+  let stopped = false;
+
+  const clearTimer = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const wake = async () => {
+    timer = null;
+    if (stopped) return;
+    // Never wake while a turn is running — the agent's reads (or any stray
+    // edit) would otherwise feed back into the loop.
+    if (handle.isRunning()) return;
+    try {
+      const res = await fetch(`${canvasUrl}/api/elements`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { elements?: Array<Record<string, unknown>> };
+      const elements = body.elements ?? [];
+      if (elements.length === 0) return; // empty board: nothing to react to
+      const hash = hashElements(elements);
+      if (hash === lastSentHash) return; // nothing substantive changed
+      lastSentHash = hash;
+      handle.sendWatch(WATCH_PROMPT);
+    } catch {
+      /* canvas server unreachable — skip this wake */
+    }
+  };
+
+  const scheduleWake = () => {
+    if (stopped) return;
+    clearTimer();
+    timer = setTimeout(() => void wake(), QUIET_MS);
+  };
+
+  const connect = () => {
+    if (stopped) return;
+    socket = new WebSocket(wsUrl);
+    socket.onmessage = (ev) => {
+      let type = "";
+      try {
+        type = (JSON.parse(ev.data as string) as { type?: string }).type ?? "";
+      } catch {
+        return;
+      }
+      // Any element-changing broadcast resets the quiet timer. The connect-time
+      // snapshot/status messages are ignored so opening the board doesn't wake
+      // the agent immediately.
+      if (
+        type === "element_created" ||
+        type === "element_updated" ||
+        type === "element_deleted" ||
+        type === "elements_batch_created" ||
+        type === "canvas_cleared"
+      ) {
+        scheduleWake();
+      }
+    };
+    socket.onclose = () => {
+      // Reconnect unless we were told to stop (the server may restart).
+      if (!stopped) setTimeout(connect, 1000);
+    };
+    socket.onerror = () => socket?.close();
+  };
+
+  connect();
+
+  return () => {
+    stopped = true;
+    clearTimer();
+    socket?.close();
+    socket = null;
+  };
+}

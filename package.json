@@ -51,6 +51,7 @@
     "dotenv": "^17.4.2",
     "flubber": "^0.4.2",
     "lucide-react": "^1.16.0",
+    "mcp-excalidraw-server": "^1.0.7",
     "opentype.js": "^2.0.0",
     "paper": "^0.12.18",
     "radix-ui": "^1.4.3",

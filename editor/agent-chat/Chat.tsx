@@ -19,12 +19,31 @@ import { Composer } from "./Composer";
 import { SessionToolbar } from "./SessionToolbar";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { Button } from "@/components/ui/button";
+import { Eye } from "../icons";
+
+/** Sentinel an agent returns in continuous/watch mode when it has nothing
+ *  worth interrupting for. A watch turn whose entire text is this is dropped
+ *  from the transcript so the chat stays quiet. Kept in sync with the
+ *  brainstorm skill (SKILL.md) which instructs the agent to emit it. */
+export const WATCH_SILENT_SENTINEL = "NOTHING_TO_ADD";
+
+/** Imperative handle the watch loop uses to drive the agent. */
+export interface ChatHandle {
+  /** Send a watch-origin turn (no user bubble; rendered as an observation).
+   *  No-op if a turn is already running. */
+  sendWatch: (prompt: string) => void;
+  /** True while a turn is in flight (the watch loop gates on this). */
+  isRunning: () => boolean;
+}
 
 interface Props {
   agentId: AgentId;
   agentLabel: string;
   cwd: string;
   onSwitchToTerminal: () => void;
+  /** Called once with an imperative handle so a parent watch controller can
+   *  drive watch turns. Optional — only the Brainstorm app uses it. */
+  onReady?: (handle: ChatHandle) => void;
 }
 
 /** Inline @path references into the prompt — claude reads files itself. */
@@ -47,6 +66,7 @@ export const Chat: React.FC<Props> = ({
   agentLabel,
   cwd,
   onSwitchToTerminal,
+  onReady,
 }) => {
   const adapter: AgentAdapter | null = useMemo(
     () => getAdapter(agentId),
@@ -64,10 +84,15 @@ export const Chat: React.FC<Props> = ({
   // null when idle. Used for the Stop button and to gate sending.
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const activeTurnIdRef = useRef<string | null>(null);
-  // User message bubbles, in send order.
-  const [userBubbles, setUserBubbles] = useState<{ id: number; text: string }[]>(
-    [],
-  );
+  // User message bubbles, keyed by the turn index they precede. Watch-origin
+  // turns have no entry. Keyed (not array-appended) because watch turns
+  // interleave with user turns, so a turn's index in state.turns no longer
+  // equals its position among user messages.
+  const [userBubbles, setUserBubbles] = useState<Record<number, string>>({});
+  // Turn indices initiated by the watch loop (continuous mode). Used to (a)
+  // render them as muted "observations" and (b) suppress a NOTHING_TO_ADD-only
+  // turn. A ref because it's read inside event listeners / send closures.
+  const watchTurnsRef = useRef<Set<number>>(new Set());
 
   // Permission posture for the next turn, controlled by the dropdown.
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("full");
@@ -91,18 +116,29 @@ export const Chat: React.FC<Props> = ({
   }, []);
 
   const send = useCallback(
-    (text: string, attachments: string[]) => {
+    (text: string, attachments: string[], origin: "user" | "watch" = "user") => {
       if (!adapter || activeTurnIdRef.current) return;
       const spawn = adapter.turnSpawnArgs({
         cwd,
-        permissionMode: permissionModeRef.current,
+        // Watch turns are observe-only; force read-only "plan" posture so the
+        // agent can inspect the board (describe_scene/screenshot) but the
+        // suggest-first rule isn't the only thing stopping a stray edit.
+        permissionMode: origin === "watch" ? "plan" : permissionModeRef.current,
         prompt: composePrompt(text, attachments),
         sessionId: sessionIdRef.current,
         isFirstTurn: isFirstTurnRef.current,
       });
       if (!spawn) return;
 
-      setUserBubbles((b) => [...b, { id: Date.now(), text }]);
+      // The index this turn will occupy in state.turns (turns grow for BOTH
+      // user and watch sends, so we key off the live turn count, not the
+      // user-bubble count).
+      const turnIndex = store.getState().turns.length;
+      if (origin === "watch") {
+        watchTurnsRef.current.add(turnIndex);
+      } else {
+        setUserBubbles((b) => ({ ...b, [turnIndex]: text }));
+      }
 
       void (async () => {
         let unlistenData: UnlistenFn | null = null;
@@ -173,11 +209,22 @@ export const Chat: React.FC<Props> = ({
     // Start a fresh conversation id; clear the transcript.
     sessionIdRef.current = newSessionId();
     isFirstTurnRef.current = true;
-    setUserBubbles([]);
+    setUserBubbles({});
+    watchTurnsRef.current.clear();
     store.reset();
   }, [stop, store]);
 
   const running = activeTurnId !== null;
+
+  // Expose an imperative handle for the watch loop (continuous mode). Stable
+  // across renders because send/running-via-ref don't change identity often;
+  // the handle reads the ref so it always sees the live running state.
+  useEffect(() => {
+    onReady?.({
+      sendWatch: (prompt: string) => send(prompt, [], "watch"),
+      isRunning: () => activeTurnIdRef.current !== null,
+    });
+  }, [onReady, send]);
 
   // Show the "thinking" loader while a turn is in flight but isn't
   // actively streaming text right now: the gap after send (before the
@@ -217,23 +264,38 @@ export const Chat: React.FC<Props> = ({
             {state.sessionError}
           </div>
         ) : null}
-        {state.turns.length === 0 && userBubbles.length === 0 ? (
+        {state.turns.length === 0 && Object.keys(userBubbles).length === 0 ? (
           <div className="py-6 text-sm text-muted-foreground">
             Message {agentLabel} to get started. Your agent runs with your own
             subscription in this project.
           </div>
         ) : null}
-        {/*
-          TODO: userBubbles are indexed by turn position, which assumes
-          every turn is initiated by a user message. If the agent ever
-          emits agent-initiated turns, the alignment will drift. Replace
-          with turnId-keyed lookup when that case lands.
-        */}
         {state.turns.map((t, idx) => {
           const userBubble = userBubbles[idx];
+          const isWatch = watchTurnsRef.current.has(idx);
+          // Suppress a watch turn whose entire (ended) output is the silent
+          // sentinel — the agent chose not to interrupt. While still
+          // streaming we render nothing for it either (the leading text may
+          // be the sentinel prefix); the ThinkingIndicator covers the gap.
+          if (isWatch) {
+            const text = t.items
+              .filter((it): it is Extract<typeof it, { type: "text" }> => it.type === "text")
+              .map((it) => it.text)
+              .join("")
+              .trim();
+            if (text === WATCH_SILENT_SENTINEL || (t.status !== "streaming" && text === "")) {
+              return <React.Fragment key={t.turnId} />;
+            }
+          }
           return (
             <React.Fragment key={t.turnId}>
-              {userBubble ? <UserMessage text={userBubble.text} /> : null}
+              {userBubble !== undefined ? <UserMessage text={userBubble} /> : null}
+              {isWatch ? (
+                <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground/70">
+                  <Eye className="size-3" />
+                  <span>{agentLabel} is observing</span>
+                </div>
+              ) : null}
               {t.items.map((item, i) =>
                 item.type === "tool" ? (
                   <ToolCard key={item.call.callId} call={item.call} />
@@ -257,8 +319,8 @@ export const Chat: React.FC<Props> = ({
         })}
         {/* Pending user bubble for an in-flight turn whose turn-start
             hasn't arrived yet (keeps the UI responsive on send). */}
-        {userBubbles.length > state.turns.length ? (
-          <UserMessage text={userBubbles[userBubbles.length - 1].text} />
+        {userBubbles[state.turns.length] !== undefined ? (
+          <UserMessage text={userBubbles[state.turns.length]} />
         ) : null}
         {showThinking ? <ThinkingIndicator /> : null}
         {state.pendingQuestion && !running ? (

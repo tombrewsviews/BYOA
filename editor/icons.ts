@@ -24,4 +24,6 @@ export {
   LayoutGrid,
   Star,
   Settings,
+  Eye,
+  MessageSquare,
 } from "lucide-react";

@@ -20,6 +20,7 @@
 import type React from "react";
 import { KineticApp } from "../canvases/kinetic/KineticApp";
 import { PulseApp } from "../canvases/music/PulseApp";
+import { BrainstormApp } from "../canvases/brainstorm/BrainstormApp";
 
 export type AppStatus = "available" | "coming-soon";
 
@@ -133,6 +134,27 @@ export const APPS: AppManifest[] = [
     releasedAt: "2026-06-15",
     sizeBytes: 3_000_000,
     category: "audio",
+  },
+  {
+    id: "brainstorm",
+    name: "Brainstorm Canvas",
+    blurb: "Agent-native collaborative whiteboard",
+    description:
+      "A live Excalidraw board you share with the agent. It can see the canvas and draw on it. Prompted mode acts when you ask; continuous mode watches the board and chimes in like a participant — observing, suggesting, asking — while you sketch.",
+    creator: "altramanera",
+    version: "0.1.0",
+    tokens: 0,
+    files: 8,
+    loc: 700,
+    rating: 0,
+    ratingCount: 0,
+    tags: ["whiteboard", "collaboration", "agent-native"],
+    hue: 200,
+    status: "available",
+    Root: BrainstormApp,
+    releasedAt: "2026-06-17",
+    sizeBytes: 1_200_000,
+    category: "writing",
   },
   {
     id: "voxel",

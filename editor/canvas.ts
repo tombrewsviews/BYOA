@@ -96,6 +96,7 @@ export interface CanvasPlugin<Doc = unknown> {
 
 import { kineticCanvas } from "./canvases/kinetic";
 import { musicCanvas } from "./canvases/music";
+import { brainstormCanvas } from "./canvases/brainstorm";
 
 export const activeCanvas: CanvasPlugin<unknown> =
   kineticCanvas as CanvasPlugin<unknown>;
@@ -108,5 +109,6 @@ export const activeCanvas: CanvasPlugin<unknown> =
  */
 export function resolveCanvas(appId: string): CanvasPlugin<unknown> {
   if (appId === "pulse") return musicCanvas as CanvasPlugin<unknown>;
+  if (appId === "brainstorm") return brainstormCanvas as CanvasPlugin<unknown>;
   return kineticCanvas as CanvasPlugin<unknown>;
 }
