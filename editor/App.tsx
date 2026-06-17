@@ -63,8 +63,26 @@ const PlatformChrome: React.FC<{
   app: AppManifest | null;
   onExit: () => void;
   onSettings: () => void;
-}> = ({ app, onExit, onSettings }) => (
+}> = ({ app, onExit, onSettings }) => {
+  // Hide the centered app name when the bar is too narrow (e.g. the tiled
+  // Brainstorm agent panel) so it doesn't collide with the left button / gear.
+  const barRef = React.useRef<HTMLDivElement>(null);
+  const [nameVisible, setNameVisible] = React.useState(true);
+  React.useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      // Below this width the left "The Square" button + centered name + gear
+      // start to overlap. Threshold chosen to clear the collision seen at
+      // ~380px while keeping the name on normal-width windows.
+      setNameVisible(el.clientWidth >= 480);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
   <div
+    ref={barRef}
     data-tauri-drag-region
     className="relative flex flex-none select-none items-center gap-2.5 border-b border-border bg-card pr-2 text-sm text-muted-foreground"
     style={{
@@ -86,11 +104,14 @@ const PlatformChrome: React.FC<{
           The Square
         </Button>
         {/* App name centered in the bar, independent of the left/right
-            content. pointer-events-none so it never blocks the drag region. */}
-        <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-baseline gap-1.5">
-          <span className="font-semibold text-foreground">{app.name}</span>
-          <span className="text-xs text-muted-foreground/60">v{app.version}</span>
-        </div>
+            content. pointer-events-none so it never blocks the drag region.
+            Hidden on narrow windows to avoid colliding with the buttons. */}
+        {nameVisible ? (
+          <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-baseline gap-1.5">
+            <span className="font-semibold text-foreground">{app.name}</span>
+            <span className="text-xs text-muted-foreground/60">v{app.version}</span>
+          </div>
+        ) : null}
       </>
     ) : (
       <span className="absolute left-1/2 -translate-x-1/2 font-bold tracking-tight text-foreground">
@@ -109,7 +130,8 @@ const PlatformChrome: React.FC<{
       <Settings />
     </Button>
   </div>
-);
+  );
+};
 
 export const App: React.FC = () => {
   const [currentId, setCurrentId] = useState<string | null>(() => loadCurrentApp());
