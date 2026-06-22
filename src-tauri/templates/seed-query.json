@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "sources": [],
+  "cells": [
+    {
+      "id": "c1",
+      "title": "Untitled query",
+      "sql": "SELECT 1 AS hello",
+      "viz": { "type": "table", "x": null, "y": null, "color": null }
+    }
+  ],
+  "activeCell": "c1"
+}
