@@ -360,11 +360,14 @@ fn read_view(
 }
 
 /// Evaluate source + sql nodes in topo order; chart = passthrough of upstream;
-/// semantic = placeholder error (Task 4 replaces).
+/// semantic = AI op over upstream rows. Semantic nodes only invoke the agent
+/// CLI when their id is in `run_semantic_ids`; otherwise they show a "Press
+/// Run" placeholder so debounced edits never auto-fire an LLM call.
 pub fn evaluate_graph(
     conn: &duckdb::Connection,
     project_dir: &std::path::Path,
     graph: &serde_json::Value,
+    run_semantic_ids: Option<&[String]>,
 ) -> Result<std::collections::HashMap<String, NodeResult>, String> {
     use std::collections::HashMap;
     let empty: Vec<serde_json::Value> = vec![];
@@ -441,6 +444,16 @@ pub fn evaluate_graph(
                     }
                 }
                 "semantic" => {
+                    // Lazy/explicit: only run the agent CLI when this node was
+                    // explicitly requested. Otherwise show a placeholder and skip
+                    // the LLM call entirely (so debounced edits never auto-fire).
+                    let requested = run_semantic_ids
+                        .map(|ids| ids.iter().any(|i| i == id))
+                        .unwrap_or(false);
+                    if !requested {
+                        nr.error = Some("Press Run to execute this AI step".to_string());
+                        return Ok(());
+                    }
                     let spec = node.get("semantic").ok_or("semantic node missing spec")?;
                     let op = spec.get("op").and_then(|v| v.as_str()).unwrap_or("label");
                     let instruction = spec.get("instruction").and_then(|v| v.as_str()).unwrap_or("");
@@ -491,7 +504,21 @@ pub fn evaluate_graph(
             Ok(())
         })();
         if let Err(e) = result {
-            nr.error = Some(e);
+            // A sql/chart node placed downstream of a semantic node can't read
+            // its output (semantic nodes don't create a DuckDB view yet). Replace
+            // the raw "Table does not exist" with an honest, actionable message.
+            let has_semantic_upstream = (kind == "sql" || kind == "chart")
+                && upstream(id).iter().any(|uid| {
+                    by_id
+                        .get(uid)
+                        .and_then(|n| n.get("kind").and_then(|v| v.as_str()))
+                        == Some("semantic")
+                });
+            nr.error = Some(if has_semantic_upstream {
+                "A semantic node's output can't yet be queried by downstream SQL/chart nodes (coming soon). Connect this node to a source or sql node instead.".to_string()
+            } else {
+                e
+            });
         }
         out.insert(id.clone(), nr);
     }
@@ -502,13 +529,14 @@ pub fn evaluate_graph(
 pub fn data_evaluate(
     project_path: String,
     graph_json: String,
+    run_semantic_ids: Option<Vec<String>>,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let graph: serde_json::Value =
         serde_json::from_str(&graph_json).map_err(|e| format!("parse graph: {e}"))?;
     let project_dir = std::path::PathBuf::from(&project_path);
     let report = with_conn(&state.data_engine, &project_path, |conn| {
-        evaluate_graph(conn, &project_dir, &graph)
+        evaluate_graph(conn, &project_dir, &graph, run_semantic_ids.as_deref())
     })?;
     let value = serde_json::json!({ "nodes": report });
     // Write last_result.json for the agent to perceive pipeline state.
@@ -641,11 +669,87 @@ mod tests {
         });
 
         let conn = duckdb::Connection::open_in_memory().unwrap();
-        let report = evaluate_graph(&conn, dir.path(), &graph).unwrap();
+        let report = evaluate_graph(&conn, dir.path(), &graph, None).unwrap();
         let n2 = report.get("n2").unwrap();
         assert_eq!(n2.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
             vec!["region".to_string(), "total".to_string()]);
         assert_eq!(n2.row_count, 2); // e, w
         assert!(n2.error.is_none());
+    }
+
+    /// A semantic node must NOT invoke the agent CLI when its id is not in
+    /// run_semantic_ids; it shows a "Press Run" placeholder instead. Safe in
+    /// CI because no CLI call happens.
+    #[test]
+    fn semantic_not_run_without_run_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let csv = dir.path().join("reviews.csv");
+        std::fs::write(&csv, "body\ngreat\nawful\n").unwrap();
+        let abs = csv.to_string_lossy().replace('\'', "''");
+
+        let graph = serde_json::json!({
+            "version": 2,
+            "nodes": [
+                { "id": "n1", "kind": "source", "title": "S",
+                  "source": { "path": abs, "fileKind": "csv" }, "ui": {"x":0,"y":0} },
+                { "id": "n2", "kind": "semantic", "title": "Sentiment",
+                  "semantic": { "op": "classify", "inputColumn": "body",
+                    "outputColumn": "sentiment", "instruction": "Classify.",
+                    "labels": ["positive","negative"], "sampleLimit": 50 },
+                  "ui": {"x":1,"y":0} }
+            ],
+            "edges": [ { "from": "n1", "to": "n2" } ],
+            "selected": null
+        });
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let report = evaluate_graph(&conn, dir.path(), &graph, None).unwrap();
+        let n2 = report.get("n2").unwrap();
+        assert!(
+            n2.error.as_deref().unwrap_or("").contains("Press Run"),
+            "expected Press Run placeholder, got {:?}",
+            n2.error
+        );
+    }
+
+    /// A sql node downstream of a (not-run) semantic node can't read the
+    /// semantic output (no view exists). The raw DuckDB error must be replaced
+    /// with an honest, actionable message.
+    #[test]
+    fn semantic_downstream_sql_gets_clear_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let csv = dir.path().join("reviews.csv");
+        std::fs::write(&csv, "body\ngreat\nawful\n").unwrap();
+        let abs = csv.to_string_lossy().replace('\'', "''");
+
+        let graph = serde_json::json!({
+            "version": 2,
+            "nodes": [
+                { "id": "n1", "kind": "source", "title": "S",
+                  "source": { "path": abs, "fileKind": "csv" }, "ui": {"x":0,"y":0} },
+                { "id": "n2", "kind": "semantic", "title": "Sentiment",
+                  "semantic": { "op": "classify", "inputColumn": "body",
+                    "outputColumn": "sentiment", "instruction": "Classify.",
+                    "labels": ["positive","negative"], "sampleLimit": 50 },
+                  "ui": {"x":1,"y":0} },
+                { "id": "n3", "kind": "sql", "title": "Downstream",
+                  "sql": "SELECT * FROM {{n2}}", "ui": {"x":2,"y":0} }
+            ],
+            "edges": [ { "from": "n1", "to": "n2" }, { "from": "n2", "to": "n3" } ],
+            "selected": null
+        });
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let report = evaluate_graph(&conn, dir.path(), &graph, None).unwrap();
+        let n3 = report.get("n3").unwrap();
+        let err = n3.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("semantic") && err.contains("coming soon") && err.contains("source or sql"),
+            "expected clear semantic-downstream message, got {err:?}"
+        );
+        assert!(
+            !err.contains("does not exist"),
+            "should not leak raw DuckDB error, got {err:?}"
+        );
     }
 }

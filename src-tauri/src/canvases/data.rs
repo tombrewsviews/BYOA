@@ -20,7 +20,9 @@ Short version:
   have an edge from that upstream.
 - Semantic nodes run AI ops (classify, extract, filter, label) via the user's
   agent CLI; use `op`, `inputColumn`, `outputColumn`, `instruction`, `labels`,
-  `sampleLimit`.
+  `sampleLimit`. They run only on an explicit Run, and their output is NOT yet
+  queryable by a downstream sql/chart node — don't place sql/chart nodes
+  downstream of a semantic node yet.
 - Read `./.kinetic-studio/last_result.json` after each run to see every node's
   result (columns, rows, errors).
 - DuckDB SQL only; never INSTALL/LOAD remote extensions or hit the network.

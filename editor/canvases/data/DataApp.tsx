@@ -112,14 +112,17 @@ const DataEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
   const [agentId, setAgentId] = useState<"claude" | "codex" | "gemini">("claude");
   const chatHandleRef = useRef<ChatHandle | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const evalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Evaluate the whole graph and store per-node results for the card previews.
-  const evaluate = useCallback(async (g: GraphDoc) => {
+  // `runSemanticIds` lists semantic node ids to actually run via the agent CLI;
+  // semantic nodes not in the list show a "Press Run" placeholder (no LLM call).
+  const evaluate = useCallback(async (g: GraphDoc, runSemanticIds?: string[]) => {
     if (!isTauri()) return;
     const { invoke } = await import("@tauri-apps/api/core");
     try {
       const report = await invoke<EvaluateReport>("data_evaluate", {
-        projectPath: project.path, graphJson: JSON.stringify(g),
+        projectPath: project.path, graphJson: JSON.stringify(g), runSemanticIds,
       });
       setResults(report.nodes ?? {});
     } catch (e) { setError(`Evaluate failed: ${(e as Error).message}`); }
@@ -152,6 +155,20 @@ const DataEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       await invoke("save_doc", { json: JSON.stringify(next, null, 2) }).catch(() => {});
     }, 400);
   }, []);
+
+  // Inspector property edit: save AND debounced re-evaluate. Semantic nodes
+  // are not auto-run (no runSemanticIds), so editing never fires an LLM call.
+  const persistAndEvaluate = useCallback((next: GraphDoc) => {
+    persist(next);
+    if (evalTimer.current) clearTimeout(evalTimer.current);
+    evalTimer.current = setTimeout(() => { void evaluate(next); }, 400);
+  }, [persist, evaluate]);
+
+  // Run a single semantic node explicitly: evaluate the whole graph (so
+  // upstreams recompute) but request the agent CLI only for this node.
+  const runNode = useCallback((nodeId: string) => {
+    void evaluate(doc ?? ({} as GraphDoc), [nodeId]);
+  }, [doc, evaluate]);
 
   // Non-structural change (e.g. dragging a node): save, but don't re-evaluate.
   const onDocChange = useCallback((next: GraphDoc) => { persist(next); }, [persist]);
@@ -202,7 +219,8 @@ const DataEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
       {/* Right: inspector */}
       <div className="w-72 flex-none overflow-auto border-l border-border p-3">
         {doc ? (
-          <Inspector doc={doc} result={results[doc.selected ?? ""] ?? null} onChange={persist} />
+          <Inspector doc={doc} result={results[doc.selected ?? ""] ?? null}
+            onChange={persistAndEvaluate} onRun={runNode} />
         ) : null}
       </div>
     </div>

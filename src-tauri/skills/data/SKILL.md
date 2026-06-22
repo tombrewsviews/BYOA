@@ -43,7 +43,11 @@ rows, row count, error) — read it to see the whole pipeline's state.
   CLI. `op` ∈ filter | classify | extract | label. `inputColumn` is the column
   fed to the model; `outputColumn` is the new column added. `labels` are the
   allowed classes (classify). `sampleLimit` caps how many rows are processed
-  (≤200). It adds `outputColumn` to the data so downstream nodes can use it.
+  (≤200). It adds `outputColumn` to the result, visible on the node and in
+  `last_result.json`. CAVEAT: that output is NOT yet queryable by a downstream
+  sql or chart node (semantic nodes don't create a DuckDB view yet) — don't
+  place sql/chart nodes downstream of a semantic node yet. Semantic nodes also
+  run only on an explicit Run (or upstream change), never on every edit.
 - **chart** — Observable Plot. `chart.type` ∈ table | bar | line | scatter;
   x/y/color are column names from the upstream result, or null.
 

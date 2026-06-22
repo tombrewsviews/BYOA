@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Folder } from "../../icons";
+import { Folder, Play } from "../../icons";
 import { ChartView } from "./Chart";
 import type {
   ChartSpec,
@@ -150,7 +150,8 @@ const SemanticBody: React.FC<{
   node: GraphNode;
   result: NodeResult | null;
   patch: (next: Partial<GraphNode>) => void;
-}> = ({ node, result, patch }) => {
+  onRun?: (nodeId: string) => void;
+}> = ({ node, result, patch, onRun }) => {
   const spec: SemanticSpec = node.semantic ?? {
     op: "classify",
     inputColumn: "",
@@ -242,6 +243,10 @@ const SemanticBody: React.FC<{
           onChange={(e) => setSpec({ sampleLimit: Number(e.target.value) || 0 })}
         />
       </div>
+      <Button variant="secondary" size="sm" onClick={() => onRun?.(node.id)}>
+        <Play className="size-4" />
+        Run
+      </Button>
     </div>
   );
 };
@@ -320,7 +325,8 @@ export const Inspector: React.FC<{
   doc: GraphDoc;
   result: NodeResult | null;
   onChange: (next: GraphDoc) => void;
-}> = ({ doc, result, onChange }) => {
+  onRun?: (nodeId: string) => void;
+}> = ({ doc, result, onChange, onRun }) => {
   const node = doc.nodes.find((n) => n.id === doc.selected);
   if (!node) return <div className="text-sm text-muted-foreground">Select a node.</div>;
 
@@ -341,7 +347,7 @@ export const Inspector: React.FC<{
       ) : node.kind === "sql" ? (
         <SqlBody node={node} doc={doc} result={result} patch={patch} />
       ) : node.kind === "semantic" ? (
-        <SemanticBody node={node} result={result} patch={patch} />
+        <SemanticBody node={node} result={result} patch={patch} onRun={onRun} />
       ) : (
         <ChartBody node={node} result={result} patch={patch} />
       )}
