@@ -5,6 +5,7 @@ mod agents;
 mod brainstorm_canvas;
 mod canvas;
 mod canvases;
+mod data;
 mod doc;
 mod git;
 mod history;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub agent_chats: DashMap<String, agent_chat::AgentChatTurn>,
     /// The Brainstorm Canvas server process, if the Brainstorm app started one.
     pub canvas_server: brainstorm_canvas::CanvasServer,
+    pub data_engine: data::DataEngine,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -40,6 +42,7 @@ pub fn run() {
         ptys: DashMap::new(),
         agent_chats: DashMap::new(),
         canvas_server: brainstorm_canvas::CanvasServer::default(),
+        data_engine: data::DataEngine::default(),
     };
 
     tauri::Builder::default()
@@ -106,6 +109,9 @@ pub fn run() {
             brainstorm_canvas::brainstorm_canvas_start,
             brainstorm_canvas::brainstorm_canvas_open_window,
             brainstorm_canvas::brainstorm_canvas_close_window,
+            data::data_open_source,
+            data::data_run_sql,
+            data::data_schema,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
