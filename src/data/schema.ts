@@ -77,10 +77,20 @@ export function migrateToV2(raw: unknown): GraphDoc {
     y += 140;
     return id;
   });
+  // The v2 evaluator names each source's DuckDB view by NODE id (`src_<id>`),
+  // so a v1 cell's SQL that referenced the bare source id must be rewritten to
+  // the `{{nodeId}}` token form — otherwise it queries a table that no longer
+  // exists under that name. Whole-word match only, so a column like
+  // `sales_total` isn't touched when the source id is `sales`.
+  const rewriteSql = (sql: string): string =>
+    (v1.sources ?? []).reduce((acc, s) => {
+      const escaped = s.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return acc.replace(new RegExp(`\\b${escaped}\\b`, "g"), `{{src_${s.id}}}`);
+    }, sql);
   (v1.cells ?? []).forEach((c, i) => {
     const sqlId = `sql_${c.id}`;
     const chartId = `chart_${c.id}`;
-    nodes.push({ id: sqlId, kind: "sql", title: c.title, sql: c.sql,
+    nodes.push({ id: sqlId, kind: "sql", title: c.title, sql: rewriteSql(c.sql),
       ui: { x: 300, y: i * 140 } });
     nodes.push({ id: chartId, kind: "chart", title: `${c.title} chart`,
       chart: c.viz, ui: { x: 600, y: i * 140 } });
