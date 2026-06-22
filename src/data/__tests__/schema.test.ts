@@ -68,4 +68,39 @@ describe("migrateToV2", () => {
     expect(g.version).toBe(2);
     expect(g.nodes).toEqual([]);
   });
+
+  it("rewrites v1 SQL to reference the renamed source via {{src_id}} token", () => {
+    // v1 source id becomes node id `src_<id>` in v2, and the view is named by
+    // node id. So the cell's SQL — which referenced the bare v1 id — must be
+    // rewritten to the {{token}} form, or it points at a non-existent table.
+    const v1 = {
+      version: 1,
+      sources: [{ id: "sales", path: "data/s.csv", kind: "csv" }],
+      cells: [{ id: "c1", title: "T",
+        sql: "SELECT region, SUM(amount) AS total FROM sales GROUP BY 1",
+        viz: { type: "bar", x: "region", y: "total", color: null } }],
+      activeCell: "c1",
+    };
+    const g = migrateToV2(v1);
+    const sqlNode = g.nodes.find((n) => n.kind === "sql");
+    expect(sqlNode?.sql).toBe(
+      "SELECT region, SUM(amount) AS total FROM {{src_sales}} GROUP BY 1",
+    );
+  });
+
+  it("rewrites only whole-word source-id occurrences in SQL", () => {
+    // A column named `sales_total` must NOT be partially rewritten when the
+    // source id is `sales`.
+    const v1 = {
+      version: 1,
+      sources: [{ id: "sales", path: "data/s.csv", kind: "csv" }],
+      cells: [{ id: "c1", title: "T",
+        sql: "SELECT sales_total FROM sales",
+        viz: { type: "table", x: null, y: null, color: null } }],
+      activeCell: "c1",
+    };
+    const g = migrateToV2(v1);
+    const sqlNode = g.nodes.find((n) => n.kind === "sql");
+    expect(sqlNode?.sql).toBe("SELECT sales_total FROM {{src_sales}}");
+  });
 });
