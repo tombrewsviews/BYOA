@@ -126,11 +126,11 @@ pub fn data_open_source(
     let id = sanitize_id(stem);
     with_conn(&state.data_engine, &project_path, |conn| {
         conn.execute_batch(&format!(
-            "CREATE OR REPLACE VIEW {id} AS SELECT * FROM {reader}('{abs_str}');"
+            "CREATE OR REPLACE VIEW \"{id}\" AS SELECT * FROM {reader}('{abs_str}');"
         ))
         .map_err(|e| e.to_string())?;
         let stmt = conn
-            .prepare(&format!("SELECT * FROM {id} LIMIT 0"))
+            .prepare(&format!("SELECT * FROM \"{id}\" LIMIT 0"))
             .map_err(|e| e.to_string())?;
         Ok(columns_of(&stmt))
     })
@@ -208,7 +208,7 @@ pub fn data_schema(
         let mut out = Vec::new();
         for id in names {
             let cstmt = conn
-                .prepare(&format!("SELECT * FROM {id} LIMIT 0"))
+                .prepare(&format!("SELECT * FROM \"{id}\" LIMIT 0"))
                 .map_err(|e| e.to_string())?;
             out.push(SourceSchema {
                 id,
@@ -239,6 +239,25 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn reserved_word_view_name_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let csv = dir.path().join("order.csv");
+        std::fs::write(&csv, "id,val\n1,a\n2,b\n").unwrap();
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let abs = csv.to_string_lossy().to_string();
+        let id = sanitize_id("order");
+        conn.execute_batch(&format!(
+            "CREATE OR REPLACE VIEW \"{id}\" AS SELECT * FROM read_csv_auto('{abs}');"
+        ))
+        .unwrap();
+        let n: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM \"{id}\""), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2);
     }
 
     #[test]
