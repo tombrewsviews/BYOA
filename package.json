@@ -39,6 +39,7 @@
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",
     "@chenglou/pretext": "^0.0.3",
+    "@observablehq/plot": "^0.6.17",
     "@remotion/animation-utils": "^4.0.461",
     "@remotion/cli": "^4.0.461",
     "@remotion/google-fonts": "^4.0.461",
