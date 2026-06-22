@@ -1,13 +1,14 @@
 {
-  "version": 1,
-  "sources": [],
-  "cells": [
+  "version": 2,
+  "nodes": [
     {
-      "id": "c1",
-      "title": "Untitled query",
-      "sql": "SELECT 1 AS hello",
-      "viz": { "type": "table", "x": null, "y": null, "color": null }
+      "id": "n1",
+      "kind": "source",
+      "title": "Add a data source",
+      "source": { "path": "", "fileKind": "csv" },
+      "ui": { "x": 60, "y": 80 }
     }
   ],
-  "activeCell": "c1"
+  "edges": [],
+  "selected": "n1"
 }

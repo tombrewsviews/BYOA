@@ -159,10 +159,10 @@ export const APPS: AppManifest[] = [
   },
   {
     id: "data",
-    name: "Data Explorer",
-    blurb: "Agent-native local data exploration",
+    name: "Lens",
+    blurb: "Agent-native reactive data canvas",
     description:
-      "Load local CSV, Parquet, or JSON and explore it through a live SQL + chart canvas. DuckDB runs in-process — no server, no cloud. The agent writes and refines SQL and picks charts by editing query.json; you tweak the query and see results re-render instantly.",
+      "Build data pipelines with a reactive node graph: source files → SQL queries (DuckDB) → semantic AI operations → visualizations. The graph auto-recomputes as you edit query.json; the agent co-authors the pipeline and semantic operations run via your own agent CLI. See the full pipeline state in .kinetic-studio/last_result.json.",
     creator: "altramanera",
     version: "0.1.0",
     tokens: 0,
@@ -170,7 +170,7 @@ export const APPS: AppManifest[] = [
     loc: 900,
     rating: 0,
     ratingCount: 0,
-    tags: ["data", "sql", "agent-native"],
+    tags: ["data", "reactive", "ai", "agent-native"],
     hue: 48,
     status: "available",
     Root: DataApp,

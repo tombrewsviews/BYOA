@@ -1,53 +1,61 @@
 ---
-name: data-explorer
-description: Operating manual for the DuckDB Data Explorer — drive the live SQL + chart canvas by editing query.json.
+name: lens
+description: Operating manual for Lens — a reactive data canvas. Drive the pipeline by editing query.json (a node graph of source/SQL/semantic/chart nodes).
 ---
 
-# DuckDB Data Explorer
+# Lens — reactive data canvas
 
-You are inside a Data Explorer project. The user explores local data files
-through a live SQL + chart canvas. **You collaborate by editing `./query.json`**;
-the canvas re-runs the affected cell and re-renders.
+You are inside a Lens project. The user explores data through a **reactive node
+graph**: source → SQL → semantic(AI) → chart nodes, wired by edges. **You
+collaborate by editing `./query.json`** (a graph); the canvas recomputes the
+affected nodes and re-renders. After each run the app writes
+`./.kinetic-studio/last_result.json` with every node's result (columns, sample
+rows, row count, error) — read it to see the whole pipeline's state.
 
-## The document — `query.json`
+## The graph — `query.json`
 
 ```jsonc
 {
-  "version": 1,
-  "sources": [ { "id": "sales", "path": "data/sales.csv", "kind": "csv" } ],
-  "cells": [
-    {
-      "id": "c1",
-      "title": "Revenue by region",
-      "sql": "SELECT region, SUM(amount) AS total FROM sales GROUP BY 1",
-      "viz": { "type": "bar", "x": "region", "y": "total", "color": null }
-    }
+  "version": 2,
+  "nodes": [
+    { "id": "n1", "kind": "source", "title": "Reviews",
+      "source": { "path": "data/reviews.csv", "fileKind": "csv" }, "ui": { "x": 40, "y": 40 } },
+    { "id": "n2", "kind": "sql", "title": "Recent",
+      "sql": "SELECT * FROM {{n1}} WHERE date > '2026-01-01'", "ui": { "x": 340, "y": 40 } },
+    { "id": "n3", "kind": "semantic", "title": "Sentiment",
+      "semantic": { "op": "classify", "inputColumn": "body", "outputColumn": "sentiment",
+        "instruction": "Classify the review sentiment.", "labels": ["positive","neutral","negative"],
+        "sampleLimit": 50 }, "ui": { "x": 640, "y": 40 } },
+    { "id": "n4", "kind": "chart", "title": "By sentiment",
+      "chart": { "type": "bar", "x": "sentiment", "y": "count", "color": null }, "ui": { "x": 940, "y": 40 } }
   ],
-  "activeCell": "c1"
+  "edges": [ { "from": "n1", "to": "n2" }, { "from": "n2", "to": "n3" }, { "from": "n3", "to": "n4" } ],
+  "selected": "n3"
 }
 ```
 
-- `sources[].kind` ∈ `csv | parquet | json`. The `id` is the SQL table name
-  (a view over the file). Add a source by appending to `sources`; the user
-  adds files through the UI too.
-- `cells[].sql` is DuckDB SQL. Query a source by its `id`.
-- `cells[].viz.type` ∈ `table | bar | line | scatter`. `x`/`y`/`color` are
-  column names produced by the cell's SQL, or `null`. For `table`, all are
-  `null`.
-- `activeCell` is the cell currently shown in the canvas.
+## Node kinds
+
+- **source** — a local file. `source.fileKind` ∈ csv | parquet | json.
+- **sql** — DuckDB SQL. Reference an upstream node's result with the token
+  `{{nodeId}}` (it becomes that node's view). Wire the upstream with an edge.
+- **semantic** — an AI op over the upstream rows, run via the user's own agent
+  CLI. `op` ∈ filter | classify | extract | label. `inputColumn` is the column
+  fed to the model; `outputColumn` is the new column added. `labels` are the
+  allowed classes (classify). `sampleLimit` caps how many rows are processed
+  (≤200). It adds `outputColumn` to the data so downstream nodes can use it.
+- **chart** — Observable Plot. `chart.type` ∈ table | bar | line | scatter;
+  x/y/color are column names from the upstream result, or null.
 
 ## How to collaborate
 
-- To refine a query: edit `cells[].sql` for the active cell, then choose a
-  `viz` that fits the result shape (a category + a measure → `bar`; a time
-  series → `line`; two measures → `scatter`).
-- To add data: append a source, then write SQL against its `id`.
-- Respect the user's edits: they may have changed the SQL or viz in the UI.
-  Read `query.json` before editing so you build on their state.
-- Keep SQL DuckDB-flavored. Do NOT `INSTALL`/`LOAD` remote extensions or hit
-  the network. Stay on the user's local files.
-
-## Conventions
-
-- One active cell is rendered at a time (this version).
-- Result grids are capped at 5,000 rows — aggregate/limit large tables.
+- To build a pipeline: add nodes and connect them with edges. Edges define
+  dependency and recompute order.
+- SQL nodes MUST reference upstreams via `{{id}}` AND have an edge from that
+  upstream — both are required.
+- Choose a chart that fits the result shape (category+measure → bar; time
+  series → line; two measures → scatter).
+- Respect the user's edits: read `query.json` (and `last_result.json` for
+  current results) before changing anything, so you build on their state.
+- Keep SQL DuckDB-flavored. Do NOT INSTALL/LOAD remote extensions or hit the
+  network. Semantic ops already use the local agent CLI — don't add API calls.
