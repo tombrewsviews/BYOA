@@ -269,7 +269,10 @@ fn topo_order(
         })
         .collect();
     for (_f, t) in &edge_pairs {
-        *indeg.entry(t.clone()).or_insert(0) += 1;
+        // Only increment in-degree for known nodes; skip dangling edges.
+        if let Some(e) = indeg.get_mut(t) {
+            *e += 1;
+        }
     }
     let mut queue: Vec<String> = ids.iter().filter(|id| indeg[*id] == 0).cloned().collect();
     let mut out = Vec::new();
@@ -277,11 +280,13 @@ fn topo_order(
         out.push(id.clone());
         for (f, t) in &edge_pairs {
             if f == &id {
-                let e = indeg.get_mut(t).unwrap();
-                *e -= 1;
-                if *e == 0 {
-                    queue.push(t.clone());
+                if let Some(e) = indeg.get_mut(t) {
+                    *e -= 1;
+                    if *e == 0 {
+                        queue.push(t.clone());
+                    }
                 }
+                // Edges to unknown nodes (dangling) are silently ignored.
             }
         }
     }
@@ -292,14 +297,21 @@ fn topo_order(
 }
 
 /// Substitute {{id}} tokens with quoted view names ("id").
+///
+/// Walks the string char-by-char (not byte-by-byte) so multi-byte UTF-8
+/// characters are preserved exactly. Only `{{ id }}` where id matches
+/// `[A-Za-z0-9_]+` is substituted; any other `{{...}}` is left as-is.
 fn substitute_tokens(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
-    let bytes = sql.as_bytes();
+    let chars: Vec<char> = sql.chars().collect();
     let mut i = 0;
-    while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            if let Some(close) = sql[i + 2..].find("}}") {
-                let inner = sql[i + 2..i + 2 + close].trim();
+    while i < chars.len() {
+        if i + 1 < chars.len() && chars[i] == '{' && chars[i + 1] == '{' {
+            // Find the closing `}}` by scanning forward from position i+2.
+            let rest_start = i + 2;
+            let rest: String = chars[rest_start..].iter().collect();
+            if let Some(close) = rest.find("}}") {
+                let inner = rest[..close].trim();
                 if !inner.is_empty()
                     && inner
                         .chars()
@@ -308,12 +320,13 @@ fn substitute_tokens(sql: &str) -> String {
                     result.push('"');
                     result.push_str(inner);
                     result.push('"');
-                    i = i + 2 + close + 2;
+                    // Advance past `{{ ... }}`: 2 open + inner chars + 2 close.
+                    i = rest_start + rest[..close].chars().count() + 2;
                     continue;
                 }
             }
         }
-        result.push(bytes[i] as char);
+        result.push(chars[i]);
         i += 1;
     }
     result
@@ -555,6 +568,21 @@ mod tests {
             cols.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
             vec!["a".to_string(), "b".to_string()]
         );
+    }
+
+    #[test]
+    fn substitute_tokens_preserves_utf8() {
+        let input = "SELECT * FROM {{n1}} WHERE name = 'café'";
+        let expected = "SELECT * FROM \"n1\" WHERE name = 'café'";
+        assert_eq!(substitute_tokens(input), expected);
+    }
+
+    #[test]
+    fn topo_order_ignores_dangling_edge() {
+        let nodes = vec![serde_json::json!({"id": "a", "kind": "source"})];
+        let edges = vec![serde_json::json!({"from": "a", "to": "ghost"})];
+        let result = topo_order(&nodes, &edges).expect("should not panic or error");
+        assert_eq!(result, vec!["a".to_string()]);
     }
 
     #[test]
