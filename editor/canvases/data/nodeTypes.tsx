@@ -70,7 +70,7 @@ const DataNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="truncate text-sm font-medium text-foreground" title={node.title}>
           {node.title || KIND_LABEL[node.kind]}
         </span>
-        <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="ml-auto text-xs uppercase tracking-wide text-muted-foreground">
           {KIND_LABEL[node.kind]}
         </span>
       </div>
