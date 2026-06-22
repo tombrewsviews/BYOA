@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as Plot from "@observablehq/plot";
-import type { Viz } from "../../../src/data/schema";
+import type { ChartSpec as Viz } from "../../../src/data/schema";
 
 type Row = Array<string | number | boolean | null | unknown>;
 
