@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Trash2 } from "../../icons";
 import { migrateToV2, type GraphDoc } from "../../../src/data/schema";
 import { GraphCanvas } from "./GraphCanvas";
+import { Inspector } from "./Inspector";
 import type { NodeResult } from "./nodeTypes";
 
 type ProjectMeta = { name: string; path: string; lastOpened?: string };
@@ -198,9 +199,11 @@ const DataEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         )}
       </div>
 
-      {/* Right: inspector (Task 6) */}
-      <div className="w-72 flex-none border-l border-border p-3 text-sm text-muted-foreground">
-        Inspector (Task 6)
+      {/* Right: inspector */}
+      <div className="w-72 flex-none overflow-auto border-l border-border p-3">
+        {doc ? (
+          <Inspector doc={doc} result={results[doc.selected ?? ""] ?? null} onChange={persist} />
+        ) : null}
       </div>
     </div>
   );
