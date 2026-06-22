@@ -6,6 +6,7 @@ mod brainstorm_canvas;
 mod canvas;
 mod canvases;
 mod data;
+mod data_semantic;
 mod doc;
 mod git;
 mod history;

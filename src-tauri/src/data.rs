@@ -441,7 +441,41 @@ pub fn evaluate_graph(
                     }
                 }
                 "semantic" => {
-                    nr.error = Some("semantic not yet implemented".into());
+                    let spec = node.get("semantic").ok_or("semantic node missing spec")?;
+                    let op = spec.get("op").and_then(|v| v.as_str()).unwrap_or("label");
+                    let instruction = spec.get("instruction").and_then(|v| v.as_str()).unwrap_or("");
+                    let input_col = spec.get("inputColumn").and_then(|v| v.as_str()).unwrap_or("");
+                    let output_col = spec.get("outputColumn").and_then(|v| v.as_str()).unwrap_or("result");
+                    let labels: Vec<String> = spec.get("labels").and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                        .unwrap_or_default();
+                    let sample_limit = spec.get("sampleLimit").and_then(|v| v.as_u64()).unwrap_or(50)
+                        .clamp(1, 200) as usize;
+                    let up_id = upstream(id).into_iter().next().ok_or("semantic node needs an upstream")?;
+                    let up = out.get(&up_id).ok_or("upstream not evaluated")?;
+                    let col_idx = up.columns.iter().position(|c| c.name == input_col)
+                        .ok_or_else(|| format!("input column '{input_col}' not in upstream"))?;
+                    let take = up.rows.len().min(sample_limit);
+                    let input_values: Vec<serde_json::Value> =
+                        up.rows.iter().take(take).map(|r| r[col_idx].clone()).collect();
+                    let outputs = crate::data_semantic::run_semantic(
+                        input_values, op, instruction, &labels, input_col, output_col)?;
+                    let mut cols = up.columns.clone();
+                    cols.push(Column { name: output_col.to_string(), r#type: "VARCHAR".to_string() });
+                    let mut rows = Vec::new();
+                    for (i, r) in up.rows.iter().take(take).enumerate() {
+                        let o = outputs.get(i).cloned().unwrap_or(serde_json::Value::Null);
+                        if op == "filter" {
+                            let keep = o.as_bool().unwrap_or(false);
+                            if !keep { continue; }
+                        }
+                        let mut row = r.clone();
+                        row.push(o);
+                        rows.push(row);
+                    }
+                    nr.row_count = rows.len();
+                    nr.columns = cols;
+                    nr.rows = rows;
                     return Ok(());
                 }
                 _ => {
