@@ -112,6 +112,7 @@ pub fn run() {
             data::data_open_source,
             data::data_run_sql,
             data::data_schema,
+            data::data_evaluate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

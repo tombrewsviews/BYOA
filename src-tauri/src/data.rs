@@ -238,6 +238,241 @@ pub fn data_schema(
     })
 }
 
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeResult {
+    pub columns: Vec<Column>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub row_count: usize,
+    pub truncated: bool,
+    pub error: Option<String>,
+}
+
+/// Topologically sort node ids from a graph Value's `edges`. Err on cycle.
+fn topo_order(
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> Result<Vec<String>, String> {
+    use std::collections::HashMap;
+    let ids: Vec<String> = nodes
+        .iter()
+        .filter_map(|n| n.get("id").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+    let mut indeg: HashMap<String, usize> = ids.iter().map(|id| (id.clone(), 0)).collect();
+    let edge_pairs: Vec<(String, String)> = edges
+        .iter()
+        .filter_map(|e| {
+            Some((
+                e.get("from")?.as_str()?.to_string(),
+                e.get("to")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    for (_f, t) in &edge_pairs {
+        *indeg.entry(t.clone()).or_insert(0) += 1;
+    }
+    let mut queue: Vec<String> = ids.iter().filter(|id| indeg[*id] == 0).cloned().collect();
+    let mut out = Vec::new();
+    while let Some(id) = queue.pop() {
+        out.push(id.clone());
+        for (f, t) in &edge_pairs {
+            if f == &id {
+                let e = indeg.get_mut(t).unwrap();
+                *e -= 1;
+                if *e == 0 {
+                    queue.push(t.clone());
+                }
+            }
+        }
+    }
+    if out.len() != ids.len() {
+        return Err("cycle detected in graph".into());
+    }
+    Ok(out)
+}
+
+/// Substitute {{id}} tokens with quoted view names ("id").
+fn substitute_tokens(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            if let Some(close) = sql[i + 2..].find("}}") {
+                let inner = sql[i + 2..i + 2 + close].trim();
+                if !inner.is_empty()
+                    && inner
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    result.push('"');
+                    result.push_str(inner);
+                    result.push('"');
+                    i = i + 2 + close + 2;
+                    continue;
+                }
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
+/// Read columns + capped rows from a view named `view_id`.
+fn read_view(
+    conn: &duckdb::Connection,
+    view_id: &str,
+) -> Result<(Vec<Column>, Vec<Vec<serde_json::Value>>, bool), String> {
+    let sql = format!("SELECT * FROM \"{view_id}\" LIMIT {}", ROW_CAP + 1);
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut rows_iter = stmt.query([]).map_err(|e| e.to_string())?;
+    // Schema only available after query() — read from Rows handle.
+    let columns: Vec<Column> = rows_iter.as_ref().map(columns_of).unwrap_or_default();
+    let ncols = columns.len();
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    while let Some(row) = rows_iter.next().map_err(|e| e.to_string())? {
+        if rows.len() >= ROW_CAP {
+            truncated = true;
+            break;
+        }
+        let mut out = Vec::with_capacity(ncols);
+        for i in 0..ncols {
+            out.push(value_to_json(row, i));
+        }
+        rows.push(out);
+    }
+    Ok((columns, rows, truncated))
+}
+
+/// Evaluate source + sql nodes in topo order; chart = passthrough of upstream;
+/// semantic = placeholder error (Task 4 replaces).
+pub fn evaluate_graph(
+    conn: &duckdb::Connection,
+    project_dir: &std::path::Path,
+    graph: &serde_json::Value,
+) -> Result<std::collections::HashMap<String, NodeResult>, String> {
+    use std::collections::HashMap;
+    let empty: Vec<serde_json::Value> = vec![];
+    let nodes = graph
+        .get("nodes")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let edges = graph
+        .get("edges")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let order = topo_order(nodes, edges)?;
+    let by_id: HashMap<String, &serde_json::Value> = nodes
+        .iter()
+        .filter_map(|n| Some((n.get("id")?.as_str()?.to_string(), n)))
+        .collect();
+    let upstream = |id: &str| -> Vec<String> {
+        edges
+            .iter()
+            .filter_map(|e| {
+                let f = e.get("from")?.as_str()?;
+                let t = e.get("to")?.as_str()?;
+                if t == id { Some(f.to_string()) } else { None }
+            })
+            .collect()
+    };
+    let mut out: HashMap<String, NodeResult> = HashMap::new();
+    for id in &order {
+        let node = match by_id.get(id) {
+            Some(n) => n,
+            None => continue,
+        };
+        let kind = node.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let mut nr = NodeResult::default();
+        let result: Result<(), String> = (|| {
+            match kind {
+                "source" => {
+                    let src = node
+                        .get("source")
+                        .ok_or("source node missing source spec")?;
+                    let path = src
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .ok_or("source missing path")?;
+                    let file_kind = src
+                        .get("fileKind")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("csv");
+                    let reader = read_fn(file_kind)?;
+                    let abs = resolve_path(&project_dir.to_string_lossy(), path);
+                    let abs_str = abs.to_string_lossy().replace('\'', "''");
+                    conn.execute_batch(&format!(
+                        "CREATE OR REPLACE VIEW \"{id}\" AS SELECT * FROM {reader}('{abs_str}');"
+                    ))
+                    .map_err(|e| e.to_string())?;
+                }
+                "sql" => {
+                    let raw_sql = node.get("sql").and_then(|v| v.as_str()).unwrap_or("");
+                    let sub = substitute_tokens(raw_sql);
+                    conn.execute_batch(&format!(
+                        "CREATE OR REPLACE VIEW \"{id}\" AS {sub};"
+                    ))
+                    .map_err(|e| e.to_string())?;
+                }
+                "chart" => {
+                    let ups = upstream(id);
+                    if let Some(up) = ups.first() {
+                        conn.execute_batch(&format!(
+                            "CREATE OR REPLACE VIEW \"{id}\" AS SELECT * FROM \"{up}\";"
+                        ))
+                        .map_err(|e| e.to_string())?;
+                    } else {
+                        return Ok(()); // empty result
+                    }
+                }
+                "semantic" => {
+                    nr.error = Some("semantic not yet implemented".into());
+                    return Ok(());
+                }
+                _ => {
+                    nr.error = Some(format!("unknown node kind: {kind}"));
+                    return Ok(());
+                }
+            }
+            let (columns, rows, truncated) = read_view(conn, id)?;
+            nr.row_count = rows.len();
+            nr.columns = columns;
+            nr.rows = rows;
+            nr.truncated = truncated;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            nr.error = Some(e);
+        }
+        out.insert(id.clone(), nr);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn data_evaluate(
+    project_path: String,
+    graph_json: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let graph: serde_json::Value =
+        serde_json::from_str(&graph_json).map_err(|e| format!("parse graph: {e}"))?;
+    let project_dir = std::path::PathBuf::from(&project_path);
+    let report = with_conn(&state.data_engine, &project_path, |conn| {
+        evaluate_graph(conn, &project_dir, &graph)
+    })?;
+    let value = serde_json::json!({ "nodes": report });
+    // Write last_result.json for the agent to perceive pipeline state.
+    let meta = project_dir.join(".kinetic-studio");
+    let _ = std::fs::create_dir_all(&meta);
+    if let Ok(pretty) = serde_json::to_string_pretty(&value) {
+        let _ = std::fs::write(meta.join("last_result.json"), pretty);
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +555,35 @@ mod tests {
             cols.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
             vec!["a".to_string(), "b".to_string()]
         );
+    }
+
+    #[test]
+    fn evaluate_source_then_sql_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let csv = dir.path().join("sales.csv");
+        std::fs::write(&csv, "region,amount\nw,10\nw,5\ne,20\n").unwrap();
+        let abs = csv.to_string_lossy().replace('\'', "''");
+
+        // Build a graph: source(n1) -> sql(n2: aggregate)
+        let graph = serde_json::json!({
+            "version": 2,
+            "nodes": [
+                { "id": "n1", "kind": "source", "title": "S",
+                  "source": { "path": abs, "fileKind": "csv" }, "ui": {"x":0,"y":0} },
+                { "id": "n2", "kind": "sql", "title": "Agg",
+                  "sql": "SELECT region, SUM(amount) AS total FROM {{n1}} GROUP BY 1 ORDER BY 1",
+                  "ui": {"x":1,"y":0} }
+            ],
+            "edges": [ { "from": "n1", "to": "n2" } ],
+            "selected": null
+        });
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let report = evaluate_graph(&conn, dir.path(), &graph).unwrap();
+        let n2 = report.get("n2").unwrap();
+        assert_eq!(n2.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            vec!["region".to_string(), "total".to_string()]);
+        assert_eq!(n2.row_count, 2); // e, w
+        assert!(n2.error.is_none());
     }
 }

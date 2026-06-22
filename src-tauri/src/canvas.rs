@@ -159,7 +159,7 @@ impl Canvas for DataCanvas {
         let count = std::fs::read_to_string(project_dir.join(self.doc_filename()))
             .ok()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|v| v.get("cells").and_then(|b| b.as_array()).map(|a| a.len()))
+            .and_then(|v| v.get("nodes").and_then(|b| b.as_array()).map(|a| a.len()))
             .unwrap_or(0);
         ProjectSummary { count }
     }
