@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "nodes": [
+    {
+      "id": "n1",
+      "kind": "source",
+      "title": "Add a data source",
+      "source": { "path": "", "fileKind": "csv" },
+      "ui": { "x": 60, "y": 80 }
+    }
+  ],
+  "edges": [],
+  "selected": "n1"
+}

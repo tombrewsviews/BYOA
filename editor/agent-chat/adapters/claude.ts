@@ -261,10 +261,17 @@ const turnSpawnArgs = (opts: TurnSpawnOpts): SpawnArgs => {
   } else {
     args.push("--resume", opts.sessionId);
   }
-  args.push(
-    "--permission-mode",
-    CLI_PERMISSION_MODE[opts.permissionMode] ?? "bypassPermissions",
-  );
+  // Full access uses --dangerously-skip-permissions (no prompts at all);
+  // plan stays read-only via --permission-mode plan. Both are non-prompting,
+  // which is required in non-interactive -p mode (a y/n dialog can't render).
+  if (opts.permissionMode === "full") {
+    args.push("--dangerously-skip-permissions");
+  } else {
+    args.push(
+      "--permission-mode",
+      CLI_PERMISSION_MODE[opts.permissionMode] ?? "bypassPermissions",
+    );
+  }
   // Prompt is the final positional argument.
   args.push(opts.prompt);
   return { cmd: "claude", args, env: {}, cwd: opts.cwd };

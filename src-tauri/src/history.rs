@@ -83,6 +83,7 @@ pub fn write_entry(
     Ok(entry)
 }
 
+#[allow(dead_code)] // history read API; currently exercised only by tests
 pub fn read_blob(project_root: &Path, sha: &str) -> Result<Vec<u8>, String> {
     fs::read(history_dir(project_root).join(format!("{}.json", sha)))
         .map_err(|e| format!("read blob {}: {}", sha, e))

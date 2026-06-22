@@ -67,20 +67,24 @@ describe("claudeAdapter.turnSpawnArgs", () => {
     expect(s!.args).not.toContain("--session-id");
   });
 
-  it("maps permissionMode to the right claude --permission-mode value", () => {
-    const cases: Array<[("full" | "plan"), string]> = [
-      ["full", "bypassPermissions"],
-      ["plan", "plan"],
-    ];
-    for (const [mode, cli] of cases) {
-      const s = claudeAdapter.turnSpawnArgs({
-        ...base,
-        isFirstTurn: true,
-        permissionMode: mode,
-      });
-      expect(s!.args).toContain("--permission-mode");
-      expect(s!.args).toContain(cli);
-    }
+  it("full access uses --dangerously-skip-permissions", () => {
+    const s = claudeAdapter.turnSpawnArgs({
+      ...base,
+      isFirstTurn: true,
+      permissionMode: "full",
+    });
+    expect(s!.args).toContain("--dangerously-skip-permissions");
+    expect(s!.args).not.toContain("--permission-mode");
+  });
+
+  it("plan mode stays read-only via --permission-mode plan", () => {
+    const s = claudeAdapter.turnSpawnArgs({
+      ...base,
+      isFirstTurn: true,
+      permissionMode: "plan",
+    });
+    expect(s!.args).toContain("--permission-mode");
+    expect(s!.args).toContain("plan");
   });
 });
 
