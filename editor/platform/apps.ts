@@ -21,6 +21,7 @@ import type React from "react";
 import { KineticApp } from "../canvases/kinetic/KineticApp";
 import { PulseApp } from "../canvases/music/PulseApp";
 import { BrainstormApp } from "../canvases/brainstorm/BrainstormApp";
+import { DataApp } from "../canvases/data/DataApp";
 
 export type AppStatus = "available" | "coming-soon";
 
@@ -155,6 +156,27 @@ export const APPS: AppManifest[] = [
     releasedAt: "2026-06-17",
     sizeBytes: 1_200_000,
     category: "writing",
+  },
+  {
+    id: "data",
+    name: "Data Explorer",
+    blurb: "Agent-native local data exploration",
+    description:
+      "Load local CSV, Parquet, or JSON and explore it through a live SQL + chart canvas. DuckDB runs in-process — no server, no cloud. The agent writes and refines SQL and picks charts by editing query.json; you tweak the query and see results re-render instantly.",
+    creator: "altramanera",
+    version: "0.1.0",
+    tokens: 0,
+    files: 9,
+    loc: 900,
+    rating: 0,
+    ratingCount: 0,
+    tags: ["data", "sql", "agent-native"],
+    hue: 48,
+    status: "available",
+    Root: DataApp,
+    releasedAt: "2026-06-22",
+    sizeBytes: 2_000_000,
+    category: "data",
   },
   {
     id: "voxel",
