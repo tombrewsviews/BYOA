@@ -96,7 +96,12 @@ fn resolve_path(project_path: &str, path: &str) -> PathBuf {
     }
 }
 
-/// Read the column schema of a prepared statement into Column structs.
+/// Read the column schema of an *executed* statement into Column structs.
+///
+/// IMPORTANT: in duckdb 1.x the statement schema is populated only after the
+/// query has run; `column_names`/`column_type` panic ("Option::unwrap() on a
+/// None value") on a prepared-but-unexecuted statement. Callers must execute
+/// first — use `run_columns_of` for prepare+execute+read in one step.
 fn columns_of(stmt: &duckdb::Statement) -> Vec<Column> {
     let names = stmt.column_names();
     (0..names.len())
@@ -107,6 +112,24 @@ fn columns_of(stmt: &duckdb::Statement) -> Vec<Column> {
                 .to_string(),
         })
         .collect()
+}
+
+/// Prepare `sql`, execute it (so the schema is populated), and return its
+/// columns. The single supported way to get column metadata for a query in
+/// duckdb 1.x. Use a `LIMIT 0` query when you only want the shape.
+fn run_columns_of(conn: &duckdb::Connection, sql: &str) -> Vec<Column> {
+    // execute() materialises the schema without us iterating rows; after it
+    // returns, the statement's schema is available to columns_of.
+    match run_columns_of_inner(conn, sql) {
+        Ok(cols) => cols,
+        Err(_) => Vec::new(),
+    }
+}
+
+fn run_columns_of_inner(conn: &duckdb::Connection, sql: &str) -> Result<Vec<Column>, String> {
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    stmt.execute([]).map_err(|e| e.to_string())?;
+    Ok(columns_of(&stmt))
 }
 
 #[tauri::command]
@@ -129,10 +152,7 @@ pub fn data_open_source(
             "CREATE OR REPLACE VIEW \"{id}\" AS SELECT * FROM {reader}('{abs_str}');"
         ))
         .map_err(|e| e.to_string())?;
-        let stmt = conn
-            .prepare(&format!("SELECT * FROM \"{id}\" LIMIT 0"))
-            .map_err(|e| e.to_string())?;
-        Ok(columns_of(&stmt))
+        Ok(run_columns_of(conn, &format!("SELECT * FROM \"{id}\" LIMIT 0")))
     })
 }
 
@@ -144,11 +164,15 @@ pub fn data_run_sql(
 ) -> Result<QueryResult, String> {
     with_conn(&state.data_engine, &project_path, |conn| {
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-        // Collect column metadata before calling query() to avoid
-        // simultaneous mutable+immutable borrows of `stmt`.
-        let columns = columns_of(&stmt);
-        let ncols = columns.len();
         let mut rows_iter = stmt.query([]).map_err(|e| e.to_string())?;
+        // The schema is populated only after query() runs, so read the
+        // columns from the now-executed statement (via the Rows handle) into
+        // owned values; this releases the borrow before we iterate rows.
+        let columns: Vec<Column> = rows_iter
+            .as_ref()
+            .map(columns_of)
+            .unwrap_or_default();
+        let ncols = columns.len();
         let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
         let mut truncated = false;
         while let Some(row) = rows_iter.next().map_err(|e| e.to_string())? {
@@ -207,13 +231,8 @@ pub fn data_schema(
             .collect();
         let mut out = Vec::new();
         for id in names {
-            let cstmt = conn
-                .prepare(&format!("SELECT * FROM \"{id}\" LIMIT 0"))
-                .map_err(|e| e.to_string())?;
-            out.push(SourceSchema {
-                id,
-                columns: columns_of(&cstmt),
-            });
+            let columns = run_columns_of(conn, &format!("SELECT * FROM \"{id}\" LIMIT 0"));
+            out.push(SourceSchema { id, columns });
         }
         Ok(out)
     })
@@ -265,5 +284,41 @@ mod tests {
         assert_eq!(sanitize_id("sales-2024"), "sales_2024");
         assert_eq!(sanitize_id("2024data"), "_2024data");
         assert_eq!(sanitize_id(""), "src");
+    }
+
+    /// Regression: reading column metadata must work. In duckdb 1.x the
+    /// statement schema is only populated after the query is executed, so
+    /// `columns_of` (which calls column_names/column_type) panics with
+    /// "Option::unwrap() on a None value" unless the statement has been run.
+    /// This reproduces the runtime crash that escaped the original tests
+    /// (which only used COUNT(*) via query_row, never columns_of).
+    #[test]
+    fn columns_of_returns_schema_for_query() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t(region VARCHAR, total INTEGER); INSERT INTO t VALUES ('w', 10);",
+        )
+        .unwrap();
+        let cols = run_columns_of(&conn, "SELECT region, total FROM t");
+        assert_eq!(
+            cols.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            vec!["region".to_string(), "total".to_string()]
+        );
+        // Types are non-empty (exact spelling is duckdb's, we just need them).
+        assert!(cols.iter().all(|c| !c.r#type.is_empty()));
+    }
+
+    /// A LIMIT 0 probe (the data_open_source / data_schema pattern) must also
+    /// yield columns without panicking.
+    #[test]
+    fn columns_of_returns_schema_for_limit_zero_probe() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t(a INTEGER, b VARCHAR);")
+            .unwrap();
+        let cols = run_columns_of(&conn, "SELECT * FROM t LIMIT 0");
+        assert_eq!(
+            cols.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            vec!["a".to_string(), "b".to_string()]
+        );
     }
 }
