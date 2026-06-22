@@ -198,9 +198,3 @@ pub fn for_project(project_dir: &Path) -> &'static dyn Canvas {
         &KineticCanvas
     }
 }
-
-/// The default canvas when no project context is available. Kinetic for
-/// back-compat; project-aware call sites should prefer `for_project`.
-pub fn active() -> &'static dyn Canvas {
-    &KineticCanvas
-}
