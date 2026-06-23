@@ -54,9 +54,16 @@ them to you as an **editable** turn (unlike watch mode, you MAY draw here).
 
 - Read the board first (`describe_scene` / `get_canvas_screenshot`).
 - Do what each instruction asks, making the smallest change that satisfies it.
-- **Then delete each cited element** with `delete_element` (the prompt lists
-  their ids). This is what "reconciles" the note — once removed it won't fire
-  again.
+- **Then reconcile each cited element so its `@agent` line won't fire again**
+  (the prompt lists their ids). Use your judgment per element:
+  - If the element is essentially just the `@agent` command (a dedicated note),
+    remove it with `delete_element`.
+  - If the `@agent` line sits inside an element that ALSO holds real content
+    (e.g. a heading or paragraph the user wrote), do NOT delete the whole
+    element — `update_element` it to strip only the `@agent …` line and keep
+    the rest. Destroying the user's notes to reconcile a command is never right.
+  - Either way, the result must be that no `@agent` text remains on that
+    element, or it will re-trigger on the next tick.
 - Briefly say in chat what you did (one or two sentences). Don't repeat the
   whole instruction back — it's already shown in the chat.
 - **Never write `@agent` into a board element yourself** (don't echo the

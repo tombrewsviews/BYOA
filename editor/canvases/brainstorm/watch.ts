@@ -145,6 +145,21 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
     }
   };
 
+  /** Fetch the board, dispatch any fresh @agent mention turn, and return true
+   *  if one was sent. Shared by wake() and the on-connect scan. Returns false
+   *  (without dispatching) while a turn is running, the board is empty, the
+   *  fetch fails, or no fresh mention exists. */
+  const dispatchMentions = async (
+    elements: Array<Record<string, unknown>>,
+  ): Promise<boolean> => {
+    const fresh = filterUndispatched(detectMentions(elements), dispatchedMentions);
+    if (fresh.length === 0) return false;
+    for (const m of fresh) dispatchedMentions.add(mentionSignature(m));
+    const { prompt, bubble } = buildMentionTurn(fresh);
+    handle.sendMention(prompt, bubble);
+    return true;
+  };
+
   const wake = async () => {
     timer = null;
     if (stopped) return;
@@ -157,16 +172,10 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
       const body = (await res.json()) as { elements?: Array<Record<string, unknown>> };
       const elements = body.elements ?? [];
       if (elements.length === 0) return; // empty board: nothing to react to
-      // @agent mentions take priority over passive observation. If any fresh
-      // (not-yet-dispatched) mention exists, send it as an editable turn and
-      // skip the observe turn this tick. The agent deletes the cited elements.
-      const fresh = filterUndispatched(detectMentions(elements), dispatchedMentions);
-      if (fresh.length > 0) {
-        for (const m of fresh) dispatchedMentions.add(mentionSignature(m));
-        const { prompt, bubble } = buildMentionTurn(fresh);
-        handle.sendMention(prompt, bubble);
-        return;
-      }
+      // @agent mentions take priority over passive observation. If a fresh one
+      // was dispatched, skip the observe turn this tick (the agent deletes the
+      // cited elements).
+      if (await dispatchMentions(elements)) return;
 
       const hash = hashElements(elements);
       if (hash === lastSentHash) return; // nothing substantive changed
@@ -174,6 +183,25 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
       handle.sendWatch(WATCH_PROMPT);
     } catch {
       /* canvas server unreachable — skip this wake */
+    }
+  };
+
+  /** One-shot scan run right after (re)connecting: an @agent note already on
+   *  the board (e.g. restored from board.json, or added before the socket was
+   *  live) would otherwise sit inert until the next change broadcast, because
+   *  the connect-time snapshot is intentionally ignored for the observe path.
+   *  This fires the editable mention turn for such a note — but NOT the passive
+   *  observe turn, so opening a board still produces no unsolicited comment. */
+  const scanMentionsOnConnect = async () => {
+    if (stopped) return;
+    if (handle.isRunning()) return;
+    try {
+      const res = await fetch(`${canvasUrl}/api/elements`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { elements?: Array<Record<string, unknown>> };
+      await dispatchMentions(body.elements ?? []);
+    } catch {
+      /* canvas server unreachable — skip */
     }
   };
 
@@ -186,6 +214,12 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
   const connect = () => {
     if (stopped) return;
     socket = new WebSocket(wsUrl);
+    socket.onopen = () => {
+      // Pick up an @agent note that's already on the board at connect time
+      // (restored from board.json, or added before this socket was live). The
+      // observe path stays silent on connect; only mentions fire here.
+      void scanMentionsOnConnect();
+    };
     socket.onmessage = (ev) => {
       let type = "";
       try {
