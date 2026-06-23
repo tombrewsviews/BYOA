@@ -32,6 +32,9 @@ export interface ChatHandle {
   /** Send a watch-origin turn (no user bubble; rendered as an observation).
    *  No-op if a turn is already running. */
   sendWatch: (prompt: string) => void;
+  /** Send an editable user-origin turn for an @agent board mention. `prompt`
+   *  goes to the model; `bubble` is the readable text shown in chat. */
+  sendMention: (prompt: string, bubble: string) => void;
   /** True while a turn is in flight (the watch loop gates on this). */
   isRunning: () => boolean;
 }
@@ -116,7 +119,12 @@ export const Chat: React.FC<Props> = ({
   }, []);
 
   const send = useCallback(
-    (text: string, attachments: string[], origin: "user" | "watch" = "user") => {
+    (
+      text: string,
+      attachments: string[],
+      origin: "user" | "watch" = "user",
+      bubbleText?: string,
+    ) => {
       if (!adapter || activeTurnIdRef.current) return;
       const spawn = adapter.turnSpawnArgs({
         cwd,
@@ -137,7 +145,7 @@ export const Chat: React.FC<Props> = ({
       if (origin === "watch") {
         watchTurnsRef.current.add(turnIndex);
       } else {
-        setUserBubbles((b) => ({ ...b, [turnIndex]: text }));
+        setUserBubbles((b) => ({ ...b, [turnIndex]: bubbleText ?? text }));
       }
 
       void (async () => {
@@ -222,6 +230,8 @@ export const Chat: React.FC<Props> = ({
   useEffect(() => {
     onReady?.({
       sendWatch: (prompt: string) => send(prompt, [], "watch"),
+      sendMention: (prompt: string, bubble: string) =>
+        send(prompt, [], "user", bubble),
       isRunning: () => activeTurnIdRef.current !== null,
     });
   }, [onReady, send]);
