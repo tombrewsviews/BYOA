@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hashElements, detectMentions } from "../watch";
+import { hashElements, detectMentions, mentionSignature, filterUndispatched, type Mention } from "../watch";
 
 /**
  * The scene-hash is the dedup guard that (with the running-gate) prevents the
@@ -86,5 +86,41 @@ describe("brainstorm watch — @agent detection", () => {
     const m = detectMentions([textEl("a", "@agent")]);
     expect(m).toHaveLength(1);
     expect(m[0].instruction).toBe("");
+  });
+});
+
+describe("brainstorm watch — send-once guard", () => {
+  const m = (id: string, version: number): Mention => ({
+    id,
+    version,
+    text: `@agent ${id}`,
+    instruction: id,
+  });
+
+  it("signature combines id and version", () => {
+    expect(mentionSignature(m("a", 3))).toBe("a:3");
+  });
+
+  it("filters out a mention already in the seen set", () => {
+    const seen = new Set(["a:1"]);
+    expect(filterUndispatched([m("a", 1)], seen)).toEqual([]);
+  });
+
+  it("keeps a mention whose version bumped (an edited tag retries)", () => {
+    const seen = new Set(["a:1"]);
+    const result = filterUndispatched([m("a", 2)], seen);
+    expect(result).toHaveLength(1);
+    expect(result[0].version).toBe(2);
+  });
+
+  it("does not mutate the seen set", () => {
+    const seen = new Set(["a:1"]);
+    filterUndispatched([m("b", 1)], seen);
+    expect([...seen]).toEqual(["a:1"]);
+  });
+
+  it("keeps multiple fresh mentions", () => {
+    const seen = new Set<string>();
+    expect(filterUndispatched([m("a", 1), m("b", 1)], seen)).toHaveLength(2);
   });
 });

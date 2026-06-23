@@ -82,6 +82,22 @@ export function detectMentions(
   return out;
 }
 
+/** Stable per-version identity of a mention. Including the version means an
+ *  edited tag (Excalidraw bumps version) counts as a fresh, re-triggerable
+ *  mention; an unchanged tag the agent forgot to delete is not re-fired. */
+export function mentionSignature(m: Mention): string {
+  return `${m.id}:${m.version}`;
+}
+
+/** Keep only mentions not already dispatched this session. Pure: the caller
+ *  records signatures into `seen` after a successful send. */
+export function filterUndispatched(
+  mentions: Mention[],
+  seen: Set<string>,
+): Mention[] {
+  return mentions.filter((m) => !seen.has(mentionSignature(m)));
+}
+
 /**
  * Start the watch loop against a running canvas server. Returns a stop fn that
  * tears down the socket + timer. Safe to call only when in continuous mode;
