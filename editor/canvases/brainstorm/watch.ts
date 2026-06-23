@@ -46,6 +46,42 @@ export function hashElements(elements: Array<Record<string, unknown>>): string {
     .join("|");
 }
 
+/** A text element on the board addressed to the agent via "@agent". */
+export interface Mention {
+  id: string;
+  version: number;
+  text: string;
+  instruction: string;
+}
+
+const MENTION_RE = /@agent/i;
+/** Strips a leading "@agent" (case-insensitive) + following whitespace. */
+const LEADING_MENTION_RE = /^@agent\s*/i;
+
+/**
+ * Find text elements whose content mentions "@agent". Detection is purely
+ * content-based (no special element type/color). A leading "@agent " prefix is
+ * stripped for the instruction; a mid-sentence mention is kept verbatim so the
+ * agent gets the full request. Exported for unit testing.
+ */
+export function detectMentions(
+  elements: Array<Record<string, unknown>>,
+): Mention[] {
+  const out: Mention[] = [];
+  for (const el of elements) {
+    if (el.type !== "text") continue;
+    const text = typeof el.text === "string" ? el.text : "";
+    if (!MENTION_RE.test(text)) continue;
+    out.push({
+      id: String(el.id ?? ""),
+      version: typeof el.version === "number" ? el.version : 0,
+      text,
+      instruction: text.replace(LEADING_MENTION_RE, "").trim(),
+    });
+  }
+  return out;
+}
+
 /**
  * Start the watch loop against a running canvas server. Returns a stop fn that
  * tears down the socket + timer. Safe to call only when in continuous mode;

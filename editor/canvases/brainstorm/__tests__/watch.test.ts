@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hashElements } from "../watch";
+import { hashElements, detectMentions } from "../watch";
 
 /**
  * The scene-hash is the dedup guard that (with the running-gate) prevents the
@@ -31,5 +31,60 @@ describe("brainstorm watch — scene hash", () => {
 
   it("empty scene hashes to a stable empty value", () => {
     expect(hashElements([])).toBe("");
+  });
+});
+
+describe("brainstorm watch — @agent detection", () => {
+  const textEl = (id: string, text: string, version = 1) => ({
+    id,
+    type: "text",
+    text,
+    version,
+    versionNonce: version * 7,
+  });
+
+  it("detects a text element with a leading @agent prefix and strips it", () => {
+    const m = detectMentions([textEl("a", "@agent add a pricing node")]);
+    expect(m).toHaveLength(1);
+    expect(m[0].id).toBe("a");
+    expect(m[0].version).toBe(1);
+    expect(m[0].text).toBe("@agent add a pricing node");
+    expect(m[0].instruction).toBe("add a pricing node");
+  });
+
+  it("is case-insensitive on the @agent trigger", () => {
+    expect(detectMentions([textEl("a", "@Agent hi")])).toHaveLength(1);
+    expect(detectMentions([textEl("b", "@AGENT hi")])).toHaveLength(1);
+  });
+
+  it("detects @agent mid-sentence and keeps the instruction verbatim", () => {
+    const m = detectMentions([textEl("a", "hey @agent can you group these")]);
+    expect(m).toHaveLength(1);
+    expect(m[0].instruction).toBe("hey @agent can you group these");
+  });
+
+  it("ignores text elements without @agent", () => {
+    expect(detectMentions([textEl("a", "just a note")])).toHaveLength(0);
+  });
+
+  it("ignores non-text elements even if a text-like field contains @agent", () => {
+    expect(
+      detectMentions([{ id: "a", type: "rectangle", text: "@agent", version: 1 }]),
+    ).toHaveLength(0);
+  });
+
+  it("returns all matches when several @agent elements exist", () => {
+    const m = detectMentions([
+      textEl("a", "@agent one"),
+      textEl("b", "plain"),
+      textEl("c", "@agent two"),
+    ]);
+    expect(m.map((x) => x.id)).toEqual(["a", "c"]);
+  });
+
+  it("handles an empty @agent (no instruction) without throwing", () => {
+    const m = detectMentions([textEl("a", "@agent")]);
+    expect(m).toHaveLength(1);
+    expect(m[0].instruction).toBe("");
   });
 });
