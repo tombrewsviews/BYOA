@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hashElements, detectMentions, mentionSignature, filterUndispatched, type Mention } from "../watch";
+import { hashElements, detectMentions, mentionSignature, filterUndispatched, buildMentionTurn, type Mention } from "../watch";
 
 /**
  * The scene-hash is the dedup guard that (with the running-gate) prevents the
@@ -122,5 +122,33 @@ describe("brainstorm watch — send-once guard", () => {
   it("keeps multiple fresh mentions", () => {
     const seen = new Set<string>();
     expect(filterUndispatched([m("a", 1), m("b", 1)], seen)).toHaveLength(2);
+  });
+});
+
+describe("brainstorm watch — buildMentionTurn", () => {
+  const m = (id: string, instruction: string): Mention => ({
+    id,
+    version: 1,
+    text: `@agent ${instruction}`,
+    instruction,
+  });
+
+  it("bubble lists the instructions one per line", () => {
+    const { bubble } = buildMentionTurn([m("a", "add pricing"), m("b", "group risks")]);
+    expect(bubble).toBe("add pricing\ngroup risks");
+  });
+
+  it("prompt cites each element id and tells the agent to delete them", () => {
+    const { prompt } = buildMentionTurn([m("a", "add pricing")]);
+    expect(prompt).toContain("add pricing");
+    expect(prompt).toContain("a"); // the element id
+    expect(prompt.toLowerCase()).toContain("delete_element");
+    expect(prompt.toLowerCase()).toContain("describe_scene");
+  });
+
+  it("prompt enumerates multiple mentions with their ids", () => {
+    const { prompt } = buildMentionTurn([m("a", "one"), m("b", "two")]);
+    expect(prompt).toContain("id: a");
+    expect(prompt).toContain("id: b");
   });
 });

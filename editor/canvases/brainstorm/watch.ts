@@ -98,6 +98,28 @@ export function filterUndispatched(
   return mentions.filter((m) => !seen.has(mentionSignature(m)));
 }
 
+/** Build the editable turn for one or more @agent mentions: the scaffolded
+ *  prompt sent to the model, and the readable bubble shown in chat. */
+export function buildMentionTurn(mentions: Mention[]): {
+  prompt: string;
+  bubble: string;
+} {
+  const bubble = mentions.map((m) => m.instruction).join("\n");
+  const list = mentions
+    .map((m, i) => `${i + 1}. "${m.instruction}"  (id: ${m.id})`)
+    .join("\n");
+  const prompt = [
+    "[board instruction] The user left message(s) for you on the board.",
+    "Read the board first (describe_scene), then act on these:",
+    "",
+    list,
+    "",
+    "After acting, delete these element(s) from the board (delete_element) so",
+    "the instruction is cleared. Then say briefly in chat what you did.",
+  ].join("\n");
+  return { prompt, bubble };
+}
+
 /**
  * Start the watch loop against a running canvas server. Returns a stop fn that
  * tears down the socket + timer. Safe to call only when in continuous mode;
