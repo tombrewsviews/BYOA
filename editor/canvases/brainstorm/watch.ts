@@ -33,6 +33,7 @@ const WATCH_PROMPT = [
 
 export interface WatchHandle {
   sendWatch: (prompt: string) => void;
+  sendMention: (prompt: string, bubble: string) => void;
   isRunning: () => boolean;
 }
 
@@ -132,6 +133,11 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
   let lastSentHash = "";
   let stopped = false;
 
+  // Signatures (id:version) of @agent mentions already dispatched this session.
+  // Send-once: a tag the agent forgot to delete is not re-fired; editing it
+  // (version bump) makes it fresh again.
+  const dispatchedMentions = new Set<string>();
+
   const clearTimer = () => {
     if (timer) {
       clearTimeout(timer);
@@ -151,6 +157,17 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
       const body = (await res.json()) as { elements?: Array<Record<string, unknown>> };
       const elements = body.elements ?? [];
       if (elements.length === 0) return; // empty board: nothing to react to
+      // @agent mentions take priority over passive observation. If any fresh
+      // (not-yet-dispatched) mention exists, send it as an editable turn and
+      // skip the observe turn this tick. The agent deletes the cited elements.
+      const fresh = filterUndispatched(detectMentions(elements), dispatchedMentions);
+      if (fresh.length > 0) {
+        for (const m of fresh) dispatchedMentions.add(mentionSignature(m));
+        const { prompt, bubble } = buildMentionTurn(fresh);
+        handle.sendMention(prompt, bubble);
+        return;
+      }
+
       const hash = hashElements(elements);
       if (hash === lastSentHash) return; // nothing substantive changed
       lastSentHash = hash;

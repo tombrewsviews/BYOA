@@ -91,6 +91,8 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     if (mode !== "continuous" || !canvasUrl) return;
     const stop = startWatchLoop(canvasUrl, {
       sendWatch: (prompt) => chatHandleRef.current?.sendWatch(prompt),
+      sendMention: (prompt, bubble) =>
+        chatHandleRef.current?.sendMention(prompt, bubble),
       isRunning: () => chatHandleRef.current?.isRunning() ?? false,
     });
     return stop;
