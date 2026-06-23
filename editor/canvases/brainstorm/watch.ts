@@ -16,7 +16,14 @@
  *     agent (e.g. a pure pan/zoom, or edits that net out), don't wake.
  */
 
+/** Quiet window before the passive *observe* turn — long, so a suggestion
+ *  only interrupts once the user has genuinely paused. */
 const QUIET_MS = 4000;
+
+/** Quiet window before an @agent *mention* scan — short, so a tag is picked up
+ *  promptly after you blur a text element (which triggers a board sync), while
+ *  still batching a burst of edits (typing several tags) into one turn. */
+const MENTION_QUIET_MS = 800;
 
 /** The watch prompt sent on each wake. Mirrors the brainstorm SKILL.md
  *  contract: observe, suggest briefly if useful, else NOTHING_TO_ADD, never
@@ -130,6 +137,7 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
   const wsUrl = canvasUrl.replace(/^http/, "ws");
   let socket: WebSocket | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let mentionTimer: ReturnType<typeof setTimeout> | null = null;
   let lastSentHash = "";
   let stopped = false;
 
@@ -142,6 +150,13 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
     if (timer) {
       clearTimeout(timer);
       timer = null;
+    }
+  };
+
+  const clearMentionTimer = () => {
+    if (mentionTimer) {
+      clearTimeout(mentionTimer);
+      mentionTimer = null;
     }
   };
 
@@ -186,13 +201,15 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
     }
   };
 
-  /** One-shot scan run right after (re)connecting: an @agent note already on
-   *  the board (e.g. restored from board.json, or added before the socket was
-   *  live) would otherwise sit inert until the next change broadcast, because
-   *  the connect-time snapshot is intentionally ignored for the observe path.
-   *  This fires the editable mention turn for such a note — but NOT the passive
-   *  observe turn, so opening a board still produces no unsolicited comment. */
-  const scanMentionsOnConnect = async () => {
+  /** Mention-ONLY pass: fetch the board and dispatch any fresh @agent turn, but
+   *  NEVER the passive observe turn. Used both right after (re)connecting (an
+   *  @agent note already on the board — restored from board.json, or added
+   *  before the socket was live — would otherwise sit inert, since the
+   *  connect-time snapshot is ignored for the observe path) and on the short
+   *  mention debounce after each board change (so a tag is picked up promptly
+   *  once you blur a text element, without waiting the full observe window). */
+  const mentionScan = async () => {
+    mentionTimer = null;
     if (stopped) return;
     if (handle.isRunning()) return;
     try {
@@ -211,6 +228,12 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
     timer = setTimeout(() => void wake(), QUIET_MS);
   };
 
+  const scheduleMentionScan = () => {
+    if (stopped) return;
+    clearMentionTimer();
+    mentionTimer = setTimeout(() => void mentionScan(), MENTION_QUIET_MS);
+  };
+
   const connect = () => {
     if (stopped) return;
     socket = new WebSocket(wsUrl);
@@ -218,7 +241,7 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
       // Pick up an @agent note that's already on the board at connect time
       // (restored from board.json, or added before this socket was live). The
       // observe path stays silent on connect; only mentions fire here.
-      void scanMentionsOnConnect();
+      void mentionScan();
     };
     socket.onmessage = (ev) => {
       let type = "";
@@ -227,9 +250,13 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
       } catch {
         return;
       }
-      // Any element-changing broadcast resets the quiet timer. The connect-time
-      // snapshot/status messages are ignored so opening the board doesn't wake
-      // the agent immediately.
+      // Any element-changing broadcast arms two independent timers: a short one
+      // for the @agent mention scan (so a tag is picked up promptly after you
+      // blur a text element — which triggers a board sync — without waiting the
+      // full observe window) and the long one for the passive observe turn (so a
+      // suggestion only interrupts once you've genuinely paused). Both reset on
+      // each change. The connect-time snapshot/status messages are ignored so
+      // opening the board doesn't wake the agent immediately.
       if (
         type === "element_created" ||
         type === "element_updated" ||
@@ -237,6 +264,7 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
         type === "elements_batch_created" ||
         type === "canvas_cleared"
       ) {
+        scheduleMentionScan();
         scheduleWake();
       }
     };
@@ -252,6 +280,7 @@ export function startWatchLoop(canvasUrl: string, handle: WatchHandle): () => vo
   return () => {
     stopped = true;
     clearTimer();
+    clearMentionTimer();
     socket?.close();
     socket = null;
   };
