@@ -17,7 +17,8 @@ the `excalidraw` MCP server, which is enabled by default in this project.
   read the current elements, or `get_canvas_screenshot` (image) to actually see
   the layout. Never assume the board state — read it.
 - Draw with `create_element` / `update_element`; organise with
-  `group_elements` / `align_elements`; inspect with `query_elements`.
+  `group_elements` / `align_elements`; remove with `delete_element`; inspect
+  with `query_elements`.
 
 ## Two modes
 
@@ -58,6 +59,9 @@ them to you as an **editable** turn (unlike watch mode, you MAY draw here).
   again.
 - Briefly say in chat what you did (one or two sentences). Don't repeat the
   whole instruction back — it's already shown in the chat.
+- **Never write `@agent` into a board element yourself** (don't echo the
+  instruction onto the canvas). Any text element containing `@agent` is read as
+  a new instruction on the next tick — writing one would trigger yourself.
 
 ## Etiquette
 
