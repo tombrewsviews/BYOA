@@ -22,6 +22,7 @@ import { KineticApp } from "../canvases/kinetic/KineticApp";
 import { PulseApp } from "../canvases/music/PulseApp";
 import { BrainstormApp } from "../canvases/brainstorm/BrainstormApp";
 import { DataApp } from "../canvases/data/DataApp";
+import { RemitApp } from "../canvases/remit/RemitApp";
 
 export type AppStatus = "available" | "coming-soon";
 
@@ -177,6 +178,27 @@ export const APPS: AppManifest[] = [
     releasedAt: "2026-06-22",
     sizeBytes: 2_000_000,
     category: "data",
+  },
+  {
+    id: "remit",
+    name: "Remit",
+    blurb: "Auto-fill bank transfer forms",
+    description:
+      "Fill the Maybank remittance form from a small form panel instead of editing a PDF field by field. Your fixed sender details are baked in; enter the recipient, bank, and amount, and export a page-1 PDF that matches the bank's form, on white, with your signature stamped in.",
+    creator: "altramanera",
+    version: "0.1.0",
+    tokens: 0,
+    files: 8,
+    loc: 1_100,
+    rating: 0,
+    ratingCount: 0,
+    tags: ["forms", "pdf", "banking"],
+    hue: 210,
+    status: "available",
+    Root: RemitApp,
+    releasedAt: "2026-07-03",
+    sizeBytes: 1_500_000,
+    category: "writing",
   },
   {
     id: "voxel",

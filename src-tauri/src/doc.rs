@@ -116,6 +116,30 @@ pub fn apply_patch(
     Ok(body)
 }
 
+/// Write filled-PDF bytes into the active project folder under `filename`.
+///
+/// Used by the Remit canvas's export button: the frontend builds the PDF with
+/// pdf-lib, then hands the bytes here to land next to `remit.json`. Returns the
+/// absolute path written. The filename is sanitised to a bare basename so a
+/// caller can't escape the project directory.
+#[tauri::command]
+pub fn remit_export(
+    filename: String,
+    bytes: Vec<u8>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let dir = active_path(&state)?;
+    let name = std::path::Path::new(&filename)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "invalid filename".to_string())?;
+    let target = dir.join(name);
+    let tmp = target.with_extension("pdf.tmp");
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("write tmp: {}", e))?;
+    std::fs::rename(&tmp, &target).map_err(|e| format!("rename: {}", e))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use json_patch::{patch as apply_json_patch, Patch};

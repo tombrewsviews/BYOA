@@ -169,6 +169,34 @@ impl Canvas for DataCanvas {
     }
 }
 
+/// The Remit canvas. Its document is `remit.json` (per-transfer values for the
+/// Maybank remittance form). The frontend fills a real PDF; this side just
+/// stores the doc and provides the agent skill.
+pub struct RemitCanvas;
+
+impl Canvas for RemitCanvas {
+    fn id(&self) -> &'static str {
+        "remit"
+    }
+
+    fn doc_filename(&self) -> &'static str {
+        "remit.json"
+    }
+
+    fn seed_bytes(&self) -> &'static [u8] {
+        include_bytes!("../templates/seed-remit.json")
+    }
+
+    fn summarise(&self, _project_dir: &Path) -> ProjectSummary {
+        // One transfer per project; no natural count.
+        ProjectSummary { count: 0 }
+    }
+
+    fn skill_bundle(&self) -> &'static crate::skill::SkillBundle {
+        &crate::canvases::remit::BUNDLE
+    }
+}
+
 /// Resolve a canvas by its stable id. Falls back to kinetic for any
 /// unknown id. Used at project-create time where the caller knows which
 /// app it is.
@@ -177,6 +205,7 @@ pub fn by_id(id: &str) -> &'static dyn Canvas {
         "pulse" => &MusicCanvas,
         "brainstorm" => &BrainstormCanvas,
         "data" => &DataCanvas,
+        "remit" => &RemitCanvas,
         _ => &KineticCanvas,
     }
 }
@@ -194,6 +223,8 @@ pub fn for_project(project_dir: &Path) -> &'static dyn Canvas {
         &BrainstormCanvas
     } else if project_dir.join("query.json").exists() {
         &DataCanvas
+    } else if project_dir.join("remit.json").exists() {
+        &RemitCanvas
     } else {
         &KineticCanvas
     }

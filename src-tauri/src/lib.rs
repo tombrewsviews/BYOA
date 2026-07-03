@@ -76,6 +76,7 @@ pub fn run() {
             doc::apply_patch,
             doc::load_doc,
             doc::save_doc,
+            doc::remit_export,
             pty::pty_open,
             pty::pty_write,
             pty::pty_resize,
