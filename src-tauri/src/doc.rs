@@ -116,27 +116,32 @@ pub fn apply_patch(
     Ok(body)
 }
 
-/// Write filled-PDF bytes into the active project folder under `filename`.
+/// Write filled-PDF bytes to disk under `filename` in `dir`, then reveal the
+/// saved file in Finder.
 ///
-/// Used by the Remit canvas's export button: the frontend builds the PDF with
-/// pdf-lib, then hands the bytes here to land next to `remit.json`. Returns the
-/// absolute path written. The filename is sanitised to a bare basename so a
-/// caller can't escape the project directory.
+/// Used by the Remit canvas's export button: the frontend picks a destination
+/// folder (native dialog) and builds the PDF with pdf-lib, then hands the bytes
+/// here. `filename` is sanitised to a bare basename so it can't escape `dir`.
+/// Returns the absolute path written.
 #[tauri::command]
-pub fn remit_export(
-    filename: String,
-    bytes: Vec<u8>,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let dir = active_path(&state)?;
+pub fn remit_export(dir: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
     let name = std::path::Path::new(&filename)
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| "invalid filename".to_string())?;
-    let target = dir.join(name);
+    let dir_path = std::path::Path::new(&dir);
+    if !dir_path.is_dir() {
+        return Err(format!("not a directory: {}", dir));
+    }
+    let target = dir_path.join(name);
     let tmp = target.with_extension("pdf.tmp");
     std::fs::write(&tmp, &bytes).map_err(|e| format!("write tmp: {}", e))?;
     std::fs::rename(&tmp, &target).map_err(|e| format!("rename: {}", e))?;
+    // Reveal the saved file in Finder (selected). Best-effort.
+    let _ = std::process::Command::new("open")
+        .arg("-R")
+        .arg(&target)
+        .spawn();
     Ok(target.to_string_lossy().into_owned())
 }
 

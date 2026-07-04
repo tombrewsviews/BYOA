@@ -43,17 +43,17 @@ export const FIELDS = {
   senderId: { x: 100, y: 604, size: 9 },
   senderAddress: { x: 336, y: 650, size: 9, maxWidth: 250, lineHeight: 12 },
 
-  // B. Recipient (variable)
-  recipientName: { x: 24, y: 551, size: 9 }, // row under B header
-  recipientId: { x: 100, y: 517, size: 9 },
-  recipientTel: { x: 58, y: 507, size: 9 },
+  // B. Recipient (variable). Value baselines sit ~15pt below each label.
+  recipientName: { x: 24, y: 554, size: 9 }, // label at y≈567
+  recipientId: { x: 100, y: 531, size: 9 }, // on the "No. ID" label row (y≈531)
+  recipientTel: { x: 58, y: 513, size: 9 }, // on the "No.Tel" label row (y≈513)
   recipientAddress: { x: 336, y: 560, size: 9, maxWidth: 250, lineHeight: 13 },
-  recipientRepName: { x: 24, y: 455, size: 8 },
+  recipientRepName: { x: 24, y: 466, size: 9 }, // rep label at y≈480
 
   // C. Recipient bank & transfer (variable)
   bankName: { x: 100, y: 421, size: 11, bold: true },
   bankAccount: { x: 175, y: 393, size: 11, bold: true },
-  bankAddress: { x: 110, y: 374, size: 9, maxWidth: 240, lineHeight: 11 },
+  bankAddress: { x: 110, y: 374, size: 8, maxWidth: 200, lineHeight: 10 },
   bankTown: { x: 55, y: 336, size: 9 },
   bankCountry: { x: 180, y: 336, size: 9 },
   paymentDetails: { x: 336, y: 416, size: 10, maxWidth: 250, lineHeight: 12 },
@@ -79,28 +79,31 @@ export const MARKS = {
   typeCHEQUE: { x: 255, y: 746, size: 10 },
   typeOTHER: { x: 341, y: 746, size: 10 },
 
-  // Recipient residency (B header row, y≈500)
-  recipientResident: { x: 476, y: 500, size: 10 },
-  recipientNonResident: { x: 526, y: 500, size: 10 },
-  // Recipient-representative residency row (y≈464 area)
-  repResident: { x: 476, y: 464, size: 10 },
-  repNonResident: { x: 526, y: 464, size: 10 },
+  // Recipient residency — B section row (Resident/Non-Resident by the recipient
+  // name), y≈587, boxes left of each label.
+  recipientResident: { x: 180, y: 587, size: 9 },
+  recipientNonResident: { x: 237, y: 587, size: 9 },
+  // Recipient-representative residency row ("Isi bawah jika penerima
+  // mewakili…"), y≈500, boxes far right (x≈476 / 525).
+  repResident: { x: 476, y: 500, size: 9 },
+  repNonResident: { x: 525, y: 500, size: 9 },
 
   // Charge SHA / OUR (Caj Ejen / Agent Fee row, y≈177)
-  chargeSHA: { x: 83, y: 177, size: 10 },
-  chargeOUR: { x: 122, y: 177, size: 10 },
+  chargeSHA: { x: 90, y: 177, size: 9 },
+  chargeOUR: { x: 129, y: 177, size: 9 },
 
-  // Purpose of payment (section D). Checkbox sits left of each label.
-  purposeGOODS: { x: 342, y: 285, size: 10 },
-  purposeDERIVATIVES: { x: 336, y: 267, size: 10 },
-  purposeSERVICES: { x: 357, y: 249, size: 10 },
-  purposeOWN_FUNDS: { x: 401, y: 232, size: 10 },
-  purposeCAPITAL: { x: 367, y: 213, size: 10 },
-  purposeFOREX: { x: 404, y: 195, size: 10 },
-  purposeOTHER: { x: 374, y: 178, size: 10 },
+  // Purpose of payment (section D right column). ALL checkboxes share the same
+  // x (label left = 320 → box center ≈ 309); only Y differs per row.
+  purposeGOODS: { x: 309, y: 285, size: 9 },
+  purposeDERIVATIVES: { x: 309, y: 267, size: 9 },
+  purposeSERVICES: { x: 309, y: 249, size: 9 },
+  purposeOWN_FUNDS: { x: 309, y: 232, size: 9 },
+  purposeCAPITAL: { x: 309, y: 213, size: 9 },
+  purposeFOREX: { x: 309, y: 195, size: 9 },
+  purposeOTHER: { x: 309, y: 178, size: 9 },
 
-  // Declaration read (bottom, "Saya telah…")
-  declaration: { x: 306, y: 34, size: 9 },
+  // Declaration read (bottom, "Saya telah…"), box center ≈ (308, 34)
+  declaration: { x: 308, y: 34, size: 9 },
 } satisfies Record<string, Mark>;
 
 export type MarkName = keyof typeof MARKS;

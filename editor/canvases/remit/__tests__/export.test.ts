@@ -19,7 +19,7 @@ const readBytes = async (p: string): Promise<Uint8Array> => {
 
 const sampleDoc = (): RemitDoc => ({
   ...defaultDoc(),
-  senderAccount: "MYR",
+  senderAccount: "USD", // USD account → amount lands in the foreign-currency slot
   date: "2026-02-04",
   transferType: "FTT",
   recipient: {
@@ -39,7 +39,7 @@ const sampleDoc = (): RemitDoc => ({
     swift: "CIBBMYKL",
   },
   payment: { details: "Invoice No. : 2026-00077" },
-  amount: { currency: "USD", value: "5,839.20" },
+  amount: { value: "5,839.20" },
   charge: "OUR",
   purpose: "OTHER",
   stampSignature: true,

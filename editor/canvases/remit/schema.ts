@@ -21,10 +21,13 @@ export type Purpose =
   | "CAPITAL"
   | "FOREX"
   | "OTHER";
-/** "MYR" -> the MYR account number; "USD" -> the USD account number. */
+/**
+ * "MYR" -> the MYR account number, amount in the "In RM" slot.
+ * "USD" -> the USD account number, amount in the "In Foreign Currency" slot.
+ * The sender account drives BOTH the account number and the amount slot —
+ * there is no separate currency picker.
+ */
 export type SenderAccount = "MYR" | "USD";
-/** "MYR" fills the "Dalam RM / In RM" slot; anything else fills "In Foreign Currency". */
-export type AmountCurrency = "MYR" | "USD";
 
 export type RemitDoc = {
   canvas: "remit";
@@ -49,7 +52,8 @@ export type RemitDoc = {
     swift: string;
   };
   payment: { details: string };
-  amount: { currency: AmountCurrency; value: string };
+  /** The amount is placed in the RM or foreign slot per `senderAccount`. */
+  amount: { value: string };
   charge: Charge;
   purpose: Purpose;
   stampSignature: boolean;
@@ -85,16 +89,18 @@ export const formatDate = (iso: string): string => {
   return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
 };
 
-/** The amount string as it appears on the form, e.g. "10,000.00 USD". */
+/** The amount string as it appears on the form, e.g. "10,000.00 USD". The
+ *  currency code comes from the sender account. */
 export const formatAmount = (doc: RemitDoc): string => {
   const v = doc.amount.value.trim();
   if (!v) return "";
-  return `${v} ${doc.amount.currency}`;
+  return `${v} ${doc.senderAccount}`;
 };
 
-/** True when the amount goes in the "In Foreign Currency" slot (not RM). */
+/** True when the amount goes in the "In Foreign Currency" slot — i.e. the USD
+ *  sender account. MYR goes in the "In RM" slot. */
 export const isForeignAmount = (doc: RemitDoc): boolean =>
-  doc.amount.currency !== "MYR";
+  doc.senderAccount === "USD";
 
 export const defaultDoc = (): RemitDoc => ({
   canvas: "remit",
@@ -111,7 +117,7 @@ export const defaultDoc = (): RemitDoc => ({
   },
   bank: { name: "", account: "", address: "", town: "", country: "", swift: "" },
   payment: { details: "" },
-  amount: { currency: "USD", value: "" },
+  amount: { value: "" },
   charge: "OUR",
   purpose: "OTHER",
   stampSignature: true,
@@ -165,10 +171,7 @@ export const parseDoc = (raw: string): RemitDoc => {
       swift: str(b.swift, d.bank.swift),
     },
     payment: { details: str(p.details, d.payment.details) },
-    amount: {
-      currency: a.currency === "MYR" ? "MYR" : "USD",
-      value: str(a.value, d.amount.value),
-    },
+    amount: { value: str(a.value, d.amount.value) },
     charge: o.charge === "SHA" ? "SHA" : "OUR",
     purpose: (
       ["GOODS", "DERIVATIVES", "SERVICES", "OWN_FUNDS", "CAPITAL", "FOREX", "OTHER"] as const

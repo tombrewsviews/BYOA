@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isTauri } from "../../runtime";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Download } from "../../icons";
+import { Plus, Trash2, Download, ArrowLeft } from "../../icons";
 import { FormPanel } from "./FormPanel";
 import { Preview } from "./Preview";
 import { buildFilledPdf } from "./export";
@@ -98,7 +98,10 @@ const SessionsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({ onOpen }
   );
 };
 
-const RemitEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
+const RemitEditor: React.FC<{ project: ProjectMeta; onBack: () => void }> = ({
+  project,
+  onBack,
+}) => {
   const [doc, setDoc] = useState<RemitDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -142,24 +145,19 @@ const RemitEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
 
   const exportPdf = useCallback(async () => {
     if (!doc) return;
-    setExporting(true);
     setStatus(null);
     setError(null);
-    try {
-      const [tpl, sig] = await Promise.all([
-        fetch(whitePdfUrl).then((r) => r.arrayBuffer()),
-        fetch(signaturePngUrl).then((r) => r.arrayBuffer()),
-      ]);
-      const bytes = await buildFilledPdf(doc, tpl, sig);
-      const filename = exportFilename(doc);
-      if (isTauri()) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const path = await invoke<string>("remit_export", {
-          filename,
-          bytes: Array.from(bytes),
-        });
-        setStatus(`Saved to ${path}`);
-      } else {
+    const filename = exportFilename(doc);
+
+    // Non-Tauri (browser dev): download directly, no folder picker available.
+    if (!isTauri()) {
+      setExporting(true);
+      try {
+        const [tpl, sig] = await Promise.all([
+          fetch(whitePdfUrl).then((r) => r.arrayBuffer()),
+          fetch(signaturePngUrl).then((r) => r.arrayBuffer()),
+        ]);
+        const bytes = await buildFilledPdf(doc, tpl, sig);
         const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -168,7 +166,36 @@ const RemitEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         a.click();
         URL.revokeObjectURL(url);
         setStatus(`Downloaded ${filename}`);
+      } catch (e) {
+        setError(`Export failed: ${(e as Error).message}`);
+      } finally {
+        setExporting(false);
       }
+      return;
+    }
+
+    // Tauri: ask where to save (folder picker), then write there and reveal.
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const dir = await open({
+        directory: true,
+        multiple: false,
+        title: "Choose a folder to save the transfer PDF",
+      });
+      if (typeof dir !== "string") return; // cancelled
+      setExporting(true);
+      const [tpl, sig] = await Promise.all([
+        fetch(whitePdfUrl).then((r) => r.arrayBuffer()),
+        fetch(signaturePngUrl).then((r) => r.arrayBuffer()),
+      ]);
+      const bytes = await buildFilledPdf(doc, tpl, sig);
+      const { invoke } = await import("@tauri-apps/api/core");
+      const path = await invoke<string>("remit_export", {
+        dir,
+        filename,
+        bytes: Array.from(bytes),
+      });
+      setStatus(`Saved to ${path}`);
     } catch (e) {
       setError(`Export failed: ${(e as Error).message}`);
     } finally {
@@ -184,8 +211,13 @@ const RemitEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     <div className="flex h-full min-h-0">
       {/* Left: form panel */}
       <div className="flex w-[420px] flex-none flex-col border-r border-border">
-        <div className="flex flex-none items-center justify-between border-b border-border px-3 py-2">
-          <div className="text-sm font-medium text-foreground">{project.name}</div>
+        <div className="flex flex-none items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <Button size="icon-sm" variant="ghost" onClick={onBack} title="Back to transfers">
+              <ArrowLeft className="size-4" />
+            </Button>
+            <div className="truncate text-sm font-medium text-foreground">{project.name}</div>
+          </div>
           <Button size="sm" onClick={exportPdf} disabled={exporting}>
             <Download className="size-4" />
             {exporting ? "Exporting…" : "Export PDF"}
@@ -225,6 +257,15 @@ export const RemitApp: React.FC<{ onExit: () => void }> = () => {
     })();
     return () => { if (off) off(); };
   }, []);
+
+  const back = useCallback(async () => {
+    if (isTauri()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("project_close").catch(() => {});
+    }
+    setProject(null);
+  }, []);
+
   if (!project) return <SessionsList onOpen={setProject} />;
-  return <RemitEditor key={project.path} project={project} />;
+  return <RemitEditor key={project.path} project={project} onBack={back} />;
 };

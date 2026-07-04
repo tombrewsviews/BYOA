@@ -15,7 +15,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
-  AmountCurrency,
   Charge,
   Purpose,
   RemitDoc,
@@ -58,7 +57,7 @@ export const FormPanel: React.FC<{ doc: RemitDoc; onChange: Update }> = ({
       onChange((d) => path(d, e.target.value));
 
   return (
-    <div className="flex flex-col gap-4 overflow-auto p-4">
+    <div className="flex flex-col gap-4 overflow-auto p-4 text-foreground">
       <Section title="Transfer">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date">
@@ -225,37 +224,16 @@ export const FormPanel: React.FC<{ doc: RemitDoc; onChange: Update }> = ({
       </Section>
 
       <Section title="Amount">
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Currency">
-            <Select
-              value={doc.amount.currency}
-              onValueChange={(v) =>
-                onChange((d) => ({
-                  ...d,
-                  amount: { ...d.amount, currency: v as AmountCurrency },
-                }))
-              }
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MYR">MYR (In RM)</SelectItem>
-                <SelectItem value="USD">USD (Foreign)</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <div className="col-span-2">
-            <Field label="Value">
-              <Input
-                placeholder="10,000.00"
-                value={doc.amount.value}
-                onChange={setText((d, v) => ({
-                  ...d,
-                  amount: { ...d.amount, value: v },
-                }))}
-              />
-            </Field>
-          </div>
-        </div>
+        <Field label={`Value (${doc.senderAccount} — ${doc.senderAccount === "MYR" ? "In RM" : "In Foreign Currency"})`}>
+          <Input
+            placeholder="10,000.00"
+            value={doc.amount.value}
+            onChange={setText((d, v) => ({ ...d, amount: { value: v } }))}
+          />
+        </Field>
+        <p className="text-xs text-muted-foreground">
+          The slot (RM vs foreign currency) follows the sender account above.
+        </p>
       </Section>
 
       <Section title="Options">

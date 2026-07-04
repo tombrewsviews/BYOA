@@ -13,62 +13,10 @@ import {
   SIGNATURE,
   SIGN_CAPTION,
   type FieldName,
-  type MarkName,
   type TextField,
 } from "./layout";
-import {
-  SENDER,
-  formatAmount,
-  formatDate,
-  isForeignAmount,
-  senderAccountNumber,
-  type RemitDoc,
-} from "./schema";
-
-const textValues = (doc: RemitDoc): Partial<Record<FieldName, string>> => {
-  const foreign = isForeignAmount(doc);
-  const amount = formatAmount(doc);
-  return {
-    date: formatDate(doc.date),
-    senderAccount: senderAccountNumber(doc),
-    senderNameTop: SENDER.name,
-    senderNameRep: SENDER.name,
-    senderId: SENDER.idNo,
-    senderAddress: SENDER.address.join("\n"),
-    recipientName: doc.recipient.name,
-    recipientId: doc.recipient.id,
-    recipientTel: doc.recipient.tel,
-    recipientAddress: doc.recipient.address,
-    recipientRepName: doc.recipient.isOrganisation ? doc.recipient.name : "",
-    bankName: doc.bank.name,
-    bankAccount: doc.bank.account,
-    bankAddress: doc.bank.address,
-    bankTown: doc.bank.town,
-    bankCountry: doc.bank.country,
-    paymentDetails: doc.payment.details,
-    amountRM: foreign ? "" : amount,
-    amountForeign: foreign ? amount : "",
-    swift: doc.bank.swift,
-  };
-};
-
-const activeMarks = (doc: RemitDoc): MarkName[] => {
-  const marks: MarkName[] = [("type" + doc.transferType) as MarkName];
-  marks.push(
-    doc.recipient.residency === "resident"
-      ? "recipientResident"
-      : "recipientNonResident",
-  );
-  if (doc.recipient.isOrganisation) {
-    marks.push(
-      doc.recipient.residency === "resident" ? "repResident" : "repNonResident",
-    );
-  }
-  marks.push(doc.charge === "SHA" ? "chargeSHA" : "chargeOUR");
-  marks.push(("purpose" + doc.purpose) as MarkName);
-  if (doc.checkDeclaration) marks.push("declaration");
-  return marks;
-};
+import { SENDER, type RemitDoc } from "./schema";
+import { activeMarks, textValues } from "./fields";
 
 export const Preview: React.FC<{ doc: RemitDoc }> = ({ doc }) => {
   // Percent coordinates so the overlay scales with the responsive image.
