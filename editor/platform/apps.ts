@@ -32,7 +32,8 @@ export type AppCategory =
   | "3d-render"
   | "writing"
   | "data"
-  | "devtools";
+  | "devtools"
+  | "private";
 
 export type AppSkill = { name: string; on: boolean };
 
@@ -198,7 +199,7 @@ export const APPS: AppManifest[] = [
     Root: RemitApp,
     releasedAt: "2026-07-03",
     sizeBytes: 1_500_000,
-    category: "writing",
+    category: "private",
   },
   {
     id: "voxel",

@@ -29,6 +29,7 @@ const CATEGORY_LABEL: Record<AppCategory, string> = {
   writing: "Writing",
   data: "Data",
   devtools: "Devtools",
+  private: "Private",
 };
 
 const SECTION_LABEL =

@@ -66,6 +66,7 @@ const CATEGORY_DISPLAY: Record<string, string> = {
   writing: "Writing",
   data: "Data",
   devtools: "Devtools",
+  private: "Private",
 };
 
 const filterApps = (filter: Filter): AppManifest[] => {

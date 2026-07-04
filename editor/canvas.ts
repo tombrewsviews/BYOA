@@ -98,6 +98,7 @@ import { kineticCanvas } from "./canvases/kinetic";
 import { musicCanvas } from "./canvases/music";
 import { brainstormCanvas } from "./canvases/brainstorm";
 import { dataCanvas } from "./canvases/data";
+import { remitCanvas } from "./canvases/remit";
 
 export const activeCanvas: CanvasPlugin<unknown> =
   kineticCanvas as CanvasPlugin<unknown>;
@@ -112,5 +113,6 @@ export function resolveCanvas(appId: string): CanvasPlugin<unknown> {
   if (appId === "pulse") return musicCanvas as CanvasPlugin<unknown>;
   if (appId === "brainstorm") return brainstormCanvas as CanvasPlugin<unknown>;
   if (appId === "data") return dataCanvas as CanvasPlugin<unknown>;
+  if (appId === "remit") return remitCanvas as CanvasPlugin<unknown>;
   return kineticCanvas as CanvasPlugin<unknown>;
 }
