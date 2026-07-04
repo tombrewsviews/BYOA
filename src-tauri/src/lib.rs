@@ -15,6 +15,7 @@ mod projects;
 mod prompt_mode;
 mod pty;
 mod pulse;
+mod remit;
 mod selection;
 mod settings;
 mod skill;
@@ -77,6 +78,9 @@ pub fn run() {
             doc::load_doc,
             doc::save_doc,
             doc::remit_export,
+            remit::remit_recipients_load,
+            remit::remit_recipients_save,
+            remit::remit_duplicate,
             pty::pty_open,
             pty::pty_write,
             pty::pty_resize,

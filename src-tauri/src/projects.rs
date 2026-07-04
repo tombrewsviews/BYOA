@@ -140,18 +140,16 @@ pub fn projects_list(canvas: Option<String>) -> Result<Vec<ProjectMeta>, String>
     Ok(out)
 }
 
-#[tauri::command]
-pub fn projects_create(
-    name: String,
-    canvas: Option<String>,
-) -> Result<ProjectMeta, String> {
+/// Create and seed a new project folder for `canvas_id`, returning its meta.
+/// Shared by `projects_create` (the command) and `remit_duplicate`.
+pub fn create_project_dir(name: &str, canvas_id: &str) -> Result<ProjectMeta, String> {
     let home = home_dir();
     fs::create_dir_all(&home).map_err(|e| format!("mkdir home: {}", e))?;
 
     let base_slug = slug::slugify(if name.trim().is_empty() {
         "untitled"
     } else {
-        &name
+        name
     });
     let mut dir = home.join(&base_slug);
     let mut n = 2;
@@ -162,7 +160,7 @@ pub fn projects_create(
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir project: {}", e))?;
     // Which canvas to seed. Defaults to kinetic for back-compat; the
     // Pulse app passes "pulse" so the seed doc is project.json.
-    let canvas = canvas::by_id(canvas.as_deref().unwrap_or("kinetic"));
+    let canvas = canvas::by_id(canvas_id);
     fs::write(dir.join(canvas.doc_filename()), canvas.seed_bytes())
         .map_err(|e| format!("write doc: {}", e))?;
     fs::create_dir_all(dir.join(".kinetic-studio"))
@@ -180,7 +178,7 @@ pub fn projects_create(
     let display_name = if name.trim().is_empty() {
         "Untitled".into()
     } else {
-        name
+        name.to_string()
     };
 
     let path_str = dir.to_string_lossy().to_string();
@@ -194,6 +192,14 @@ pub fn projects_create(
         preview_path,
         preview_stale,
     })
+}
+
+#[tauri::command]
+pub fn projects_create(
+    name: String,
+    canvas: Option<String>,
+) -> Result<ProjectMeta, String> {
+    create_project_dir(&name, canvas.as_deref().unwrap_or("kinetic"))
 }
 
 #[tauri::command]

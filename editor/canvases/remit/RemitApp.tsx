@@ -7,6 +7,14 @@ import { FormPanel } from "./FormPanel";
 import { Preview } from "./Preview";
 import { buildFilledPdf } from "./export";
 import { defaultDoc, exportFilename, parseDoc, type RemitDoc } from "./schema";
+import {
+  applyRecipient,
+  loadRecipients,
+  newId,
+  recipientFromDoc,
+  saveRecipients,
+  type SavedRecipient,
+} from "./recipients";
 import whitePdfUrl from "./assets/remit-template-white.pdf?url";
 import signaturePngUrl from "./assets/signature.png?url";
 
@@ -60,6 +68,18 @@ const SessionsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({ onOpen }
     catch (e) { setError(`Delete failed: ${(e as Error).message}`); }
   }, [refresh]);
 
+  const duplicate = useCallback(async (src: ProjectMeta) => {
+    if (!isTauri()) return;
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      const meta = await invoke<ProjectMeta>("remit_duplicate", {
+        sourcePath: src.path,
+        name: `${src.name} copy`,
+      });
+      await open(meta);
+    } catch (e) { setError(`Duplicate failed: ${(e as Error).message}`); }
+  }, [open]);
+
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col gap-4 p-8">
       <div>
@@ -87,10 +107,16 @@ const SessionsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({ onOpen }
               <div className="text-sm font-medium text-foreground">{b.name}</div>
               <div className="text-xs text-muted-foreground">{b.path}</div>
             </button>
-            <Button variant="ghost" size="icon-sm" onClick={() => void remove(b.path)}
-              title="Delete" className="opacity-0 group-hover:opacity-100">
-              <Trash2 className="size-4" />
-            </Button>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+              <Button variant="ghost" size="sm" onClick={() => void duplicate(b)}
+                title="Duplicate this transfer">
+                Duplicate
+              </Button>
+              <Button variant="ghost" size="icon-sm" onClick={() => void remove(b.path)}
+                title="Delete">
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
           </div>
         ))}
       </div>
@@ -106,9 +132,10 @@ const RemitEditor: React.FC<{ project: ProjectMeta; onBack: () => void }> = ({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [saved, setSaved] = useState<SavedRecipient[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load remit.json on open.
+  // Load remit.json + saved recipients on open.
   useEffect(() => {
     void (async () => {
       if (!isTauri()) return setDoc(defaultDoc());
@@ -118,6 +145,7 @@ const RemitEditor: React.FC<{ project: ProjectMeta; onBack: () => void }> = ({
         setDoc(parseDoc(raw));
       } catch (e) { setError(`Load failed: ${(e as Error).message}`); }
     })();
+    void loadRecipients().then(setSaved);
   }, [project.path]);
 
   // Debounced save.
@@ -142,6 +170,39 @@ const RemitEditor: React.FC<{ project: ProjectMeta; onBack: () => void }> = ({
     },
     [persist],
   );
+
+  // Saved-recipient controls.
+  const pickRecipient = useCallback(
+    (id: string) => {
+      const r = saved.find((x) => x.id === id);
+      if (r) update((d) => applyRecipient(d, r));
+    },
+    [saved, update],
+  );
+
+  const saveCurrentRecipient = useCallback(() => {
+    if (!doc) return;
+    setSaved((prev) => {
+      // Replace an existing entry with the same label, else append.
+      const label = doc.recipient.name.trim() || "Untitled recipient";
+      const existing = prev.find((x) => x.label === label);
+      const rec = recipientFromDoc(doc, existing?.id ?? newId(prev));
+      const next = existing
+        ? prev.map((x) => (x.id === existing.id ? rec : x))
+        : [...prev, rec];
+      void saveRecipients(next);
+      return next;
+    });
+    setStatus("Recipient saved");
+  }, [doc]);
+
+  const deleteRecipient = useCallback((id: string) => {
+    setSaved((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      void saveRecipients(next);
+      return next;
+    });
+  }, []);
 
   const exportPdf = useCallback(async () => {
     if (!doc) return;
@@ -224,7 +285,16 @@ const RemitEditor: React.FC<{ project: ProjectMeta; onBack: () => void }> = ({
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
-          <FormPanel doc={doc} onChange={update} />
+          <FormPanel
+            doc={doc}
+            onChange={update}
+            recipients={{
+              saved,
+              onPick: pickRecipient,
+              onSaveCurrent: saveCurrentRecipient,
+              onDelete: deleteRecipient,
+            }}
+          />
         </div>
         {error ? (
           <div className="flex-none border-t border-border px-3 py-2 text-xs text-destructive">

@@ -4,6 +4,7 @@
  * (Design Drives Growth) isn't editable here — only the sender ACCOUNT toggle.
  */
 import React from "react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -24,6 +25,13 @@ import type {
 import { SENDER_ACCOUNTS } from "./schema";
 
 type Update = (patch: (d: RemitDoc) => RemitDoc) => void;
+
+export type RecipientControls = {
+  saved: import("./recipients").SavedRecipient[];
+  onPick: (id: string) => void;
+  onSaveCurrent: () => void;
+  onDelete: (id: string) => void;
+};
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({
   label,
@@ -47,10 +55,11 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   </div>
 );
 
-export const FormPanel: React.FC<{ doc: RemitDoc; onChange: Update }> = ({
-  doc,
-  onChange,
-}) => {
+export const FormPanel: React.FC<{
+  doc: RemitDoc;
+  onChange: Update;
+  recipients: RecipientControls;
+}> = ({ doc, onChange, recipients }) => {
   const setText =
     (path: (d: RemitDoc, v: string) => RemitDoc) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -102,6 +111,58 @@ export const FormPanel: React.FC<{ doc: RemitDoc; onChange: Update }> = ({
       </Section>
 
       <Section title="Recipient">
+        <Field label="Saved recipient">
+          <div className="flex gap-2">
+            <Select
+              value=""
+              onValueChange={(id) => recipients.onPick(id)}
+              disabled={recipients.saved.length === 0}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder={
+                  recipients.saved.length
+                    ? "Select a saved recipient…"
+                    : "No saved recipients yet"
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {recipients.saved.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>{r.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={recipients.onSaveCurrent}
+              disabled={!doc.recipient.name.trim()}
+              title="Save the current recipient + bank for reuse"
+            >
+              Save
+            </Button>
+          </div>
+          {recipients.saved.length > 0 ? (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {recipients.saved.map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"
+                >
+                  {r.label}
+                  <button
+                    type="button"
+                    title="Delete saved recipient"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => recipients.onDelete(r.id)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </Field>
         <Field label="Name">
           <Input
             value={doc.recipient.name}
