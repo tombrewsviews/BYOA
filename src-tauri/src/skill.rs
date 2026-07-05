@@ -43,9 +43,7 @@ pub struct SkillBundle {
 }
 
 fn bundle_root() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".kinetic-studio").join("skills-bundle").join("kinetic"))
-        .unwrap_or_else(|| PathBuf::from(".kinetic-studio/skills-bundle/kinetic"))
+    crate::paths::user_path("skills-bundle/kinetic")
 }
 
 /// Materialise the bundled skill files into the shared per-user

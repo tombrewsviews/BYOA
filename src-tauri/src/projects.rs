@@ -39,9 +39,7 @@ fn home_dir() -> PathBuf {
 }
 
 fn recents_path() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".kinetic-studio").join("recents.json"))
-        .unwrap_or_else(|| PathBuf::from(".kinetic-studio/recents.json"))
+    crate::paths::user_path("recents.json")
 }
 
 fn read_recents() -> std::collections::HashMap<String, String> {

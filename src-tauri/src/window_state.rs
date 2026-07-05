@@ -25,9 +25,7 @@ pub struct WindowState {
 }
 
 fn state_path() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".kinetic-studio").join("window.json"))
-        .unwrap_or_else(|| PathBuf::from(".kinetic-studio/window.json"))
+    crate::paths::user_path("window.json")
 }
 
 fn read() -> Option<WindowState> {
@@ -88,9 +86,7 @@ pub fn save_window_state(
 use std::collections::HashMap;
 
 fn view_mode_path() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".kinetic-studio").join("view-mode.json"))
-        .unwrap_or_else(|| PathBuf::from(".kinetic-studio/view-mode.json"))
+    crate::paths::user_path("view-mode.json")
 }
 
 fn read_view_modes() -> HashMap<String, String> {

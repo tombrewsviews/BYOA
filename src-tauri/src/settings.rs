@@ -40,9 +40,7 @@ pub struct Settings {
 }
 
 fn path() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".kinetic-studio").join("settings.json"))
-        .unwrap_or_else(|| PathBuf::from(".kinetic-studio/settings.json"))
+    crate::paths::user_path("settings.json")
 }
 
 pub fn load() -> Settings {
