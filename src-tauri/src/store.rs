@@ -54,12 +54,19 @@ fn write_registry(reg: &Path, entries: &[InstalledEntry]) -> Result<(), String> 
     fs::rename(&tmp, reg).map_err(|e| format!("rename registry: {}", e))
 }
 
-/// Sanitise an asset name to a bare basename so it can't escape the app folder.
+/// Sanitise a name to a bare basename so it can't escape the app folder.
+/// Rejects `.`, `..`, empty, and anything that isn't already a single path
+/// component (i.e. any name containing separators or traversal segments), so
+/// callers can't join their way outside the install root.
 fn safe_name(name: &str) -> Result<&str, String> {
-    Path::new(name)
+    let base = Path::new(name)
         .file_name()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| format!("invalid asset name: {}", name))
+        .ok_or_else(|| format!("invalid name: {}", name))?;
+    if base != name {
+        return Err(format!("invalid name: {}", name));
+    }
+    Ok(base)
 }
 
 fn install_into(
@@ -70,6 +77,7 @@ fn install_into(
     manifest_json: &str,
     assets: Vec<InstallAsset>,
 ) -> Result<(), String> {
+    let app_name = safe_name(app_name)?;
     let app_dir = base.join(app_name);
     // Build into a temp sibling then rename into place (atomic-ish).
     let staging = base.join(format!(".{}.staging", app_name));
@@ -99,6 +107,7 @@ fn install_into(
 }
 
 fn uninstall_into(base: &Path, reg: &Path, app_id: &str, app_name: &str) -> Result<(), String> {
+    let app_name = safe_name(app_name)?;
     let app_dir = base.join(app_name);
     if app_dir.exists() {
         fs::remove_dir_all(&app_dir).map_err(|e| format!("remove app dir: {}", e))?;
@@ -212,5 +221,30 @@ mod tests {
         install_into(&base, &reg, "remit", "Remit", "{\"v\":2}", vec![]).unwrap();
         let m = fs::read_to_string(base.join("Remit").join("manifest.json")).unwrap();
         assert!(m.contains("\"v\":2"));
+    }
+
+    #[test]
+    fn install_rejects_traversal_app_name() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+
+        // Relative traversal must be rejected and must not create anything outside base.
+        assert!(install_into(&base, &reg, "evil", "../escape", "{}", vec![]).is_err());
+        assert!(!dir.path().join("escape").exists());
+        assert!(!base.parent().unwrap().join("escape").exists());
+
+        // Absolute app_name must also be rejected.
+        assert!(install_into(&base, &reg, "evil", "/tmp/evil-dreamstore-test", "{}", vec![]).is_err());
+        assert!(!Path::new("/tmp/evil-dreamstore-test").exists());
+    }
+
+    #[test]
+    fn uninstall_rejects_traversal_app_name() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+
+        assert!(uninstall_into(&base, &reg, "evil", "../escape").is_err());
     }
 }
