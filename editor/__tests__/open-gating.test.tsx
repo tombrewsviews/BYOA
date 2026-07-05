@@ -6,7 +6,7 @@ vi.mock("../runtime", () => ({ isTauri: () => true }));
 const invokeMock = vi.fn().mockResolvedValue([]);
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
 
-import { canOpen, refreshInstallStates } from "../platform/install";
+import { canOpen, refreshInstallStates, __resetInstallCacheForTests } from "../platform/install";
 import { loadCurrentApp } from "../App";
 
 const CURRENT_APP_KEY = "platform.currentApp";
@@ -15,6 +15,9 @@ beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockResolvedValue([]);
   localStorage.clear();
+  // Clear the install-cache singleton so these tests don't depend on run order
+  // (the "flips canOpen" test below leaves "kinetic" installed otherwise).
+  __resetInstallCacheForTests();
 });
 
 describe("open gating", () => {

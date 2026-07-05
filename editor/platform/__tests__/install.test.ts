@@ -9,10 +9,19 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...
 // the Tauri commands.
 vi.mock("../install-assets", () => ({ installAssetsFor: async () => [] }));
 
-import { getInstallState, startInstall, uninstall, refreshInstallStates } from "../install";
+import {
+  getInstallState,
+  startInstall,
+  uninstall,
+  refreshInstallStates,
+  __resetInstallCacheForTests,
+} from "../install";
 
 describe("install.ts backed by Tauri commands", () => {
-  beforeEach(() => invoke.mockReset());
+  beforeEach(() => {
+    invoke.mockReset();
+    __resetInstallCacheForTests();
+  });
 
   it("defaults to not-installed (no force-install for apps with Root)", () => {
     expect(getInstallState("kinetic").state).toBe("not-installed");

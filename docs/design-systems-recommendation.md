@@ -1,6 +1,6 @@
 # Design-System / Component-Library Recommendation
 
-**For:** KineticType editor UI
+**For:** DreamStore editor UI
 **Date:** 2026-05-21
 **Status:** Recommendation — no code changed, this is a decision doc.
 

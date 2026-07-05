@@ -7,6 +7,15 @@
 
 // Overlay-tolerant: private-app install assets live in apps-private/*/assets/.
 // A shared clone has no overlay -> empty glob -> no private asset entries.
+//
+// We copy EVERY asset the app ships (the whole assets/ dir), not just the ones
+// the current build happens to use. In DS-1 the install folder is a state
+// marker the running app doesn't read yet (it still loads assets from its
+// bundled ?url imports), so the copy is forward-looking: DS-2 loads the app's
+// frontend from the install folder, at which point it needs every asset it
+// consumes at runtime (Remit uses the PDF template + signature for export AND
+// the white PNG for its on-screen preview). Copying the full assets/ dir keeps
+// the folder self-sufficient for that transition.
 const overlayAssets = import.meta.glob("../apps-private/*/assets/*", {
   eager: true,
   query: "?url",

@@ -6,6 +6,13 @@
 //! `~/.dreamstore/installed.json`. Native app CODE stays compiled into the
 //! binary (built-in tier); uninstall removes only the folder + registry entry.
 //!
+//! In DS-1 the installed folder is a STATE MARKER (plus a forward-looking asset
+//! stage): the running app still loads its own assets from its bundled imports,
+//! not from this folder. Nothing reads `~/Applications/DreamStore/<App>/` at
+//! runtime yet. DS-2 is where the shell loads an app's frontend + assets FROM
+//! this folder; the manifest + asset bytes are written now so that transition
+//! is a read-side change only.
+//!
 //! Source of truth = registry entry AND folder both present. `reconcile()`
 //! prunes drift on startup.
 

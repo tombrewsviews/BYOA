@@ -50,6 +50,12 @@ const notify = (appId: string, rec: InstallRecord) => {
 export const getInstallState = (appId: string): InstallRecord =>
   cache.get(appId) ?? DEFAULT_RECORD;
 
+/** Test-only: clear the in-memory install cache so tests don't leak state
+ *  through the module singleton (call in `beforeEach`). Not for app use. */
+export const __resetInstallCacheForTests = (): void => {
+  cache.clear();
+};
+
 export const canOpen = (appId: string): boolean =>
   getInstallState(appId).state === "installed";
 

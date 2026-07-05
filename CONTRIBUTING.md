@@ -1,8 +1,8 @@
-# Contributing to BYOA / KineticType
+# Contributing to BYOA / DreamStore
 
 Thanks for your interest. This repo is the spec for the BYOA
-framework + KineticType, the first reference app. **The framework
-itself is not yet a package** — extracting it from KineticType
+framework + DreamStore, the first reference app. **The framework
+itself is not yet a package** — extracting it from DreamStore
 is one of the things we're hoping contributors help with.
 
 ## What needs doing
@@ -33,7 +33,7 @@ describing what was missing.
 ### 2. Help extract the framework
 
 Section 5 of the spec ([`docs/superpowers/specs/2026-05-19-byoa-spike-design.md`](./docs/superpowers/specs/2026-05-19-byoa-spike-design.md))
-labels every file in KineticType as `shell` (would be in the
+labels every file in DreamStore as `shell` (would be in the
 framework), `app` (kinetic-specific), or `split` (needs surgery).
 Phase B of the spike already moved most `app`-labelled files into
 `canvases/kinetic/`. The remaining work:
