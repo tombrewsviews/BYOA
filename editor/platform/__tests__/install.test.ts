@@ -14,6 +14,7 @@ import {
   startInstall,
   uninstall,
   refreshInstallStates,
+  launchApp,
   __resetInstallCacheForTests,
 } from "../install";
 
@@ -27,11 +28,20 @@ describe("install.ts backed by Tauri commands", () => {
     expect(getInstallState("kinetic").state).toBe("not-installed");
   });
 
-  it("startInstall calls app_install and lands installed", async () => {
+  it("startInstall calls app_install with only ids (bundle copy, no assets)", async () => {
     invoke.mockResolvedValue(undefined);
     await startInstall("remit");
-    expect(invoke).toHaveBeenCalledWith("app_install", expect.objectContaining({ appId: "remit" }));
+    expect(invoke).toHaveBeenCalledWith("app_install", {
+      appId: "remit",
+      appName: "Remit",
+    });
     expect(getInstallState("remit").state).toBe("installed");
+  });
+
+  it("launchApp invokes app_launch with the app id", async () => {
+    invoke.mockResolvedValue(undefined);
+    await launchApp("remit");
+    expect(invoke).toHaveBeenCalledWith("app_launch", { appId: "remit" });
   });
 
   it("uninstall calls app_uninstall and returns to not-installed", async () => {
