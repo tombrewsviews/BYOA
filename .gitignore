@@ -66,3 +66,7 @@ src-tauri/templates-private/
 # private data (Remit carries bank details + signature). Git-ignored like
 # editor/apps-private/; the shell build does not depend on them.
 apps/
+
+# Built standalone .app bundles staged into DreamStore's resources by
+# scripts/bundle-apps.sh before `npm run tauri:build`. Build output, not source.
+src-tauri/resources/apps/
