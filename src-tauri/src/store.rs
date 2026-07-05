@@ -69,6 +69,17 @@ fn safe_name(name: &str) -> Result<&str, String> {
     Ok(base)
 }
 
+/// Map a display name (e.g. "Remit") to its macOS bundle dir name
+/// ("Remit.app"). Idempotent: a name that already ends in ".app" is left
+/// as-is, so callers may pass either form.
+fn bundle_name(app_name: &str) -> String {
+    if app_name.ends_with(".app") {
+        app_name.to_string()
+    } else {
+        format!("{}.app", app_name)
+    }
+}
+
 /// Recursively copy a directory tree (std has no built-in recursive copy).
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
     fs::create_dir_all(dst).map_err(|e| format!("mkdir {}: {}", dst.display(), e))?;
@@ -95,7 +106,9 @@ fn copy_bundle_into(
     app_id: &str,
     app_name: &str,
 ) -> Result<(), String> {
-    let app_name = safe_name(app_name)?;
+    let safe = safe_name(app_name)?;
+    let bundled = bundle_name(safe);
+    let app_name = safe_name(&bundled)?; // normalized + basename-guarded
     let source = resources_apps.join(app_name);
     if !source.exists() {
         return Err(format!("app bundle not found in DreamStore resources: {}", source.display()));
@@ -121,7 +134,9 @@ fn copy_bundle_into(
 }
 
 fn uninstall_into(base: &Path, reg: &Path, app_id: &str, app_name: &str) -> Result<(), String> {
-    let app_name = safe_name(app_name)?;
+    let safe = safe_name(app_name)?;
+    let bundled = bundle_name(safe);
+    let app_name = safe_name(&bundled)?;
     let app_dir = base.join(app_name);
     if app_dir.exists() {
         fs::remove_dir_all(&app_dir).map_err(|e| format!("remove app dir: {}", e))?;
@@ -322,5 +337,49 @@ mod tests {
         write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
             .unwrap();
         assert!(resolve_installed_bundle(&base, &reg, "remit").is_err());
+    }
+
+    #[test]
+    fn install_accepts_display_name_and_resolves_dot_app_bundle() {
+        // The frontend sends the DISPLAY name ("Remit"), NOT "Remit.app".
+        // Regression guard for the appName/bundle-filename mismatch.
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        let res = dir.path().join("resources/apps");
+        fake_bundle(&res, "Remit.app");
+
+        // Pass "Remit" (display name), not "Remit.app".
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit").unwrap();
+
+        // Installed under the .app name, registry stores the .app name,
+        // and launch resolution finds it — the full chain with the real input.
+        assert!(base.join("Remit.app/Contents/Info.plist").exists());
+        assert!(fs::read_to_string(&reg).unwrap().contains("Remit.app"));
+        assert_eq!(
+            resolve_installed_bundle(&base, &reg, "remit").unwrap(),
+            base.join("Remit.app")
+        );
+    }
+
+    #[test]
+    fn uninstall_accepts_display_name() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        let res = dir.path().join("resources/apps");
+        fake_bundle(&res, "Remit.app");
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit").unwrap();
+
+        // Uninstall also gets the display name from the frontend.
+        uninstall_into(&base, &reg, "remit", "Remit").unwrap();
+        assert!(!base.join("Remit.app").exists());
+        assert!(!fs::read_to_string(&reg).unwrap().contains("remit"));
+    }
+
+    #[test]
+    fn bundle_name_is_idempotent() {
+        assert_eq!(bundle_name("Remit"), "Remit.app");
+        assert_eq!(bundle_name("Remit.app"), "Remit.app");
     }
 }
