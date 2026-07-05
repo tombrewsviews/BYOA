@@ -132,6 +132,22 @@ fn reconcile_in(base: &Path, reg: &Path) {
     let _ = write_registry(reg, &kept);
 }
 
+/// Resolve the installed `.app` bundle path for an app id, erroring if the
+/// app isn't registered or its bundle is gone. Pure (no process spawn) so it
+/// can be unit-tested.
+fn resolve_installed_bundle(base: &Path, reg: &Path, app_id: &str) -> Result<PathBuf, String> {
+    let entry = read_registry(reg)
+        .into_iter()
+        .find(|e| e.id == app_id)
+        .ok_or_else(|| format!("app not installed: {}", app_id))?;
+    let name = safe_name(&entry.name)?;
+    let bundle = base.join(name);
+    if !bundle.exists() {
+        return Err(format!("installed bundle missing: {}", bundle.display()));
+    }
+    Ok(bundle)
+}
+
 #[tauri::command]
 pub fn app_install(
     app_id: String,
@@ -153,6 +169,17 @@ pub fn app_install_states() -> Result<Vec<String>, String> {
     let reg = registry_path();
     reconcile_in(&base, &reg);
     Ok(read_registry(&reg).into_iter().map(|e| e.id).collect())
+}
+
+#[tauri::command]
+pub fn app_launch(app_id: String) -> Result<(), String> {
+    let bundle = resolve_installed_bundle(&install_root(), &registry_path(), &app_id)?;
+    // macOS `open` focuses an already-running app instead of duplicating it.
+    std::process::Command::new("open")
+        .arg(&bundle)
+        .status()
+        .map_err(|e| format!("open {}: {}", bundle.display(), e))
+        .and_then(|s| if s.success() { Ok(()) } else { Err("open failed".into()) })
 }
 
 pub fn reconcile() {
@@ -253,5 +280,39 @@ mod tests {
         let reg = dir.path().join("installed.json");
 
         assert!(uninstall_into(&base, &reg, "evil", "../escape").is_err());
+    }
+
+    #[test]
+    fn launch_resolves_installed_bundle_path() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        // Simulate an installed app: registry entry + a bundle dir on disk.
+        fs::create_dir_all(base.join("Remit.app")).unwrap();
+        write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
+            .unwrap();
+
+        let path = resolve_installed_bundle(&base, &reg, "remit").unwrap();
+        assert_eq!(path, base.join("Remit.app"));
+    }
+
+    #[test]
+    fn launch_errors_when_not_installed() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        // No registry entry at all.
+        assert!(resolve_installed_bundle(&base, &reg, "remit").is_err());
+    }
+
+    #[test]
+    fn launch_errors_when_registered_but_bundle_missing() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        // Registered but the .app on disk is gone.
+        write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
+            .unwrap();
+        assert!(resolve_installed_bundle(&base, &reg, "remit").is_err());
     }
 }
