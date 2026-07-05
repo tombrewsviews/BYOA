@@ -28,13 +28,20 @@ import { canOpen, refreshInstallStates } from "./platform/install";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
-const loadCurrentApp = (): string | null => {
+/**
+ * Initial-selection resolver, run SYNCHRONOUSLY at first render. It must NOT
+ * gate on install state: on cold boot the install cache is empty (see
+ * `refreshInstallStates`), so `canOpen` would be false for every app and we'd
+ * wipe a genuinely-installed persisted selection. Validate only that the id is
+ * a real, available app with a Root; the boot effect re-derives install state
+ * once it's actually known.
+ */
+export const loadCurrentApp = (): string | null => {
   try {
     const id = localStorage.getItem(CURRENT_APP_KEY);
     if (!id) return null;
     const app = findApp(id);
     if (!app || app.status !== "available" || !app.Root) return null;
-    if (!canOpen(id)) return null;
     return id;
   } catch {
     return null;
@@ -144,7 +151,13 @@ export const App: React.FC = () => {
   }, [currentId]);
 
   useEffect(() => {
-    void refreshInstallStates();
+    // Once install state is actually known, drop the current app to The Square
+    // only if it's genuinely not installed. Re-deriving here (instead of
+    // gating loadCurrentApp on the empty boot cache) preserves a
+    // genuinely-installed persisted app; saveCurrentApp then persists it.
+    void refreshInstallStates().then(() => {
+      setCurrentId((id) => (id && !canOpen(id) ? null : id));
+    });
   }, []);
 
   const currentApp = currentId ? findApp(currentId) ?? null : null;
