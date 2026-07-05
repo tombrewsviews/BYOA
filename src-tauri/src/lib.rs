@@ -15,6 +15,7 @@ mod projects;
 mod prompt_mode;
 mod pty;
 mod pulse;
+mod paths;
 // Remit is a private app: its Rust source lives in the git-ignored overlay
 // (`src/canvases-private/`) and compiles in only when the overlay is present.
 // `build.rs` emits `--cfg private_remit` when it finds the overlay, so a
@@ -58,6 +59,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(|app| {
+            paths::migrate_user_paths();
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 window_state::apply_initial(&window);
