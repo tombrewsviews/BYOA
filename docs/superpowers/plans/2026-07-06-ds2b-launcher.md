@@ -733,8 +733,10 @@ In `src-tauri/tauri.conf.json`, change the `bundle.resources` array (line ~41) f
 to:
 
 ```json
-    "resources": ["resources/bin/yt-dlp", "resources/apps/*"],
+    "resources": ["resources/bin/yt-dlp", "resources/apps/**/*"],
 ```
+
+> NOTE (corrected during execution): use `resources/apps/**/*`, not `resources/apps/*`. Tauri's resource resolver (`tauri-utils` `ResourcePathsIter`) treats a `*` entry as a glob and **silently skips directory matches**; `resources/apps/*` matches only the `Remit.app` directory, which is then skipped, so the build fails with `glob pattern resources/apps/* ... didn't match any files`. The recursive `**/*` enumerates the files inside the bundle, and `resource_relpath()` preserves each file's full relative path, so `resource_dir().join("resources/apps/Remit.app")` still resolves at runtime.
 
 - [ ] **Step 2: Git-ignore the built bundles**
 
