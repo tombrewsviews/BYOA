@@ -27,6 +27,7 @@ mod selection;
 mod settings;
 mod skill;
 mod stage;
+mod store;
 mod video;
 mod watch;
 mod window_state;
@@ -60,6 +61,7 @@ pub fn run() {
         .manage(state)
         .setup(|app| {
             paths::migrate_user_paths();
+            store::reconcile();
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 window_state::apply_initial(&window);
@@ -131,6 +133,9 @@ pub fn run() {
             data::data_run_sql,
             data::data_schema,
             data::data_evaluate,
+            store::app_install,
+            store::app_uninstall,
+            store::app_install_states,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
