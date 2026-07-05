@@ -134,6 +134,7 @@ pub fn run() {
             data::data_schema,
             data::data_evaluate,
             store::app_install,
+            store::app_launch,
             store::app_uninstall,
             store::app_install_states,
         ])
