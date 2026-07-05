@@ -64,7 +64,7 @@ const InstallButton: React.FC<{
         size="sm"
         onClick={(e) => {
           e.stopPropagation();
-          startInstall(app.id);
+          void startInstall(app.id);
         }}
       >
         Retry install
@@ -76,7 +76,7 @@ const InstallButton: React.FC<{
       size="sm"
       onClick={(e) => {
         e.stopPropagation();
-        startInstall(app.id);
+        void startInstall(app.id);
       }}
     >
       Install · {formatBytes(app.sizeBytes)}
