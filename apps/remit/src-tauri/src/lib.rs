@@ -27,6 +27,7 @@ pub fn run() {
             remit::project_open,
             remit::project_close,
             remit::project_delete,
+            remit::open_dreamstore,
             remit::load_doc,
             remit::save_doc,
             remit::remit_export,
