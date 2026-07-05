@@ -26,11 +26,11 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/KineticStudio/**",
-          "$HOME/KineticStudio/**/.kinetic-studio/**",
-          "$HOME/KineticStudio/**/assets/**",
-          "$HOME/KineticStudio/**/stems/**",
-          "$HOME/KineticStudio/**/analysis.json"
+          "$HOME/DreamStore Projects/**",
+          "$HOME/DreamStore Projects/**/.kinetic-studio/**",
+          "$HOME/DreamStore Projects/**/assets/**",
+          "$HOME/DreamStore Projects/**/stems/**",
+          "$HOME/DreamStore Projects/**/analysis.json"
         ]
       }
     }
