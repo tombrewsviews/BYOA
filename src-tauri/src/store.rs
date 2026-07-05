@@ -6,12 +6,11 @@
 //! `~/.dreamstore/installed.json`. Native app CODE stays compiled into the
 //! binary (built-in tier); uninstall removes only the folder + registry entry.
 //!
-//! In DS-1 the installed folder is a STATE MARKER (plus a forward-looking asset
-//! stage): the running app still loads its own assets from its bundled imports,
-//! not from this folder. Nothing reads `~/Applications/DreamStore/<App>/` at
-//! runtime yet. DS-2 is where the shell loads an app's frontend + assets FROM
-//! this folder; the manifest + asset bytes are written now so that transition
-//! is a read-side change only.
+//! In DS2′-B the installed folder IS the app: `app_install` copies the built
+//! `<App>.app` bundle out of `DreamStore.app/Contents/Resources/apps/` into
+//! `~/Applications/DreamStore/<App>.app`, and `app_launch` `open`s it as an
+//! independent macOS process. `app_install_states`/`reconcile` track presence
+//! by the bundle on disk (not a manifest file).
 //!
 //! Source of truth = registry entry AND folder both present. `reconcile()`
 //! prunes drift on startup.
@@ -20,12 +19,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize)]
-pub struct InstallAsset {
-    pub name: String,
-    pub bytes: Vec<u8>,
-}
 
 /// Registry entry: id (stable app id) + name (install folder name).
 #[derive(Serialize, Deserialize, Clone)]
@@ -76,29 +69,43 @@ fn safe_name(name: &str) -> Result<&str, String> {
     Ok(base)
 }
 
-fn install_into(
+/// Recursively copy a directory tree (std has no built-in recursive copy).
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("mkdir {}: {}", dst.display(), e))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("read {}: {}", src.display(), e))? {
+        let entry = entry.map_err(|e| format!("dir entry: {}", e))?;
+        let ty = entry.file_type().map_err(|e| format!("file type: {}", e))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            fs::copy(&from, &to).map_err(|e| format!("copy {}: {}", from.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
+/// Copy the bundled `<app_name>` (a `.app` dir) from `resources_apps` into the
+/// install root via a staged temp + rename, then record the registry entry.
+fn copy_bundle_into(
     base: &Path,
     reg: &Path,
+    resources_apps: &Path,
     app_id: &str,
     app_name: &str,
-    manifest_json: &str,
-    assets: Vec<InstallAsset>,
 ) -> Result<(), String> {
     let app_name = safe_name(app_name)?;
+    let source = resources_apps.join(app_name);
+    if !source.exists() {
+        return Err(format!("app bundle not found in DreamStore resources: {}", source.display()));
+    }
     let app_dir = base.join(app_name);
-    // Build into a temp sibling then rename into place (atomic-ish).
     let staging = base.join(format!(".{}.staging", app_name));
     if staging.exists() {
         let _ = fs::remove_dir_all(&staging);
     }
-    fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {}", e))?;
-    fs::write(staging.join("manifest.json"), manifest_json.as_bytes())
-        .map_err(|e| format!("write manifest: {}", e))?;
-    for a in &assets {
-        let name = safe_name(&a.name)?;
-        fs::write(staging.join(name), &a.bytes)
-            .map_err(|e| format!("write asset {}: {}", name, e))?;
-    }
+    copy_dir_all(&source, &staging)?;
     if app_dir.exists() {
         fs::remove_dir_all(&app_dir).map_err(|e| format!("clear old: {}", e))?;
     }
@@ -127,7 +134,7 @@ fn uninstall_into(base: &Path, reg: &Path, app_id: &str, app_name: &str) -> Resu
 fn reconcile_in(base: &Path, reg: &Path) {
     let kept: Vec<InstalledEntry> = read_registry(reg)
         .into_iter()
-        .filter(|e| base.join(&e.name).join("manifest.json").exists())
+        .filter(|e| base.join(&e.name).exists())
         .collect();
     let _ = write_registry(reg, &kept);
 }
@@ -149,13 +156,14 @@ fn resolve_installed_bundle(base: &Path, reg: &Path, app_id: &str) -> Result<Pat
 }
 
 #[tauri::command]
-pub fn app_install(
-    app_id: String,
-    app_name: String,
-    manifest_json: String,
-    assets: Vec<InstallAsset>,
-) -> Result<(), String> {
-    install_into(&install_root(), &registry_path(), &app_id, &app_name, &manifest_json, assets)
+pub fn app_install(app: tauri::AppHandle, app_id: String, app_name: String) -> Result<(), String> {
+    use tauri::Manager;
+    let resources_apps = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resolve resource dir: {}", e))?
+        .join("resources/apps");
+    copy_bundle_into(&install_root(), &registry_path(), &resources_apps, &app_id, &app_name)
 }
 
 #[tauri::command]
@@ -192,69 +200,52 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn asset(name: &str, bytes: &[u8]) -> InstallAsset {
-        InstallAsset { name: name.into(), bytes: bytes.to_vec() }
+    /// Make a fake `.app` bundle (a dir with a marker file) under `resources_apps`.
+    fn fake_bundle(resources_apps: &Path, name: &str) {
+        let app = resources_apps.join(name);
+        fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+        fs::write(app.join("Contents/Info.plist"), b"<plist/>").unwrap();
     }
 
     #[test]
-    fn install_creates_folder_manifest_and_assets() {
+    fn install_copies_bundle_and_records_registry() {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
+        let res = dir.path().join("resources/apps");
+        fake_bundle(&res, "Remit.app");
 
-        install_into(&base, &reg, "remit", "Remit", "{\"id\":\"remit\"}",
-            vec![asset("template.pdf", b"PDFBYTES")]).unwrap();
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit.app").unwrap();
 
-        let app = base.join("Remit");
-        assert!(app.join("manifest.json").exists());
-        assert_eq!(fs::read(app.join("template.pdf")).unwrap(), b"PDFBYTES");
-        let reg_txt = fs::read_to_string(&reg).unwrap();
-        assert!(reg_txt.contains("remit"));
+        assert!(base.join("Remit.app/Contents/Info.plist").exists());
+        assert!(fs::read_to_string(&reg).unwrap().contains("remit"));
     }
 
     #[test]
-    fn install_missing_asset_bytes_still_writes_since_bytes_provided() {
-        // Bytes are provided by caller; "missing asset" is a frontend concern.
-        // Here we assert an empty asset list installs cleanly (app with no assets).
+    fn install_errors_when_bundle_absent_from_resources() {
         let dir = TempDir::new().unwrap();
-        let base = dir.path().join("Apps");
+        let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
-        install_into(&base, &reg, "kinetic", "Kinetic Studio", "{}", vec![]).unwrap();
-        assert!(base.join("Kinetic Studio").join("manifest.json").exists());
+        let res = dir.path().join("resources/apps"); // empty, no Remit.app
+        fs::create_dir_all(&res).unwrap();
+
+        let err = copy_bundle_into(&base, &reg, &res, "remit", "Remit.app").unwrap_err();
+        assert!(err.contains("app bundle not found"), "got: {}", err);
     }
 
     #[test]
-    fn uninstall_removes_folder_and_registry_entry() {
+    fn install_overwrites_existing_bundle_idempotently() {
         let dir = TempDir::new().unwrap();
-        let base = dir.path().join("Apps");
+        let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
-        install_into(&base, &reg, "remit", "Remit", "{}", vec![]).unwrap();
-        uninstall_into(&base, &reg, "remit", "Remit").unwrap();
-        assert!(!base.join("Remit").exists());
-        assert!(!fs::read_to_string(&reg).unwrap().contains("remit"));
-    }
+        let res = dir.path().join("resources/apps");
+        fake_bundle(&res, "Remit.app");
 
-    #[test]
-    fn reconcile_drops_entry_when_folder_gone() {
-        let dir = TempDir::new().unwrap();
-        let base = dir.path().join("Apps");
-        let reg = dir.path().join("installed.json");
-        install_into(&base, &reg, "remit", "Remit", "{}", vec![]).unwrap();
-        fs::remove_dir_all(base.join("Remit")).unwrap();
-        reconcile_in(&base, &reg);
-        assert!(!fs::read_to_string(&reg).unwrap().contains("remit"));
-    }
-
-    #[test]
-    fn install_is_atomic_no_partial_on_ok() {
-        // Re-installing overwrites cleanly (idempotent).
-        let dir = TempDir::new().unwrap();
-        let base = dir.path().join("Apps");
-        let reg = dir.path().join("installed.json");
-        install_into(&base, &reg, "remit", "Remit", "{\"v\":1}", vec![]).unwrap();
-        install_into(&base, &reg, "remit", "Remit", "{\"v\":2}", vec![]).unwrap();
-        let m = fs::read_to_string(base.join("Remit").join("manifest.json")).unwrap();
-        assert!(m.contains("\"v\":2"));
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit.app").unwrap();
+        // Re-install (e.g. after an app update) must not error or leave staging.
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit.app").unwrap();
+        assert!(base.join("Remit.app/Contents/Info.plist").exists());
+        assert!(!base.join(".Remit.app.staging").exists());
     }
 
     #[test]
@@ -262,38 +253,57 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
+        let res = dir.path().join("resources/apps");
+        fs::create_dir_all(&res).unwrap();
 
-        // Relative traversal must be rejected and must not create anything outside base.
-        assert!(install_into(&base, &reg, "evil", "../escape", "{}", vec![]).is_err());
+        assert!(copy_bundle_into(&base, &reg, &res, "evil", "../escape").is_err());
         assert!(!dir.path().join("escape").exists());
-        assert!(!base.parent().unwrap().join("escape").exists());
-
-        // Absolute app_name must also be rejected.
-        assert!(install_into(&base, &reg, "evil", "/tmp/evil-dreamstore-test", "{}", vec![]).is_err());
-        assert!(!Path::new("/tmp/evil-dreamstore-test").exists());
+        assert!(copy_bundle_into(&base, &reg, &res, "evil", "/tmp/evil-ds-test.app").is_err());
+        assert!(!Path::new("/tmp/evil-ds-test.app").exists());
     }
 
     #[test]
-    fn uninstall_rejects_traversal_app_name() {
+    fn uninstall_removes_bundle_and_registry_entry() {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
+        let res = dir.path().join("resources/apps");
+        fake_bundle(&res, "Remit.app");
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit.app").unwrap();
 
-        assert!(uninstall_into(&base, &reg, "evil", "../escape").is_err());
+        uninstall_into(&base, &reg, "remit", "Remit.app").unwrap();
+        assert!(!base.join("Remit.app").exists());
+        assert!(!fs::read_to_string(&reg).unwrap().contains("remit"));
     }
+
+    #[test]
+    fn reconcile_drops_entry_when_bundle_gone() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        let res = dir.path().join("resources/apps");
+        fake_bundle(&res, "Remit.app");
+        copy_bundle_into(&base, &reg, &res, "remit", "Remit.app").unwrap();
+
+        fs::remove_dir_all(base.join("Remit.app")).unwrap();
+        reconcile_in(&base, &reg);
+        assert!(!fs::read_to_string(&reg).unwrap().contains("remit"));
+    }
+
+    // ---- launch resolution (from Task 2) ----
 
     #[test]
     fn launch_resolves_installed_bundle_path() {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
-        // Simulate an installed app: registry entry + a bundle dir on disk.
         fs::create_dir_all(base.join("Remit.app")).unwrap();
         write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
             .unwrap();
-
-        let path = resolve_installed_bundle(&base, &reg, "remit").unwrap();
-        assert_eq!(path, base.join("Remit.app"));
+        assert_eq!(
+            resolve_installed_bundle(&base, &reg, "remit").unwrap(),
+            base.join("Remit.app")
+        );
     }
 
     #[test]
@@ -301,7 +311,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
-        // No registry entry at all.
         assert!(resolve_installed_bundle(&base, &reg, "remit").is_err());
     }
 
@@ -310,7 +319,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
-        // Registered but the .app on disk is gone.
         write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
             .unwrap();
         assert!(resolve_installed_bundle(&base, &reg, "remit").is_err());
