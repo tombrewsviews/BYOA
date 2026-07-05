@@ -234,6 +234,9 @@ pub fn remit_export(dir: String, filename: String, bytes: Vec<u8>) -> Result<Str
     let tmp = target.with_extension("pdf.tmp");
     fs::write(&tmp, &bytes).map_err(|e| format!("write tmp: {}", e))?;
     fs::rename(&tmp, &target).map_err(|e| format!("rename: {}", e))?;
+    // Reveal the saved file in Finder (best-effort). Skipped under `cargo test`
+    // so the unit tests don't spawn Finder / race TempDir cleanup.
+    #[cfg(not(test))]
     let _ = std::process::Command::new("open").arg("-R").arg(&target).spawn();
     Ok(target.to_string_lossy().into_owned())
 }
