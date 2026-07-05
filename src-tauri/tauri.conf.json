@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Kinetic Studio",
+  "productName": "DreamStore",
   "version": "0.1.0",
-  "identifier": "app.kinetic.studio",
+  "identifier": "app.altramanera.dreamstore",
   "build": {
     "frontendDist": "../editor/dist",
     "devUrl": "http://localhost:5174",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Kinetic Studio",
+        "title": "DreamStore",
         "width": 800,
         "height": 600,
         "resizable": true,
