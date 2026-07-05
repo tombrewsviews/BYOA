@@ -1,5 +1,6 @@
 //! Tauri 2 entry for standalone Remit: app state + command registration.
 
+mod migrate;
 mod paths;
 mod remit;
 mod skill;
@@ -11,6 +12,10 @@ use remit::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // One-time, non-destructive copy of pre-separation Remit data from the
+    // DreamStore shell into this app's isolated dirs. Idempotent (marker-gated).
+    migrate::migrate_once();
+
     let state = AppState { active_project: Mutex::new(None) };
 
     tauri::Builder::default()
