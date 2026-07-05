@@ -33,9 +33,7 @@ pub struct ActiveProject {
 }
 
 fn home_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join("KineticStudio"))
-        .unwrap_or_else(|| PathBuf::from(".").join("KineticStudio"))
+    crate::paths::projects_dir()
 }
 
 fn recents_path() -> PathBuf {

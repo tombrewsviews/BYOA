@@ -1,5 +1,5 @@
 /**
- * Home view: lists projects under ~/KineticStudio, supports creating
+ * Home view: lists projects under ~/DreamStore Projects, supports creating
  * new projects, opening an arbitrary folder, and basic context-menu
  * actions per card.
  */

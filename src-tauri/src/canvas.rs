@@ -222,7 +222,7 @@ pub fn by_id(id: &str) -> &'static dyn Canvas {
 /// canvas document it contains. A folder with `project.json` is a Pulse
 /// project; otherwise it's treated as kinetic (the default, `story.json`).
 ///
-/// This lets both apps share one `~/KineticStudio/` pool without a
+/// This lets both apps share one `~/DreamStore Projects/` pool without a
 /// separate per-project canvas-id file: the seed document IS the marker.
 pub fn for_project(project_dir: &Path) -> &'static dyn Canvas {
     if project_dir.join("project.json").exists() {
