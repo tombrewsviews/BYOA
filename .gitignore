@@ -53,3 +53,11 @@ design/
 
 # Internal session handoffs (developer-only; go stale fast)
 docs/HANDOFF-*.md
+
+# Private apps — local-only overlay, excluded when the repo is shared.
+# The shell's build (Vite glob + Rust build.rs) tolerates their absence:
+# a clone without these dirs compiles and ships without the private apps.
+editor/apps-private/
+src-tauri/src/canvases-private/
+src-tauri/skills-private/
+src-tauri/templates-private/

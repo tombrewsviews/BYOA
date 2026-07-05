@@ -22,7 +22,6 @@ import { KineticApp } from "../canvases/kinetic/KineticApp";
 import { PulseApp } from "../canvases/music/PulseApp";
 import { BrainstormApp } from "../canvases/brainstorm/BrainstormApp";
 import { DataApp } from "../canvases/data/DataApp";
-import { RemitApp } from "../canvases/remit/RemitApp";
 
 export type AppStatus = "available" | "coming-soon";
 
@@ -78,6 +77,12 @@ export type AppManifest = {
   sizeBytes: number;
   /** Primary category — drives the Categories sidebar section. */
   category: AppCategory;
+  /** "public" apps live in the tracked tree and ship with the shell.
+   *  "private" apps live in a git-ignored overlay (editor/apps-private/)
+   *  and are absent when the repo is shared/distributed — they only
+   *  appear in a local build that has the overlay present. Defaults to
+   *  "public" when omitted. */
+  visibility?: "public" | "private";
   /** Optional skills the app exposes to the agent. */
   skills?: AppSkill[];
   /** Optional default-runtime hints. */
@@ -85,10 +90,38 @@ export type AppManifest = {
 };
 
 /**
- * The registry. Order is display order on the Square. Stats for the
- * kinetic app are approximate — they update as the project grows.
+ * A private app's self-registration bundle. Private apps live in the
+ * git-ignored `editor/apps-private/` overlay and are collected at build
+ * time via `import.meta.glob` — so a clone without the overlay simply
+ * finds none and ships without them. Each private app dir exposes one
+ * `app.tsx` with this default export.
  */
-export const APPS: AppManifest[] = [
+export type PrivateApp = {
+  /** The catalog manifest (with Root). `visibility` is forced "private". */
+  manifest: AppManifest;
+};
+
+/**
+ * Collect private apps from the overlay. Eager glob so the manifests are
+ * available synchronously at module load, matching the static APPS below.
+ * When the overlay is absent (shared/distributed clone) this is `{}` and
+ * `PRIVATE_APPS` is empty — no app code, no dangling references.
+ */
+const privateAppModules = import.meta.glob<{ default: PrivateApp }>(
+  "../apps-private/*/app.tsx",
+  { eager: true },
+);
+
+export const PRIVATE_APPS: AppManifest[] = Object.values(privateAppModules).map(
+  (m) => ({ ...m.default.manifest, visibility: "private" as const }),
+);
+
+/**
+ * Public apps ship with the shell. Order is display order on the Square.
+ * Stats for the kinetic app are approximate — they update as the project
+ * grows. Private apps are appended from the overlay (see `PRIVATE_APPS`).
+ */
+const PUBLIC_APPS: AppManifest[] = [
   {
     id: "kinetic",
     name: "Kinetic Studio",
@@ -181,27 +214,6 @@ export const APPS: AppManifest[] = [
     category: "data",
   },
   {
-    id: "remit",
-    name: "Remit",
-    blurb: "Auto-fill bank transfer forms",
-    description:
-      "Fill the Maybank remittance form from a small form panel instead of editing a PDF field by field. Your fixed sender details are baked in; enter the recipient, bank, and amount, and export a page-1 PDF that matches the bank's form, on white, with your signature stamped in.",
-    creator: "altramanera",
-    version: "0.1.0",
-    tokens: 0,
-    files: 8,
-    loc: 1_100,
-    rating: 0,
-    ratingCount: 0,
-    tags: ["forms", "pdf", "banking"],
-    hue: 210,
-    status: "available",
-    Root: RemitApp,
-    releasedAt: "2026-07-03",
-    sizeBytes: 1_500_000,
-    category: "private",
-  },
-  {
     id: "voxel",
     name: "Voxel",
     blurb: "Agent-native 3D scenes",
@@ -222,6 +234,13 @@ export const APPS: AppManifest[] = [
     category: "3d-render",
   },
 ];
+
+/**
+ * The full catalog: public apps first (in display order), then any
+ * private apps found in the overlay. A shared clone has no overlay, so
+ * `PRIVATE_APPS` is empty and `APPS` is exactly the public set.
+ */
+export const APPS: AppManifest[] = [...PUBLIC_APPS, ...PRIVATE_APPS];
 
 export const findApp = (id: string): AppManifest | undefined =>
   APPS.find((a) => a.id === id);

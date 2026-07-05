@@ -123,6 +123,10 @@ pub fn apply_patch(
 /// folder (native dialog) and builds the PDF with pdf-lib, then hands the bytes
 /// here. `filename` is sanitised to a bare basename so it can't escape `dir`.
 /// Returns the absolute path written.
+///
+/// Remit is a private app (git-ignored overlay); this command compiles in
+/// only when the overlay is present. See `build.rs` / `lib.rs`.
+#[cfg(private_remit)]
 #[tauri::command]
 pub fn remit_export(dir: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
     let name = std::path::Path::new(&filename)

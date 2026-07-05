@@ -172,8 +172,15 @@ impl Canvas for DataCanvas {
 /// The Remit canvas. Its document is `remit.json` (per-transfer values for the
 /// Maybank remittance form). The frontend fills a real PDF; this side just
 /// stores the doc and provides the agent skill.
+///
+/// Remit is a private app: its seed template and skill bundle live in the
+/// git-ignored overlay, so this canvas compiles in only when the overlay is
+/// present (`build.rs` emits `--cfg private_remit`). A shared clone drops it
+/// along with the `by_id` / `for_project` arms below.
+#[cfg(private_remit)]
 pub struct RemitCanvas;
 
+#[cfg(private_remit)]
 impl Canvas for RemitCanvas {
     fn id(&self) -> &'static str {
         "remit"
@@ -184,7 +191,7 @@ impl Canvas for RemitCanvas {
     }
 
     fn seed_bytes(&self) -> &'static [u8] {
-        include_bytes!("../templates/seed-remit.json")
+        include_bytes!("../templates-private/seed-remit.json")
     }
 
     fn summarise(&self, _project_dir: &Path) -> ProjectSummary {
@@ -205,6 +212,7 @@ pub fn by_id(id: &str) -> &'static dyn Canvas {
         "pulse" => &MusicCanvas,
         "brainstorm" => &BrainstormCanvas,
         "data" => &DataCanvas,
+        #[cfg(private_remit)]
         "remit" => &RemitCanvas,
         _ => &KineticCanvas,
     }
@@ -223,9 +231,11 @@ pub fn for_project(project_dir: &Path) -> &'static dyn Canvas {
         &BrainstormCanvas
     } else if project_dir.join("query.json").exists() {
         &DataCanvas
-    } else if project_dir.join("remit.json").exists() {
-        &RemitCanvas
     } else {
+        #[cfg(private_remit)]
+        if project_dir.join("remit.json").exists() {
+            return &RemitCanvas;
+        }
         &KineticCanvas
     }
 }

@@ -98,14 +98,39 @@ import { kineticCanvas } from "./canvases/kinetic";
 import { musicCanvas } from "./canvases/music";
 import { brainstormCanvas } from "./canvases/brainstorm";
 import { dataCanvas } from "./canvases/data";
-import { remitCanvas } from "./canvases/remit";
 
 export const activeCanvas: CanvasPlugin<unknown> =
   kineticCanvas as CanvasPlugin<unknown>;
 
 /**
+ * Private-app canvas plugins, collected from the git-ignored overlay at
+ * build time. Each private app's `index.tsx` exports a `CanvasPlugin`; we
+ * glob those modules and index any export that carries the plugin shape
+ * (`id` + `docFilename`) by its id. A shared clone has no overlay, so this
+ * map is empty and no private canvas is referenced.
+ */
+const isCanvasPlugin = (v: unknown): v is CanvasPlugin<unknown> =>
+  typeof v === "object" &&
+  v !== null &&
+  typeof (v as { id?: unknown }).id === "string" &&
+  typeof (v as { docFilename?: unknown }).docFilename === "string";
+
+const privateCanvasModules = import.meta.glob<Record<string, unknown>>(
+  "./apps-private/*/index.tsx",
+  { eager: true },
+);
+
+const privateCanvases: Record<string, CanvasPlugin<unknown>> = {};
+for (const mod of Object.values(privateCanvasModules)) {
+  for (const exported of Object.values(mod)) {
+    if (isCanvasPlugin(exported)) privateCanvases[exported.id] = exported;
+  }
+}
+
+/**
  * Resolve the canvas plugin for a given platform app id. The Pulse app
- * uses its own audio-reactive canvas; everything else falls back to the
+ * uses its own audio-reactive canvas; private apps (from the overlay)
+ * resolve through `privateCanvases`; everything else falls back to the
  * kinetic canvas. `activeCanvas` stays as the kinetic default so existing
  * imports are unaffected.
  */
@@ -113,6 +138,6 @@ export function resolveCanvas(appId: string): CanvasPlugin<unknown> {
   if (appId === "pulse") return musicCanvas as CanvasPlugin<unknown>;
   if (appId === "brainstorm") return brainstormCanvas as CanvasPlugin<unknown>;
   if (appId === "data") return dataCanvas as CanvasPlugin<unknown>;
-  if (appId === "remit") return remitCanvas as CanvasPlugin<unknown>;
+  if (privateCanvases[appId]) return privateCanvases[appId];
   return kineticCanvas as CanvasPlugin<unknown>;
 }

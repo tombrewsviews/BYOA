@@ -15,6 +15,12 @@ mod projects;
 mod prompt_mode;
 mod pty;
 mod pulse;
+// Remit is a private app: its Rust source lives in the git-ignored overlay
+// (`src/canvases-private/`) and compiles in only when the overlay is present.
+// `build.rs` emits `--cfg private_remit` when it finds the overlay, so a
+// shared clone without it drops the module and every reference below.
+#[cfg(private_remit)]
+#[path = "canvases-private/remit_commands.rs"]
 mod remit;
 mod selection;
 mod settings;
@@ -77,9 +83,13 @@ pub fn run() {
             doc::apply_patch,
             doc::load_doc,
             doc::save_doc,
+            #[cfg(private_remit)]
             doc::remit_export,
+            #[cfg(private_remit)]
             remit::remit_recipients_load,
+            #[cfg(private_remit)]
             remit::remit_recipients_save,
+            #[cfg(private_remit)]
             remit::remit_duplicate,
             pty::pty_open,
             pty::pty_write,
