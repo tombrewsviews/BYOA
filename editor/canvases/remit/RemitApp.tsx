@@ -12,6 +12,7 @@ import {
   loadRecipients,
   newId,
   recipientFromDoc,
+  recipientKey,
   saveRecipients,
   type SavedRecipient,
 } from "./recipients";
@@ -183,9 +184,12 @@ const RemitEditor: React.FC<{ project: ProjectMeta; onBack: () => void }> = ({
   const saveCurrentRecipient = useCallback(() => {
     if (!doc) return;
     setSaved((prev) => {
-      // Replace an existing entry with the same label, else append.
-      const label = doc.recipient.name.trim() || "Untitled recipient";
-      const existing = prev.find((x) => x.label === label);
+      // A record is identified by name + currency + account + swift, so the
+      // same recipient in a different currency or via a different account is a
+      // distinct record. Same identity → update; otherwise append.
+      const candidate = recipientFromDoc(doc, "");
+      const key = recipientKey(candidate);
+      const existing = prev.find((x) => recipientKey(x) === key);
       const rec = recipientFromDoc(doc, existing?.id ?? newId(prev));
       const next = existing
         ? prev.map((x) => (x.id === existing.id ? rec : x))

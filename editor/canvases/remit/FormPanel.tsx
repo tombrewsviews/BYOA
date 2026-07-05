@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
+  AmountCurrency,
   Charge,
   Purpose,
   RemitDoc,
@@ -285,15 +286,40 @@ export const FormPanel: React.FC<{
       </Section>
 
       <Section title="Amount">
-        <Field label={`Value (${doc.senderAccount} — ${doc.senderAccount === "MYR" ? "In RM" : "In Foreign Currency"})`}>
-          <Input
-            placeholder="10,000.00"
-            value={doc.amount.value}
-            onChange={setText((d, v) => ({ ...d, amount: { value: v } }))}
-          />
-        </Field>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Currency">
+            <Select
+              value={doc.amount.currency}
+              onValueChange={(v) =>
+                onChange((d) => ({
+                  ...d,
+                  amount: { ...d.amount, currency: v as AmountCurrency },
+                }))
+              }
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="MYR">MYR (In RM)</SelectItem>
+                <SelectItem value="USD">USD (Foreign)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <div className="col-span-2">
+            <Field label="Value">
+              <Input
+                placeholder="10,000.00"
+                value={doc.amount.value}
+                onChange={setText((d, v) => ({
+                  ...d,
+                  amount: { ...d.amount, value: v },
+                }))}
+              />
+            </Field>
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground">
-          The slot (RM vs foreign currency) follows the sender account above.
+          Currency decides the slot (RM vs foreign) — independent of the sender
+          account.
         </p>
       </Section>
 

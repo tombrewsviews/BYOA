@@ -8,30 +8,53 @@
  * opaque JSON; the shape below is owned here.
  */
 import { isTauri } from "../../runtime";
-import type { RemitDoc } from "./schema";
+import type { AmountCurrency, RemitDoc } from "./schema";
 
 export type SavedRecipient = {
   /** Stable id (also the dropdown key). */
   id: string;
-  /** Display label — defaults to the recipient name. */
+  /** Display label, e.g. "Acme Ltd — USD". */
   label: string;
   recipient: RemitDoc["recipient"];
   bank: RemitDoc["bank"];
+  /** Currency this record was saved for — restored on pick and shown in label. */
+  currency: AmountCurrency;
 };
+
+/** Human label for a saved record: recipient name + the currency it's for. */
+export const recipientLabel = (
+  name: string,
+  currency: AmountCurrency,
+): string => `${name.trim() || "Untitled recipient"} — ${currency}`;
+
+/**
+ * Identity of a saved record. The SAME recipient paid in a different
+ * currency or through a different bank account is a DIFFERENT record, so the
+ * key includes currency + account + swift (not just the name).
+ */
+export const recipientKey = (r: SavedRecipient): string =>
+  [
+    r.recipient.name.trim().toLowerCase(),
+    r.currency,
+    r.bank.account.trim(),
+    r.bank.swift.trim().toLowerCase(),
+  ].join("|");
 
 /** Extract the reusable slice from a doc into a saveable recipient. */
 export const recipientFromDoc = (doc: RemitDoc, id: string): SavedRecipient => ({
   id,
-  label: doc.recipient.name.trim() || "Untitled recipient",
+  label: recipientLabel(doc.recipient.name, doc.amount.currency),
   recipient: { ...doc.recipient },
   bank: { ...doc.bank },
+  currency: doc.amount.currency,
 });
 
-/** Apply a saved recipient onto a doc (recipient + bank), leaving the rest. */
+/** Apply a saved recipient onto a doc (recipient + bank + currency). */
 export const applyRecipient = (doc: RemitDoc, r: SavedRecipient): RemitDoc => ({
   ...doc,
   recipient: { ...r.recipient },
   bank: { ...r.bank },
+  amount: { ...doc.amount, currency: r.currency },
 });
 
 /** A stable-ish id without Date.now/Math.random reliance concerns in tests. */
@@ -50,10 +73,20 @@ const parse = (raw: string): SavedRecipient[] => {
   try {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr.filter(
-      (x): x is SavedRecipient =>
-        !!x && typeof x.id === "string" && !!x.recipient && !!x.bank,
-    );
+    return arr
+      .filter(
+        (x): x is SavedRecipient =>
+          !!x && typeof x.id === "string" && !!x.recipient && !!x.bank,
+      )
+      .map((x) => {
+        // Tolerate legacy records saved before `currency` existed.
+        const currency: AmountCurrency = x.currency === "MYR" ? "MYR" : "USD";
+        return {
+          ...x,
+          currency,
+          label: x.label ?? recipientLabel(x.recipient.name, currency),
+        };
+      });
   } catch {
     return [];
   }

@@ -26,20 +26,24 @@ describe("remit schema", () => {
     expect(formatDate("nonsense")).toBe("");
   });
 
-  it("routes amount to RM vs foreign by currency", () => {
-    const myr = { ...defaultDoc(), senderAccount: "MYR" as const, amount: { value: "1,000" } };
-    const usd = { ...defaultDoc(), senderAccount: "USD" as const, amount: { value: "1,000" } };
+  it("routes amount to RM vs foreign by the amount currency (not the account)", () => {
+    const myr = { ...defaultDoc(), amount: { currency: "MYR" as const, value: "1,000" } };
+    const usd = { ...defaultDoc(), amount: { currency: "USD" as const, value: "1,000" } };
     expect(isForeignAmount(myr)).toBe(false);
     expect(isForeignAmount(usd)).toBe(true);
     expect(formatAmount(usd)).toBe("1,000 USD");
     expect(formatAmount(myr)).toBe("1,000 MYR");
-    expect(formatAmount({ ...myr, amount: { value: "" } })).toBe("");
+    // Currency is independent of the sender account.
+    const usdAcctMyrPay = { ...defaultDoc(), senderAccount: "USD" as const, amount: { currency: "MYR" as const, value: "5" } };
+    expect(isForeignAmount(usdAcctMyrPay)).toBe(false);
+    expect(formatAmount({ ...myr, amount: { currency: "MYR", value: "" } })).toBe("");
   });
 
   it("parses partial docs over defaults without throwing", () => {
     const d = parseDoc('{"recipient":{"name":"Acme"},"amount":{"value":"9.99"}}');
     expect(d.recipient.name).toBe("Acme");
     expect(d.amount.value).toBe("9.99");
+    expect(d.amount.currency).toBe("USD"); // default
     expect(d.senderAccount).toBe("MYR"); // default
   });
 

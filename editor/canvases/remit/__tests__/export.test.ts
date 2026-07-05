@@ -39,7 +39,7 @@ const sampleDoc = (): RemitDoc => ({
     swift: "CIBBMYKL",
   },
   payment: { details: "Invoice No. : 2026-00077" },
-  amount: { value: "5,839.20" },
+  amount: { currency: "USD", value: "5,839.20" },
   charge: "OUR",
   purpose: "OTHER",
   stampSignature: true,
