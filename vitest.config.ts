@@ -13,6 +13,7 @@ export default defineConfig({
     include: [
       "editor/agent-chat/__tests__/**/*.test.{ts,tsx}",
       "editor/__tests__/**/*.test.{ts,tsx}",
+      "editor/platform/__tests__/**/*.test.{ts,tsx}",
       "editor/canvases/**/__tests__/**/*.test.{ts,tsx}",
       // Private apps live in a git-ignored overlay; their tests run when the
       // overlay is present and match nothing (harmlessly) in a shared clone.

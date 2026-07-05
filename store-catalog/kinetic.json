@@ -1,0 +1,27 @@
+{
+  "id": "kinetic",
+  "name": "Kinetic Studio",
+  "blurb": "Agent-native kinetic typography",
+  "description": "Compose animated text pieces with the agent in the terminal. Bring your own Claude / Codex / Gemini. The agent edits a single story.json on disk; the canvas re-renders within ~300 ms. Scrub parameters directly; the agent sees your edits.",
+  "creator": "altramanera",
+  "version": "0.1.0",
+  "tokens": 12400000,
+  "files": 142,
+  "loc": 8200,
+  "rating": 4.8,
+  "ratingCount": 23,
+  "tags": ["typography", "video", "agent-native"],
+  "hue": 268,
+  "status": "available",
+  "releasedAt": "2026-05-10",
+  "sizeBytes": 4100000,
+  "category": "video-motion",
+  "visibility": "public",
+  "skills": [
+    { "name": "/gsd:update", "on": true },
+    { "name": "/beat:add", "on": true },
+    { "name": "/palette", "on": true },
+    { "name": "/export", "on": true }
+  ],
+  "runtime": { "model": "Opus 4.7", "context": "1M", "effort": "xhigh" }
+}

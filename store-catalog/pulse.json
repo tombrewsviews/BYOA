@@ -1,0 +1,20 @@
+{
+  "id": "pulse",
+  "name": "Pulse",
+  "blurb": "Agent-native music visualizer",
+  "description": "Pick a folder of stems; Pulse analyzes each into a live timeline and drives GPU shader effects from the music. Bind stems to visuals, author the next look with the agent, and crossfade it onto a fullscreen stage.",
+  "creator": "altramanera",
+  "version": "0.1.0",
+  "tokens": 0,
+  "files": 30,
+  "loc": 2200,
+  "rating": 0,
+  "ratingCount": 0,
+  "tags": ["music", "visualizer", "agent-native"],
+  "hue": 142,
+  "status": "available",
+  "releasedAt": "2026-06-15",
+  "sizeBytes": 3000000,
+  "category": "audio",
+  "visibility": "public"
+}

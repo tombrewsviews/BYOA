@@ -18,10 +18,7 @@
  * Coming-soon apps have no Root.
  */
 import type React from "react";
-import { KineticApp } from "../canvases/kinetic/KineticApp";
-import { PulseApp } from "../canvases/music/PulseApp";
-import { BrainstormApp } from "../canvases/brainstorm/BrainstormApp";
-import { DataApp } from "../canvases/data/DataApp";
+import { PUBLIC_APPS } from "./catalog";
 
 export type AppStatus = "available" | "coming-soon";
 
@@ -115,125 +112,6 @@ const privateAppModules = import.meta.glob<{ default: PrivateApp }>(
 export const PRIVATE_APPS: AppManifest[] = Object.values(privateAppModules).map(
   (m) => ({ ...m.default.manifest, visibility: "private" as const }),
 );
-
-/**
- * Public apps ship with the shell. Order is display order on the Square.
- * Stats for the kinetic app are approximate — they update as the project
- * grows. Private apps are appended from the overlay (see `PRIVATE_APPS`).
- */
-const PUBLIC_APPS: AppManifest[] = [
-  {
-    id: "kinetic",
-    name: "Kinetic Studio",
-    blurb: "Agent-native kinetic typography",
-    description:
-      "Compose animated text pieces with the agent in the terminal. Bring your own Claude / Codex / Gemini. The agent edits a single story.json on disk; the canvas re-renders within ~300 ms. Scrub parameters directly; the agent sees your edits.",
-    creator: "altramanera",
-    version: "0.1.0",
-    tokens: 12_400_000,
-    files: 142,
-    loc: 8_200,
-    rating: 4.8,
-    ratingCount: 23,
-    tags: ["typography", "video", "agent-native"],
-    hue: 268,
-    status: "available",
-    Root: KineticApp,
-    releasedAt: "2026-05-10",
-    sizeBytes: 4_100_000,
-    category: "video-motion",
-    skills: [
-      { name: "/gsd:update", on: true },
-      { name: "/beat:add", on: true },
-      { name: "/palette", on: true },
-      { name: "/export", on: true },
-    ],
-    runtime: { model: "Opus 4.7", context: "1M", effort: "xhigh" },
-  },
-  {
-    id: "pulse",
-    name: "Pulse",
-    blurb: "Agent-native music visualizer",
-    description:
-      "Pick a folder of stems; Pulse analyzes each into a live timeline and drives GPU shader effects from the music. Bind stems to visuals, author the next look with the agent, and crossfade it onto a fullscreen stage.",
-    creator: "altramanera",
-    version: "0.1.0",
-    tokens: 0,
-    files: 30,
-    loc: 2_200,
-    rating: 0,
-    ratingCount: 0,
-    tags: ["music", "visualizer", "agent-native"],
-    hue: 142,
-    status: "available",
-    Root: PulseApp,
-    releasedAt: "2026-06-15",
-    sizeBytes: 3_000_000,
-    category: "audio",
-  },
-  {
-    id: "brainstorm",
-    name: "Brainstorm Canvas",
-    blurb: "Agent-native collaborative whiteboard",
-    description:
-      "A live Excalidraw board you share with the agent. It can see the canvas and draw on it. Prompted mode acts when you ask; continuous mode watches the board and chimes in like a participant — observing, suggesting, asking — while you sketch.",
-    creator: "altramanera",
-    version: "0.1.0",
-    tokens: 0,
-    files: 8,
-    loc: 700,
-    rating: 0,
-    ratingCount: 0,
-    tags: ["whiteboard", "collaboration", "agent-native"],
-    hue: 200,
-    status: "available",
-    Root: BrainstormApp,
-    releasedAt: "2026-06-17",
-    sizeBytes: 1_200_000,
-    category: "writing",
-  },
-  {
-    id: "data",
-    name: "Lens",
-    blurb: "Agent-native reactive data canvas",
-    description:
-      "Build data pipelines with a reactive node graph: source files → SQL queries (DuckDB) → semantic AI operations → visualizations. The graph auto-recomputes as you edit query.json; the agent co-authors the pipeline and semantic operations run via your own agent CLI. See the full pipeline state in .kinetic-studio/last_result.json.",
-    creator: "altramanera",
-    version: "0.1.0",
-    tokens: 0,
-    files: 9,
-    loc: 900,
-    rating: 0,
-    ratingCount: 0,
-    tags: ["data", "reactive", "ai", "agent-native"],
-    hue: 48,
-    status: "available",
-    Root: DataApp,
-    releasedAt: "2026-06-22",
-    sizeBytes: 2_000_000,
-    category: "data",
-  },
-  {
-    id: "voxel",
-    name: "Voxel",
-    blurb: "Agent-native 3D scenes",
-    description:
-      "A blocky scene graph the agent populates. Tweak materials and lighting on the canvas; the agent retopologises. Coming soon.",
-    creator: "voxel-collective",
-    version: "0.0.1",
-    tokens: 6_800_000,
-    files: 91,
-    loc: 5_400,
-    rating: 0,
-    ratingCount: 0,
-    tags: ["3d", "scene", "agent-native"],
-    hue: 24,
-    status: "coming-soon",
-    releasedAt: "2026-04-30",
-    sizeBytes: 5_400_000,
-    category: "3d-render",
-  },
-];
 
 /**
  * The full catalog: public apps first (in display order), then any

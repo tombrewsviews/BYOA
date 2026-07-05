@@ -1,0 +1,20 @@
+{
+  "id": "voxel",
+  "name": "Voxel",
+  "blurb": "Agent-native 3D scenes",
+  "description": "A blocky scene graph the agent populates. Tweak materials and lighting on the canvas; the agent retopologises. Coming soon.",
+  "creator": "voxel-collective",
+  "version": "0.0.1",
+  "tokens": 6800000,
+  "files": 91,
+  "loc": 5400,
+  "rating": 0,
+  "ratingCount": 0,
+  "tags": ["3d", "scene", "agent-native"],
+  "hue": 24,
+  "status": "coming-soon",
+  "releasedAt": "2026-04-30",
+  "sizeBytes": 5400000,
+  "category": "3d-render",
+  "visibility": "public"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "data",
+  "name": "Lens",
+  "blurb": "Agent-native reactive data canvas",
+  "description": "Build data pipelines with a reactive node graph: source files → SQL queries (DuckDB) → semantic AI operations → visualizations. The graph auto-recomputes as you edit query.json; the agent co-authors the pipeline and semantic operations run via your own agent CLI. See the full pipeline state in .kinetic-studio/last_result.json.",
+  "creator": "altramanera",
+  "version": "0.1.0",
+  "tokens": 0,
+  "files": 9,
+  "loc": 900,
+  "rating": 0,
+  "ratingCount": 0,
+  "tags": ["data", "reactive", "ai", "agent-native"],
+  "hue": 48,
+  "status": "available",
+  "releasedAt": "2026-06-22",
+  "sizeBytes": 2000000,
+  "category": "data",
+  "visibility": "public"
+}
