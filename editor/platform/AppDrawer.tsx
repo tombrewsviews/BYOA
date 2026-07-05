@@ -10,7 +10,7 @@
 import React, { useEffect, useState } from "react";
 import { radius, formatBytes } from "./theme";
 import { type AppManifest } from "./apps";
-import { startInstall, useInstallState } from "./install";
+import { startInstall, uninstall, useInstallState } from "./install";
 import { Button } from "@/components/ui/button";
 import { X, Star, ChevronUp, ChevronDown } from "../icons";
 
@@ -67,9 +67,18 @@ const CTA: React.FC<{
   }
   if (rec.state === "installed") {
     return (
-      <Button onClick={onOpen} className="w-full">
-        Open {app.name}
-      </Button>
+      <div className="flex w-full gap-2">
+        <Button onClick={onOpen} className="flex-1">
+          Open {app.name}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => void uninstall(app.id)}
+          aria-label={`Uninstall ${app.name}`}
+        >
+          Uninstall
+        </Button>
+      </div>
     );
   }
   if (rec.state === "installing") {
@@ -88,7 +97,7 @@ const CTA: React.FC<{
     return (
       <Button
         variant="secondary"
-        onClick={() => startInstall(app.id)}
+        onClick={() => void startInstall(app.id)}
         className="w-full"
       >
         Retry install
@@ -96,7 +105,7 @@ const CTA: React.FC<{
     );
   }
   return (
-    <Button onClick={() => startInstall(app.id)} className="w-full">
+    <Button onClick={() => void startInstall(app.id)} className="w-full">
       Install · {formatBytes(app.sizeBytes)}
     </Button>
   );

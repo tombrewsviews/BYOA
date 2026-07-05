@@ -50,6 +50,9 @@ const notify = (appId: string, rec: InstallRecord) => {
 export const getInstallState = (appId: string): InstallRecord =>
   cache.get(appId) ?? DEFAULT_RECORD;
 
+export const canOpen = (appId: string): boolean =>
+  getInstallState(appId).state === "installed";
+
 const subscribe = (
   appId: string,
   fn: (rec: InstallRecord) => void,

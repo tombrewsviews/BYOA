@@ -24,6 +24,7 @@ import { font } from "./platform/theme";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid, Settings } from "./icons";
 import { SettingsDialog } from "./platform/SettingsDialog";
+import { canOpen, refreshInstallStates } from "./platform/install";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
@@ -33,6 +34,7 @@ const loadCurrentApp = (): string | null => {
     if (!id) return null;
     const app = findApp(id);
     if (!app || app.status !== "available" || !app.Root) return null;
+    if (!canOpen(id)) return null;
     return id;
   } catch {
     return null;
@@ -141,6 +143,10 @@ export const App: React.FC = () => {
     saveCurrentApp(currentId);
   }, [currentId]);
 
+  useEffect(() => {
+    void refreshInstallStates();
+  }, []);
+
   const currentApp = currentId ? findApp(currentId) ?? null : null;
   const Root = currentApp?.Root ?? null;
 
@@ -167,7 +173,7 @@ export const App: React.FC = () => {
           <Square
             onOpen={(id) => {
               const app = APPS.find((a) => a.id === id);
-              if (app?.status === "available" && app.Root) setCurrentId(id);
+              if (app?.status === "available" && app.Root && canOpen(id)) setCurrentId(id);
             }}
           />
         )}
