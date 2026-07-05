@@ -1,6 +1,6 @@
 //! User-wide settings (small, JSON-on-disk).
 //!
-//! Lives at `~/.kinetic-studio/settings.json`. Only thing in v1 is the
+//! Lives at `~/.dreamstore/settings.json`. Only thing in v1 is the
 //! default agent CLI to spawn in the terminal panel. Plain JSON because
 //! the file is tiny and we'd rather not add a TOML dependency for two
 //! fields.

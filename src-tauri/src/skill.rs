@@ -5,7 +5,7 @@
 //! project-root `CLAUDE.md`). The installer takes one and:
 //!
 //!   1. Materialises the bundle's files into a single shared location
-//!      at `~/.kinetic-studio/skills-bundle/kinetic/` — overwriting it
+//!      at `~/.dreamstore/skills-bundle/kinetic/` — overwriting it
 //!      so app updates roll out automatically. (The `kinetic` segment
 //!      is the studio's per-user namespace, not the canvas id.)
 //!

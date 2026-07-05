@@ -3,7 +3,7 @@
 //! First launch (no saved state) → maximized to the primary monitor's
 //! work area. Subsequent launches restore the user's last size and
 //! position. The window-state JSON lives at
-//! `~/.kinetic-studio/window.json` next to `recents.json`.
+//! `~/.dreamstore/window.json` next to `recents.json`.
 //!
 //! The frontend calls `save_window_state` whenever the window is
 //! resized or moved (debounced JS-side). On startup, `lib.rs` calls

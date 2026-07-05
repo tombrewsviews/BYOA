@@ -15,13 +15,13 @@ subscription pays for the work.
 
 **This repo contains:**
 
-1. **The BYOA spec** — `docs/superpowers/specs/2026-05-19-byoa-spike-design.md`. A research-spike manifesto that defines what BYOA is, the four pillars (Observe / Act / State / Identity), the three-file canvas-plugin contract, and the audit showing how much of the framework is already extracted in-place inside KineticType.
-2. **KineticType** — the first reference app, built around BYOA from the ground up. A kinetic-typography video editor where the agent edits `story.json` and the preview hot-reloads in ~300ms. **Open source under MIT.**
+1. **The BYOA spec** — `docs/superpowers/specs/2026-05-19-byoa-spike-design.md`. A research-spike manifesto that defines what BYOA is, the four pillars (Observe / Act / State / Identity), the three-file canvas-plugin contract, and the audit showing how much of the framework is already extracted in-place inside DreamStore.
+2. **DreamStore** — the first reference app, built around BYOA from the ground up. A kinetic-typography video editor where the agent edits `story.json` and the preview hot-reloads in ~300ms. **Open source under MIT.**
 
 **The framework is not yet a package.** There is no `npm install
 byoa` to run. There's a spec, an audit showing what the seams look
 like in a real codebase, and one working reference implementation
-(KineticType, which you can build and run today). **Contributions
+(DreamStore, which you can build and run today). **Contributions
 that extract the framework are very much wanted** — see
 [CONTRIBUTING.md](./CONTRIBUTING.md).
 
@@ -54,9 +54,9 @@ changes — open source as a runtime property, not a release strategy.
 
 ---
 
-## Get started — building KineticType
+## Get started — building DreamStore
 
-KineticType is the buildable artifact. It's a kinetic-typography
+DreamStore is the buildable artifact. It's a kinetic-typography
 video editor (illustration-into-text reveal, beat sequencing,
 variable-font axes) that demonstrates every property of BYOA on
 real data.
@@ -121,7 +121,7 @@ framework), the spec is the starting point.
 
 1. [`docs/superpowers/specs/2026-05-19-byoa-spike-design.md`](./docs/superpowers/specs/2026-05-19-byoa-spike-design.md)
    — the manifesto + the contract + the file-by-file audit of
-   KineticType. Sections 1–4 are the pitch and design; §5 is the
+   DreamStore. Sections 1–4 are the pitch and design; §5 is the
    audit; §7 lists locked decisions and explicit non-goals.
 2. [`docs/superpowers/plans/2026-05-19-byoa-spike.md`](./docs/superpowers/plans/2026-05-19-byoa-spike.md)
    — the implementation plan that validated the spike (Phase A
@@ -135,13 +135,13 @@ framework), the spec is the starting point.
      confirms the audit's labels match on-disk reality.
    - `2026-05-19-pillar3-validation.md` — Phase C tracer
      (JSON-Patch writes + content-addressed history log) proven
-     end-to-end against KineticType's real `story.json` data.
+     end-to-end against DreamStore's real `story.json` data.
 
 ---
 
 ## Architecture overview
 
-The substrate that BYOA-ifies KineticType is roughly 60% extracted
+The substrate that BYOA-ifies DreamStore is roughly 60% extracted
 already, living behind two seams:
 
 - **`src-tauri/src/canvas.rs`** — the `Canvas` Rust trait. Each
@@ -159,7 +159,7 @@ already, living behind two seams:
 |---|---|---|
 | **Observe** | `observe.snapshot()` + `observe.logs()` + `observe.network()` give the agent a structured view of the running preview | Spec only |
 | **Act** | Declared verbs + low-level nav primitives (`route`, `click`, `fill`, `read`, `workflow`) | Spec only |
-| **State** | `state.write({ patch })` (RFC 6902 JSON Patch) + content-addressed history log | ✅ Tracer shipped, validated against KineticType data |
+| **State** | `state.write({ patch })` (RFC 6902 JSON Patch) + content-addressed history log | ✅ Tracer shipped, validated against DreamStore data |
 | **Identity** | Auto-generated routing skill + `introspect.capabilities()` + per-project memory | Hand-written skill exists; auto-generation spec'd only |
 
 The spike validated Pillar 3 (the highest-risk one). The other
@@ -234,7 +234,7 @@ cargo check --manifest-path src-tauri/Cargo.toml        # Quick compile check
 
 ## The legacy bits (still work)
 
-KineticType started life as a Remotion playground; some of that
+DreamStore started life as a Remotion playground; some of that
 substrate is still here and still useful.
 
 ### Remotion Studio (props-driven editing)

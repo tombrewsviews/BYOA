@@ -1,4 +1,4 @@
-# KineticType
+# DreamStore
 
 ## Gotchas
 
