@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { BrainstormApp } from "./brainstorm/BrainstormApp";
 import { isTauri } from "./runtime";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid } from "lucide-react";
@@ -47,13 +48,17 @@ const TitleBar: React.FC = () => {
   );
 };
 
-// Standalone: Brainstorm is the whole app. There's no shell to exit back to.
-// Domain UI is added in later tasks; this is a scaffolding placeholder.
+// Standalone: Brainstorm is the whole app. There's no shell to exit back to,
+// so onExit is a no-op (the app is closed by closing its window). The title
+// bar lives only on this window (the agent panel); the tiled board window is
+// the external Excalidraw URL and needs no bar.
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <div className="flex h-screen w-screen flex-col bg-background text-foreground">
       <TitleBar />
-      <div className="min-h-0 flex-1" />
+      <div className="min-h-0 flex-1">
+        <BrainstormApp onExit={() => {}} />
+      </div>
     </div>
   </React.StrictMode>,
 );
