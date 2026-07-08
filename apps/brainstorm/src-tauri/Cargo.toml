@@ -1,0 +1,29 @@
+[package]
+name = "brainstorm-app"
+version = "0.1.0"
+description = "Brainstorm Canvas — standalone app"
+authors = ["Altramanera"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "brainstorm_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.1", features = [] }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.11.1", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+notify = "6"
+notify-debouncer-mini = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+slug = "0.1"
+trash = "5"
+
+[dev-dependencies]
+tempfile = "3"
