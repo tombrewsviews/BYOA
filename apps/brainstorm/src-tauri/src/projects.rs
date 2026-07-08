@@ -119,6 +119,7 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir project: {}", e))?;
     fs::write(dir.join(DOC_FILENAME), SEED_BOARD).map_err(|e| format!("write doc: {}", e))?;
     skill::write(&dir, &skill::BRAINSTORM_BUNDLE).map_err(|e| format!("write skill: {}", e))?;
+    crate::prompt_mode::ensure_seeded(&dir);
 
     let display_name = if name.trim().is_empty() { "Untitled".into() } else { name.to_string() };
     Ok(ProjectMeta {
@@ -149,6 +150,7 @@ pub fn project_open(
 
     let watcher = watch::spawn(doc.clone(), app.clone()).map_err(|e| format!("watcher: {}", e))?;
     skill::write(&path_buf, &skill::BRAINSTORM_BUNDLE).map_err(|e| format!("write skill: {}", e))?;
+    crate::prompt_mode::ensure_seeded(&path_buf);
 
     *state.active_project.lock().unwrap() =
         Some(ActiveProject { path: path_buf.clone(), _watcher: watcher });
