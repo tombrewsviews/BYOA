@@ -69,6 +69,49 @@ fn server_entry(app: &AppHandle) -> Result<std::path::PathBuf, String> {
         .map_err(|e| format!("resolve canvas server resource: {}", e))
 }
 
+/// Absolute path to the user's `node` binary. A GUI-launched .app inherits
+/// launchd's minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) — no Homebrew,
+/// fnm or nvm — so a bare `Command::new("node")` fails with ENOENT even
+/// though node works fine in the user's terminal. Resolve it explicitly:
+/// walk $PATH first (dev/terminal launches), then ask the user's
+/// login+interactive shell (which sources the fnm/nvm setup), then
+/// well-known install locations.
+fn find_node() -> Result<std::path::PathBuf, String> {
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let cand = dir.join("node");
+            if cand.is_file() {
+                return Ok(cand);
+            }
+        }
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    if let Ok(out) = Command::new(&shell).args(["-ilc", "command -v node"]).output() {
+        if out.status.success() {
+            // Interactive shells may print rc-file noise; take the last line
+            // that looks like a node path.
+            if let Some(line) = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| l.ends_with("/node"))
+            {
+                let p = std::path::PathBuf::from(line);
+                if p.is_file() {
+                    return Ok(p);
+                }
+            }
+        }
+    }
+    for cand in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        let p = std::path::Path::new(cand);
+        if p.is_file() {
+            return Ok(p.to_path_buf());
+        }
+    }
+    Err("node not found — the canvas server needs Node.js installed".into())
+}
+
 /// Write (or overwrite) the project's `.mcp.json` so the `excalidraw` MCP is
 /// enabled by default and points at the running canvas server. Idempotent.
 pub fn write_mcp_config(project_dir: &Path, canvas_url: &str) -> std::io::Result<()> {
@@ -120,7 +163,8 @@ pub fn brainstorm_canvas_start(app: AppHandle, state: State<'_, AppState>) -> Re
     // `excalidraw.log` in cwd). Pin it to the temp dir so it never lands in a
     // project folder or the repo.
     let log_path = std::env::temp_dir().join("brainstorm-canvas.log");
-    let child = Command::new("node")
+    let node = find_node()?;
+    let child = Command::new(&node)
         .arg(&entry)
         .env("PORT", port.to_string())
         .env("HOST", "127.0.0.1")
@@ -275,5 +319,15 @@ mod tests {
     #[test]
     fn server_rel_is_the_bundled_dist_entrypoint() {
         assert_eq!(SERVER_REL, "resources/canvas-server/dist/server.js");
+    }
+
+    #[test]
+    fn find_node_resolves_an_existing_executable() {
+        // Must resolve even when PATH is the bare launchd default a
+        // GUI-launched .app gets (this was the "spawn canvas server: No such
+        // file or directory" bug — fnm/nvm/homebrew node isn't on that PATH).
+        let node = find_node().expect("node resolvable on a dev machine");
+        assert!(node.is_absolute(), "spawn needs an absolute path");
+        assert!(node.is_file(), "resolved node exists: {}", node.display());
     }
 }
