@@ -31,7 +31,11 @@ describe("install.ts backed by Tauri commands", () => {
   it("startInstall calls app_install with only ids (bundle copy, no assets)", async () => {
     invoke.mockResolvedValue(undefined);
     await startInstall("remit");
-    expect(invoke).toHaveBeenCalledWith("app_install", expect.objectContaining({ appId: "remit" }));
+    expect(invoke).toHaveBeenCalledWith("app_install", {
+      appId: "remit",
+      appName: "Remit",
+      launchable: true,
+    });
     expect(getInstallState("remit").state).toBe("installed");
   });
 
