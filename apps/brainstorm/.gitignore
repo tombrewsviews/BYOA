@@ -2,3 +2,7 @@ node_modules/
 dist/
 src-tauri/target/
 .DS_Store
+
+# Bundled node canvas-server (mcp-excalidraw-server dist + prod deps), staged
+# by scripts/stage-server.sh before tauri:build. Build output, not source.
+src-tauri/resources/canvas-server/

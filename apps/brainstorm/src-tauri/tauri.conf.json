@@ -32,6 +32,7 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
+    "resources": ["resources/canvas-server/**/*"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
