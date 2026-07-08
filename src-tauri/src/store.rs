@@ -25,6 +25,11 @@ use serde::{Deserialize, Serialize};
 struct InstalledEntry {
     id: String,
     name: String,
+    /// True if this install copied a `.app` bundle (launchable apps); false
+    /// for registry-only state-marker installs (in-process apps with no
+    /// bundle). Reconcile prunes only bundle installs whose `.app` vanished.
+    #[serde(default)]
+    bundle: bool,
 }
 
 fn install_root() -> PathBuf {
@@ -127,8 +132,23 @@ fn copy_bundle_into(
     let mut entries = read_registry(reg);
     if let Some(e) = entries.iter_mut().find(|e| e.id == app_id) {
         e.name = app_name.to_string();
+        e.bundle = true;
     } else {
-        entries.push(InstalledEntry { id: app_id.to_string(), name: app_name.to_string() });
+        entries.push(InstalledEntry { id: app_id.to_string(), name: app_name.to_string(), bundle: true });
+    }
+    write_registry(reg, &entries)
+}
+
+/// Register an in-process app (no bundle to copy). State-marker install: the
+/// registry entry is the only artifact; Open mounts the app's Root in-window.
+fn install_registry_only(reg: &Path, app_id: &str, app_name: &str) -> Result<(), String> {
+    let app_name = safe_name(app_name)?;
+    let mut entries = read_registry(reg);
+    if let Some(e) = entries.iter_mut().find(|e| e.id == app_id) {
+        e.name = app_name.to_string();
+        e.bundle = false;
+    } else {
+        entries.push(InstalledEntry { id: app_id.to_string(), name: app_name.to_string(), bundle: false });
     }
     write_registry(reg, &entries)
 }
@@ -149,7 +169,7 @@ fn uninstall_into(base: &Path, reg: &Path, app_id: &str, app_name: &str) -> Resu
 fn reconcile_in(base: &Path, reg: &Path) {
     let kept: Vec<InstalledEntry> = read_registry(reg)
         .into_iter()
-        .filter(|e| base.join(&e.name).exists())
+        .filter(|e| !e.bundle || base.join(&e.name).exists())
         .collect();
     let _ = write_registry(reg, &kept);
 }
@@ -171,7 +191,15 @@ fn resolve_installed_bundle(base: &Path, reg: &Path, app_id: &str) -> Result<Pat
 }
 
 #[tauri::command]
-pub fn app_install(app: tauri::AppHandle, app_id: String, app_name: String) -> Result<(), String> {
+pub fn app_install(
+    app: tauri::AppHandle,
+    app_id: String,
+    app_name: String,
+    launchable: bool,
+) -> Result<(), String> {
+    if !launchable {
+        return install_registry_only(&registry_path(), &app_id, &app_name);
+    }
     use tauri::Manager;
     let resources_apps = app
         .path()
@@ -313,7 +341,7 @@ mod tests {
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
         fs::create_dir_all(base.join("Remit.app")).unwrap();
-        write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
+        write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into(), bundle: true }])
             .unwrap();
         assert_eq!(
             resolve_installed_bundle(&base, &reg, "remit").unwrap(),
@@ -334,7 +362,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("Applications/DreamStore");
         let reg = dir.path().join("installed.json");
-        write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into() }])
+        write_registry(&reg, &[InstalledEntry { id: "remit".into(), name: "Remit.app".into(), bundle: true }])
             .unwrap();
         assert!(resolve_installed_bundle(&base, &reg, "remit").is_err());
     }
@@ -381,5 +409,36 @@ mod tests {
     fn bundle_name_is_idempotent() {
         assert_eq!(bundle_name("Remit"), "Remit.app");
         assert_eq!(bundle_name("Remit.app"), "Remit.app");
+    }
+
+    #[test]
+    fn install_non_launchable_is_registry_only_no_bundle() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        // No resources dir at all: a non-launchable install must not touch it.
+        install_registry_only(&reg, "pulse", "Pulse").unwrap();
+        assert!(fs::read_to_string(&reg).unwrap().contains("pulse"));
+        // No bundle was created under base.
+        assert!(!base.join("Pulse").exists());
+        assert!(!base.join("Pulse.app").exists());
+    }
+
+    #[test]
+    fn reconcile_keeps_registry_only_entry_but_prunes_missing_bundle() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("Applications/DreamStore");
+        let reg = dir.path().join("installed.json");
+        // A registry-only (non-bundle) entry: no .app on disk, must be KEPT.
+        install_registry_only(&reg, "pulse", "Pulse").unwrap();
+        // A bundle entry whose .app is gone: must be PRUNED.
+        write_registry(&reg, &[
+            InstalledEntry { id: "pulse".into(), name: "Pulse".into(), bundle: false },
+            InstalledEntry { id: "remit".into(), name: "Remit.app".into(), bundle: true },
+        ]).unwrap();
+        reconcile_in(&base, &reg); // base/Remit.app does not exist
+        let txt = fs::read_to_string(&reg).unwrap();
+        assert!(txt.contains("pulse"), "registry-only entry kept");
+        assert!(!txt.contains("remit"), "missing-bundle entry pruned");
     }
 }

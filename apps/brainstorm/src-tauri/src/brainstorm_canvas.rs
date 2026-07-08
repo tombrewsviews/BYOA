@@ -1,11 +1,11 @@
 //! Brainstorm Canvas server lifecycle.
 //!
-//! The Brainstorm app's board is a live Excalidraw instance served by
-//! `mcp-excalidraw-server` in *canvas mode* (`dist/server.js`): an Express +
-//! WebSocket server that holds the scene and broadcasts every change. The app
-//! embeds it in a webview; the agent reaches the SAME board through the
-//! `excalidraw` MCP (`dist/index.js`), which syncs to this server via the
-//! `EXPRESS_SERVER_URL` env var.
+//! The board is a live Excalidraw instance served by `mcp-excalidraw-server`
+//! in *canvas mode* (`dist/server.js`): an Express + WebSocket server that
+//! holds the scene and broadcasts every change. The app embeds it in a
+//! webview; the agent reaches the SAME board through the `excalidraw` MCP
+//! (`dist/index.js`), which syncs to this server via the `EXPRESS_SERVER_URL`
+//! env var.
 //!
 //! This module owns that server process:
 //!   - `brainstorm_canvas_start` spawns it (once) on a free port (preferring
@@ -55,16 +55,18 @@ fn pick_port() -> u16 {
         .unwrap_or(PREFERRED_PORT)
 }
 
-/// Absolute path to the installed canvas-server entrypoint. The package is a
-/// project dependency, so it lives under the app repo's node_modules. We
-/// resolve it relative to CARGO_MANIFEST_DIR (src-tauri) → ../node_modules.
-fn server_entry() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("node_modules")
-        .join("mcp-excalidraw-server")
-        .join("dist")
-        .join("server.js")
+/// Bundle-relative path of the canvas-server entrypoint (see `server_entry`).
+const SERVER_REL: &str = "resources/canvas-server/dist/server.js";
+
+/// Absolute path to the bundled canvas-server entrypoint. In the standalone
+/// app the server ships inside the .app under
+/// `resources/canvas-server/dist/server.js` (staged by scripts/stage-server.sh
+/// and declared in tauri.conf.json bundle.resources). Resolved via Tauri's
+/// resource dir.
+fn server_entry(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .resolve(SERVER_REL, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("resolve canvas server resource: {}", e))
 }
 
 /// Write (or overwrite) the project's `.mcp.json` so the `excalidraw` MCP is
@@ -91,7 +93,7 @@ pub fn write_mcp_config(project_dir: &Path, canvas_url: &str) -> std::io::Result
 /// Start the canvas server if it isn't already running, and ensure the active
 /// project's `.mcp.json` points at it. Returns the canvas URL for the webview.
 #[tauri::command]
-pub fn brainstorm_canvas_start(state: State<'_, AppState>) -> Result<String, String> {
+pub fn brainstorm_canvas_start(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     // Already running? Return the existing URL (and re-sync .mcp.json in case a
     // different project just opened).
     {
@@ -106,10 +108,10 @@ pub fn brainstorm_canvas_start(state: State<'_, AppState>) -> Result<String, Str
 
     let port = pick_port();
     let url = format!("http://127.0.0.1:{}", port);
-    let entry = server_entry();
+    let entry = server_entry(&app)?;
     if !entry.exists() {
         return Err(format!(
-            "canvas server not found at {} — is mcp-excalidraw-server installed?",
+            "canvas server not found at {} — the app bundle may be incomplete",
             entry.display()
         ));
     }
@@ -245,5 +247,33 @@ pub fn shutdown(state: &AppState) {
             let _ = running.child.kill();
             let _ = running.child.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn write_mcp_config_points_excalidraw_at_url() {
+        let dir = TempDir::new().unwrap();
+        write_mcp_config(dir.path(), "http://127.0.0.1:3939").unwrap();
+        let txt = std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
+        assert!(txt.contains("excalidraw"));
+        assert!(txt.contains("http://127.0.0.1:3939"));
+        assert!(txt.contains("EXPRESS_SERVER_URL"));
+    }
+
+    #[test]
+    fn pick_port_returns_a_bindable_port() {
+        let p = pick_port();
+        // Either the preferred port or an OS-assigned one; must be > 0.
+        assert!(p > 0);
+    }
+
+    #[test]
+    fn server_rel_is_the_bundled_dist_entrypoint() {
+        assert_eq!(SERVER_REL, "resources/canvas-server/dist/server.js");
     }
 }

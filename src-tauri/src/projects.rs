@@ -164,12 +164,6 @@ pub fn create_project_dir(name: &str, canvas_id: &str) -> Result<ProjectMeta, St
     crate::skill::write(&dir, canvas.skill_bundle())
         .map_err(|e| format!("write skill: {}", e))?;
     crate::prompt_mode::ensure_seeded(&dir);
-    // Brainstorm projects ship with the Excalidraw MCP enabled by default.
-    // Seed `.mcp.json` pointing at the preferred canvas port; the canvas
-    // server rewrites it with the resolved port on start if 3939 was taken.
-    if canvas.id() == "brainstorm" {
-        let _ = crate::brainstorm_canvas::write_mcp_config(&dir, "http://127.0.0.1:3939");
-    }
 
     let display_name = if name.trim().is_empty() {
         "Untitled".into()

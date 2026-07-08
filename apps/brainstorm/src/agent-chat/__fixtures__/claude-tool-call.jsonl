@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess-2"}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/x/story.json"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"{\"beats\":[]}","is_error":false}]}}
+{"type":"result","subtype":"success","session_id":"sess-2","is_error":false}

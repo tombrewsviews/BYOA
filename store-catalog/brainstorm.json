@@ -1,6 +1,7 @@
 {
   "id": "brainstorm",
   "name": "Brainstorm Canvas",
+  "launchable": true,
   "blurb": "Agent-native collaborative whiteboard",
   "description": "A live Excalidraw board you share with the agent. It can see the canvas and draw on it. Prompted mode acts when you ask; continuous mode watches the board and chimes in like a participant — observing, suggesting, asking — while you sketch.",
   "creator": "altramanera",

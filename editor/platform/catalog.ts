@@ -8,7 +8,6 @@ import type React from "react";
 import type { AppManifest } from "./apps";
 import { KineticApp } from "../canvases/kinetic/KineticApp";
 import { PulseApp } from "../canvases/music/PulseApp";
-import { BrainstormApp } from "../canvases/brainstorm/BrainstormApp";
 import { DataApp } from "../canvases/data/DataApp";
 
 // The only part of a public app that must be code. Coming-soon apps
@@ -16,7 +15,6 @@ import { DataApp } from "../canvases/data/DataApp";
 const ROOTS: Partial<Record<string, React.FC<{ onExit: () => void }>>> = {
   kinetic: KineticApp,
   pulse: PulseApp,
-  brainstorm: BrainstormApp,
   data: DataApp,
 };
 

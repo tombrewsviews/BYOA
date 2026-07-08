@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { isTauri } from "../../runtime";
-import { Chat, type ChatHandle } from "../../agent-chat/Chat";
-import { Terminal } from "../../terminal";
+import { isTauri } from "../runtime";
+import { Chat, type ChatHandle } from "../agent-chat/Chat";
+import { Terminal } from "../terminal";
 import { startWatchLoop } from "./watch";
 import { restoreBoard, startAutosave } from "./persistence";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, MessageSquare, PanelRight, Plus, Trash2 } from "../../icons";
+import { Eye, MessageSquare, PanelRight, Plus, Trash2 } from "../icons";
 
 type ProjectMeta = { name: string; path: string; lastOpened?: string };
 type Mode = "prompted" | "continuous";

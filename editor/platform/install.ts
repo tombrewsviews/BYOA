@@ -92,7 +92,7 @@ export const startInstall = async (appId: string): Promise<void> => {
   notify(appId, { state: "installing", progress: 0, installedAt: null, error: null });
   try {
     if (!isTauri()) throw new Error("install requires the desktop app");
-    await invoke("app_install", { appId, appName: app.name });
+    await invoke("app_install", { appId, appName: app.name, launchable: !!app.launchable });
     notify(appId, {
       state: "installed",
       progress: 1,

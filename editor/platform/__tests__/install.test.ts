@@ -34,8 +34,20 @@ describe("install.ts backed by Tauri commands", () => {
     expect(invoke).toHaveBeenCalledWith("app_install", {
       appId: "remit",
       appName: "Remit",
+      launchable: true,
     });
     expect(getInstallState("remit").state).toBe("installed");
+  });
+
+  it("startInstall sends launchable flag (in-process app installs registry-only)", async () => {
+    invoke.mockResolvedValue(undefined);
+    await startInstall("kinetic"); // kinetic is in-process (not launchable)
+    expect(invoke).toHaveBeenCalledWith("app_install", {
+      appId: "kinetic",
+      appName: "Kinetic Studio",
+      launchable: false,
+    });
+    expect(getInstallState("kinetic").state).toBe("installed");
   });
 
   it("launchApp invokes app_launch with the app id", async () => {
