@@ -24,7 +24,7 @@ import { font } from "./platform/theme";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid, Settings } from "./icons";
 import { SettingsDialog } from "./platform/SettingsDialog";
-import { canOpen, refreshInstallStates } from "./platform/install";
+import { canOpen, launchApp, refreshInstallStates } from "./platform/install";
 
 const CURRENT_APP_KEY = "platform.currentApp";
 
@@ -186,7 +186,12 @@ export const App: React.FC = () => {
           <Square
             onOpen={(id) => {
               const app = APPS.find((a) => a.id === id);
-              if (app?.status === "available" && app.Root && canOpen(id)) setCurrentId(id);
+              if (!app || app.status !== "available" || !canOpen(id)) return;
+              if (app.launchable) {
+                void launchApp(id);
+                return;
+              }
+              if (app.Root) setCurrentId(id);
             }}
           />
         )}

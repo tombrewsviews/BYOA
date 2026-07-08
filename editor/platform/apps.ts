@@ -68,6 +68,11 @@ export type AppManifest = {
   /** Mounted by the platform when the user opens the app. Required
    *  for "available"; absent for "coming-soon". */
   Root?: React.FC<{ onExit: () => void }>;
+  /** When true, "Open" spawns this app as its own standalone `.app`
+   *  (via `app_launch`) instead of mounting its `Root` in-process. Its
+   *  built bundle is copied out on install. Apps without this stay
+   *  in-process during the D1–D4 transition. */
+  launchable?: boolean;
   /** ISO date when the app was released. Drives "New this week". */
   releasedAt: string;
   /** Bundle size in bytes. Shown on the Install button. */

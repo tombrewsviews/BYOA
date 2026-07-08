@@ -14,7 +14,6 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../runtime";
 import { findApp } from "./apps";
-import { installAssetsFor } from "./install-assets";
 
 export type InstallState =
   | "not-installed"
@@ -93,15 +92,7 @@ export const startInstall = async (appId: string): Promise<void> => {
   notify(appId, { state: "installing", progress: 0, installedAt: null, error: null });
   try {
     if (!isTauri()) throw new Error("install requires the desktop app");
-    const assets = await installAssetsFor(appId);
-    // Serialize the manifest without the Root component (not JSON-able).
-    const { Root, ...data } = app;
-    await invoke("app_install", {
-      appId,
-      appName: app.name,
-      manifestJson: JSON.stringify(data),
-      assets,
-    });
+    await invoke("app_install", { appId, appName: app.name });
     notify(appId, {
       state: "installed",
       progress: 1,
@@ -127,6 +118,12 @@ export const uninstall = async (appId: string): Promise<void> => {
   } finally {
     notify(appId, { ...DEFAULT_RECORD });
   }
+};
+
+/** Spawn a launchable app as its own standalone `.app`. No-op outside Tauri. */
+export const launchApp = async (appId: string): Promise<void> => {
+  if (!isTauri()) return;
+  await invoke("app_launch", { appId });
 };
 
 export async function refreshInstallStates(): Promise<void> {
