@@ -2,7 +2,6 @@
 
 mod agent_chat;
 mod agents;
-mod brainstorm_canvas;
 mod canvas;
 mod canvases;
 mod data;
@@ -40,8 +39,6 @@ pub struct AppState {
     pub active_project: Mutex<Option<projects::ActiveProject>>,
     pub ptys: DashMap<String, pty::PtySession>,
     pub agent_chats: DashMap<String, agent_chat::AgentChatTurn>,
-    /// The Brainstorm Canvas server process, if the Brainstorm app started one.
-    pub canvas_server: brainstorm_canvas::CanvasServer,
     pub data_engine: data::DataEngine,
 }
 
@@ -51,7 +48,6 @@ pub fn run() {
         active_project: Mutex::new(None),
         ptys: DashMap::new(),
         agent_chats: DashMap::new(),
-        canvas_server: brainstorm_canvas::CanvasServer::default(),
         data_engine: data::DataEngine::default(),
     };
 
@@ -65,14 +61,6 @@ pub fn run() {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 window_state::apply_initial(&window);
-                // Kill the Brainstorm canvas server (if any) when the main
-                // window closes, so its localhost server + port don't leak.
-                let handle = app.handle().clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        brainstorm_canvas::shutdown(&handle.state::<AppState>());
-                    }
-                });
             }
             Ok(())
         })
@@ -126,9 +114,6 @@ pub fn run() {
             git::git_merge,
             stage::open_stage_window,
             stage::close_stage_window,
-            brainstorm_canvas::brainstorm_canvas_start,
-            brainstorm_canvas::brainstorm_canvas_open_window,
-            brainstorm_canvas::brainstorm_canvas_close_window,
             data::data_open_source,
             data::data_run_sql,
             data::data_schema,
