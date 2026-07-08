@@ -31,11 +31,19 @@ describe("install.ts backed by Tauri commands", () => {
   it("startInstall calls app_install with only ids (bundle copy, no assets)", async () => {
     invoke.mockResolvedValue(undefined);
     await startInstall("remit");
-    expect(invoke).toHaveBeenCalledWith("app_install", {
-      appId: "remit",
-      appName: "Remit",
-    });
+    expect(invoke).toHaveBeenCalledWith("app_install", expect.objectContaining({ appId: "remit" }));
     expect(getInstallState("remit").state).toBe("installed");
+  });
+
+  it("startInstall sends launchable flag (in-process app installs registry-only)", async () => {
+    invoke.mockResolvedValue(undefined);
+    await startInstall("kinetic"); // kinetic is in-process (not launchable)
+    expect(invoke).toHaveBeenCalledWith("app_install", {
+      appId: "kinetic",
+      appName: "Kinetic Studio",
+      launchable: false,
+    });
+    expect(getInstallState("kinetic").state).toBe("installed");
   });
 
   it("launchApp invokes app_launch with the app id", async () => {
