@@ -25,3 +25,4 @@ stage() {
 }
 
 stage "apps/remit" "Remit.app"
+stage "apps/brainstorm" "Brainstorm Canvas.app"
