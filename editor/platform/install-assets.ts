@@ -1,5 +1,5 @@
 /**
- * Which files each app materializes into ~/Applications/DreamStore/<App>/.
+ * Which files each app materializes into /Applications/DreamStore/<App>/.
  * The frontend owns the Vite ?url imports, resolves them to bytes, and hands
  * them to the app_install command (Rust just writes bytes). Apps with no
  * assets have no entry.

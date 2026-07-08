@@ -4,7 +4,7 @@
  * The install action is backed by the Tauri installer commands
  * (`app_install`, `app_uninstall`, `app_install_states`). `startInstall(id)`
  * resolves the app's manifest + install assets and hands them to Rust, which
- * materializes ~/Applications/DreamStore/<App>/. State lives in-memory in
+ * materializes /Applications/DreamStore/<App>/. State lives in-memory in
  * `cache`; `refreshInstallStates()` seeds it from the backend at app boot.
  *
  * Apps are not-installed by default. There is no force-install for bundled

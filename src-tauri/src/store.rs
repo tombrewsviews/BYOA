@@ -1,14 +1,14 @@
 //! Generic app installer for DreamStore.
 //!
 //! Apps are listed in the store but not installed by default. Installing an
-//! app materializes `~/Applications/DreamStore/<AppName>/` (manifest.json +
+//! app materializes `/Applications/DreamStore/<AppName>/` (manifest.json +
 //! declared asset bytes provided by the frontend) and records the app id in
 //! `~/.dreamstore/installed.json`. Native app CODE stays compiled into the
 //! binary (built-in tier); uninstall removes only the folder + registry entry.
 //!
 //! In DS2′-B the installed folder IS the app: `app_install` copies the built
 //! `<App>.app` bundle out of `DreamStore.app/Contents/Resources/apps/` into
-//! `~/Applications/DreamStore/<App>.app`, and `app_launch` `open`s it as an
+//! `/Applications/DreamStore/<App>.app`, and `app_launch` `open`s it as an
 //! independent macOS process. `app_install_states`/`reconcile` track presence
 //! by the bundle on disk (not a manifest file).
 //!
@@ -33,9 +33,10 @@ struct InstalledEntry {
 }
 
 fn install_root() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join("Applications").join("DreamStore"))
-        .unwrap_or_else(|| PathBuf::from("Applications/DreamStore"))
+    // System-wide /Applications so installs are visible in Finder's
+    // Applications view (~/Applications is hidden by default). A standard
+    // macOS admin user can write here without elevation.
+    PathBuf::from("/Applications/DreamStore")
 }
 
 fn registry_path() -> PathBuf {
