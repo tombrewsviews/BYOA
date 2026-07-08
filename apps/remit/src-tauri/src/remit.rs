@@ -197,7 +197,7 @@ pub fn project_delete(path: String) -> Result<(), String> {
 /// Launch the DreamStore launcher app. Standalone Remit is independent, but the
 /// user can jump back to the store from here. Tries the app bundle by its
 /// identifier first (works once DreamStore is a registered/installed .app);
-/// falls back to the local install path under /Applications/DreamStore/.
+/// falls back to the launcher's own location in /Applications.
 #[tauri::command]
 pub fn open_dreamstore() -> Result<(), String> {
     // `open -b <bundle-id>` launches a registered app regardless of its path.
@@ -209,8 +209,9 @@ pub fn open_dreamstore() -> Result<(), String> {
     {
         return Ok(());
     }
-    // Fallback: the local install location.
-    let path = std::path::PathBuf::from("/Applications/DreamStore/DreamStore.app");
+    // Fallback: the launcher lives in /Applications itself; only the
+    // installed apps live under /Applications/DreamStore/.
+    let path = std::path::PathBuf::from("/Applications/DreamStore.app");
     if !path.exists() {
         return Err("DreamStore is not installed".to_string());
     }
