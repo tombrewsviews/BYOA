@@ -19,7 +19,7 @@ doc. Do not add sender name/address fields.
 ```jsonc
 {
   "canvas": "remit",
-  "senderAccount": "MYR",   // "MYR" -> 515120891385 | "USD" -> 51120891385
+  "senderAccount": "MYR",   // "MYR" -> 515120891385 | "USD" -> 715120029964
   "date": "2026-07-03",      // ISO yyyy-mm-dd; shown as dd.mm.yyyy on the form
   "transferType": "FTT",     // FTT | RENTAS | GIRO | CHEQUE | OTHER
   "recipient": {
