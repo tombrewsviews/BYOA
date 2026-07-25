@@ -126,47 +126,62 @@ pub struct Event {
     pub actor: String,
 }
 
+/// Applies `value` (a before- or after-state) to the row identified by
+/// (kind, entity_id). Version-bumps the row. Unlisted kinds are a no-op
+/// (event-only, no row change). Shared by `commit` (applies `after`) and
+/// `revert` (applies `before`) so the two stay in lockstep.
+fn apply_state(
+    c: &Connection,
+    kind: &str,
+    entity_id: &str,
+    value: &serde_json::Value,
+) -> rusqlite::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    match kind {
+        "lead.stage" => {
+            c.execute(
+                "update leads set stage = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                rusqlite::params![value["stage"].as_str(), &now, entity_id],
+            )?;
+        }
+        "lead.context" => {
+            c.execute(
+                "update leads set context = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                rusqlite::params![value.to_string(), &now, entity_id],
+            )?;
+        }
+        "lead.messages" => {
+            c.execute(
+                "update leads set messages = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                rusqlite::params![value.to_string(), &now, entity_id],
+            )?;
+        }
+        "lead.transcripts" => {
+            c.execute(
+                "update leads set transcripts = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                rusqlite::params![value.to_string(), &now, entity_id],
+            )?;
+        }
+        "stage.renamed" => {
+            c.execute(
+                "update stages set label = ?1, version = version + 1 where id = ?2",
+                rusqlite::params![value["label"].as_str(), entity_id],
+            )?;
+        }
+        _ => {
+            // other kinds applied by their verbs in later tasks
+        }
+    }
+    Ok(())
+}
+
 /// Apply `ev.after` to its target row and record the event, atomically.
 /// Returns the event's `seq`.
 pub fn commit(c: &Connection, ev: &Event) -> rusqlite::Result<i64> {
     let now = chrono::Utc::now().to_rfc3339();
     c.execute_batch("begin;")?;
     let result = (|| -> rusqlite::Result<()> {
-        match ev.kind.as_str() {
-            "lead.stage" => {
-                c.execute(
-                    "update leads set stage = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                    rusqlite::params![ev.after["stage"].as_str(), &now, ev.entity_id],
-                )?;
-            }
-            "lead.context" => {
-                c.execute(
-                    "update leads set context = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                    rusqlite::params![ev.after.to_string(), &now, ev.entity_id],
-                )?;
-            }
-            "lead.messages" => {
-                c.execute(
-                    "update leads set messages = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                    rusqlite::params![ev.after.to_string(), &now, ev.entity_id],
-                )?;
-            }
-            "lead.transcripts" => {
-                c.execute(
-                    "update leads set transcripts = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                    rusqlite::params![ev.after.to_string(), &now, ev.entity_id],
-                )?;
-            }
-            "stage.renamed" => {
-                c.execute(
-                    "update stages set label = ?1, version = version + 1 where id = ?2",
-                    rusqlite::params![ev.after["label"].as_str(), ev.entity_id],
-                )?;
-            }
-            _ => {
-                // other kinds applied by their verbs in later tasks
-            }
-        }
+        apply_state(c, &ev.kind, &ev.entity_id, &ev.after)?;
 
         c.execute(
             "insert into events(type, entity_id, before, after, verb, actor, created_at)
@@ -192,6 +207,49 @@ pub fn commit(c: &Connection, ev: &Event) -> rusqlite::Result<i64> {
     }
 
     Ok(c.last_insert_rowid())
+}
+
+/// Undo every event after `seq`, newest-first, restoring each one's
+/// `before` state. Deletes the reverted event rows. Returns the count
+/// of events reverted. Atomic (single transaction).
+pub fn revert(c: &Connection, seq: i64) -> rusqlite::Result<usize> {
+    c.execute_batch("begin;")?;
+    let result = (|| -> rusqlite::Result<usize> {
+        let mut stmt = c.prepare(
+            "select type, entity_id, before from events where seq > ?1 order by seq desc",
+        )?;
+        let rows = stmt
+            .query_map([seq], |r| {
+                let kind: String = r.get(0)?;
+                let entity_id: String = r.get(1)?;
+                let before: String = r.get(2)?;
+                Ok((kind, entity_id, before))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        let mut count = 0usize;
+        for (kind, entity_id, before) in rows {
+            let before: serde_json::Value = serde_json::from_str(&before).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+            })?;
+            apply_state(c, &kind, &entity_id, &before)?;
+            count += 1;
+        }
+
+        c.execute("delete from events where seq > ?1", [seq])?;
+        Ok(count)
+    })();
+    match result {
+        Ok(count) => {
+            c.execute_batch("commit;")?;
+            Ok(count)
+        }
+        Err(e) => {
+            c.execute_batch("rollback;")?;
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -250,5 +308,26 @@ mod tests {
         assert_eq!(ver, 2);
         assert_eq!(events, 1);
         assert_eq!(seq, 1);
+    }
+
+    #[test]
+    fn revert_restores_before_state() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        seed_lead(&c, "L1", "researching");
+        let base = commit(&c, &Event{ kind:"lead.stage".into(), entity_id:"L1".into(),
+            before: serde_json::json!({"stage":"researching"}),
+            after: serde_json::json!({"stage":"contacted"}),
+            verb:"moveLead".into(), actor:"local".into() }).unwrap();
+        commit(&c, &Event{ kind:"lead.stage".into(), entity_id:"L1".into(),
+            before: serde_json::json!({"stage":"contacted"}),
+            after: serde_json::json!({"stage":"warm"}),
+            verb:"moveLead".into(), actor:"local".into() }).unwrap();
+        let n = revert(&c, base).unwrap();
+        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);          // one event (the warm move) reverted
+        assert_eq!(stage, "contacted"); // back to the state at `base`
+        let remaining: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        assert_eq!(remaining, 1);  // the base event remains
     }
 }
