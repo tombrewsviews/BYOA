@@ -115,6 +115,85 @@ pub fn open(path: &std::path::Path) -> rusqlite::Result<Connection> {
     Ok(c)
 }
 
+/// A single write to the board: applied to `entity_id`'s row and recorded
+/// as an immutable row in `events`.
+pub struct Event {
+    pub kind: String,
+    pub entity_id: String,
+    pub before: serde_json::Value,
+    pub after: serde_json::Value,
+    pub verb: String,
+    pub actor: String,
+}
+
+/// Apply `ev.after` to its target row and record the event, atomically.
+/// Returns the event's `seq`.
+pub fn commit(c: &Connection, ev: &Event) -> rusqlite::Result<i64> {
+    let now = chrono::Utc::now().to_rfc3339();
+    c.execute_batch("begin;")?;
+    let result = (|| -> rusqlite::Result<()> {
+        match ev.kind.as_str() {
+            "lead.stage" => {
+                c.execute(
+                    "update leads set stage = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                    rusqlite::params![ev.after["stage"].as_str(), &now, ev.entity_id],
+                )?;
+            }
+            "lead.context" => {
+                c.execute(
+                    "update leads set context = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                    rusqlite::params![ev.after.to_string(), &now, ev.entity_id],
+                )?;
+            }
+            "lead.messages" => {
+                c.execute(
+                    "update leads set messages = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                    rusqlite::params![ev.after.to_string(), &now, ev.entity_id],
+                )?;
+            }
+            "lead.transcripts" => {
+                c.execute(
+                    "update leads set transcripts = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                    rusqlite::params![ev.after.to_string(), &now, ev.entity_id],
+                )?;
+            }
+            "stage.renamed" => {
+                c.execute(
+                    "update stages set label = ?1, version = version + 1 where id = ?2",
+                    rusqlite::params![ev.after["label"].as_str(), ev.entity_id],
+                )?;
+            }
+            _ => {
+                // other kinds applied by their verbs in later tasks
+            }
+        }
+
+        c.execute(
+            "insert into events(type, entity_id, before, after, verb, actor, created_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                ev.kind,
+                ev.entity_id,
+                ev.before.to_string(),
+                ev.after.to_string(),
+                ev.verb,
+                ev.actor,
+                &now
+            ],
+        )?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => c.execute_batch("commit;")?,
+        Err(e) => {
+            c.execute_batch("rollback;")?;
+            return Err(e);
+        }
+    }
+
+    Ok(c.last_insert_rowid())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +221,34 @@ mod tests {
         assert_eq!(n, 5);
         let actors: i64 = c.query_row("select count(*) from actors", [], |r| r.get(0)).unwrap();
         assert_eq!(actors, 1);
+    }
+
+    fn seed_lead(c: &rusqlite::Connection, id: &str, stage: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        c.execute(
+            "insert into leads(id,stage,name,org,context,messages,transcripts,created_at,updated_at,version)
+             values(?1,?2,?3,null,'{}','[]','[]',?4,?4,1)",
+            rusqlite::params![id, stage, id, now],
+        ).unwrap();
+    }
+
+    #[test]
+    fn commit_writes_one_event_and_bumps_version() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        seed_lead(&c, "L1", "researching");
+        let seq = commit(&c, &Event {
+            kind: "lead.stage".into(), entity_id: "L1".into(),
+            before: serde_json::json!({"stage":"researching"}),
+            after: serde_json::json!({"stage":"contacted"}),
+            verb: "moveLead".into(), actor: "local".into(),
+        }).unwrap();
+        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let ver: i64 = c.query_row("select version from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        assert_eq!(stage, "contacted");
+        assert_eq!(ver, 2);
+        assert_eq!(events, 1);
+        assert_eq!(seq, 1);
     }
 }
