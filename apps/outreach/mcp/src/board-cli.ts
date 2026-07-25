@@ -18,6 +18,10 @@ export function callBoardCli(verb: string, args: unknown): Promise<BoardCliResul
   const bin = process.env.BOARD_CLI || "board-cli";
 
   return new Promise((resolve) => {
+    // env: process.env inherits the MCP server's full process env, including
+    // DATABASE_URL/OUTREACH_ACTOR when the installer wrote them into
+    // .mcp.json (see skill.rs write_mcp_config) — this is how board-cli ends
+    // up targeting the same shared board + actor as the desktop UI.
     const child = spawn(bin, [], {
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],

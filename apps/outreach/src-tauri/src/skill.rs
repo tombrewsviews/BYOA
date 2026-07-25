@@ -98,20 +98,53 @@ fn mcp_paths() -> (String, String) {
     (server, cli)
 }
 
+/// Build the `env` map for the `outreach` MCP server entry: always
+/// `OUTREACH_PROJECT` + `BOARD_CLI`, plus `DATABASE_URL`/`OUTREACH_ACTOR` when
+/// set (so board-cli shares the UI's board + actor). `actor_name` is the raw
+/// display name — board-cli slugifies it itself. Omitting both when unset
+/// keeps `.mcp.json` local-first: board-cli falls back to local SQLite + the
+/// "local" actor.
+fn mcp_env(
+    project_dir: &Path,
+    board_cli: &str,
+    database_url: Option<&str>,
+    actor_name: Option<&str>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut env = serde_json::Map::new();
+    env.insert(
+        "OUTREACH_PROJECT".into(),
+        project_dir.to_string_lossy().as_ref().into(),
+    );
+    env.insert("BOARD_CLI".into(), board_cli.into());
+
+    if let Some(url) = database_url.filter(|u| !u.trim().is_empty()) {
+        env.insert("DATABASE_URL".into(), url.into());
+    }
+    if let Some(name) = actor_name.filter(|n| !n.trim().is_empty()) {
+        env.insert("OUTREACH_ACTOR".into(), name.into());
+    }
+    env
+}
+
 /// Register the outreach MCP server in the project's `.mcp.json` so the
 /// terminal agent has the board verbs on open. Points at the built MCP server
-/// (node dist/server.js) and passes the project dir + board-cli path via env.
+/// (node dist/server.js) and passes the project dir + board-cli path via env,
+/// plus the shared DB url + actor name when configured in Settings.
 fn write_mcp_config(project_dir: &Path) -> std::io::Result<()> {
     let (server_js, board_cli) = mcp_paths();
+    let s = crate::settings::load();
+    let env = mcp_env(
+        project_dir,
+        &board_cli,
+        s.database_url.as_deref(),
+        s.actor_name.as_deref(),
+    );
     let config = serde_json::json!({
         "mcpServers": {
             "outreach": {
                 "command": "node",
                 "args": [server_js],
-                "env": {
-                    "OUTREACH_PROJECT": project_dir.to_string_lossy(),
-                    "BOARD_CLI": board_cli
-                }
+                "env": serde_json::Value::Object(env)
             }
         }
     });
@@ -152,5 +185,21 @@ mod tests {
     fn outreach_bundle_starts_with_skill_md_and_encodes_lose_nothing() {
         assert_eq!(OUTREACH_BUNDLE.files[0].0, "SKILL.md");
         assert!(OUTREACH_BUNDLE.files[0].1.contains("lose nothing"));
+    }
+
+    #[test]
+    fn mcp_env_includes_db_url_and_actor_when_set() {
+        let e = mcp_env(Path::new("/p"), "cli", Some("postgres://x"), Some("Ada"));
+        assert_eq!(e.get("DATABASE_URL").unwrap(), "postgres://x");
+        assert_eq!(e.get("OUTREACH_ACTOR").unwrap(), "Ada");
+        assert_eq!(e.get("OUTREACH_PROJECT").unwrap(), "/p");
+    }
+
+    #[test]
+    fn mcp_env_omits_db_url_and_actor_when_unset() {
+        let e = mcp_env(Path::new("/p"), "cli", None, None);
+        assert!(e.get("DATABASE_URL").is_none());
+        assert!(e.get("OUTREACH_ACTOR").is_none());
+        assert!(e.get("OUTREACH_PROJECT").is_some());
     }
 }
