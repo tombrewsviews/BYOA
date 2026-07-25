@@ -3,7 +3,7 @@
 //! Schema + default-stage bootstrap live here (Task 1.1). Later tasks add
 //! commit(), revert(), and the board verbs to this same file.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 const SCHEMA: &str = "
 create table if not exists actors (
@@ -252,6 +252,95 @@ pub fn revert(c: &Connection, seq: i64) -> rusqlite::Result<usize> {
     }
 }
 
+/// Errors shared by all board verbs.
+#[derive(Debug)]
+pub enum BoardError {
+    VersionConflict,
+    RetiredIdReuse,
+    RuleBlocked(Vec<String>), // rule NAMES blocking the op
+    NeedsConfirm(usize),      // affected count exceeding the blast-radius threshold
+    NotFound,
+    Sql(rusqlite::Error),
+}
+
+impl From<rusqlite::Error> for BoardError {
+    fn from(e: rusqlite::Error) -> Self {
+        BoardError::Sql(e)
+    }
+}
+
+/// Move a lead to a new stage, enforcing optimistic concurrency: the caller
+/// must supply the version they last read, or the write is rejected.
+pub fn move_lead(
+    c: &Connection,
+    id: &str,
+    to_stage: &str,
+    expected_version: i64,
+) -> Result<i64, BoardError> {
+    let current: Option<(String, i64)> = c
+        .query_row(
+            "select stage, version from leads where id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+
+    let (current_stage, version) = current.ok_or(BoardError::NotFound)?;
+    if version != expected_version {
+        return Err(BoardError::VersionConflict);
+    }
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "lead.stage".into(),
+            entity_id: id.into(),
+            before: serde_json::json!({"stage": current_stage}),
+            after: serde_json::json!({"stage": to_stage}),
+            verb: "moveLead".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Add a new stage, refusing to reuse the id of any existing (active or
+/// retired) stage row.
+pub fn add_stage(
+    c: &Connection,
+    label: &str,
+    position: i64,
+    actor: &str,
+) -> Result<String, BoardError> {
+    let id = slug::slugify(label);
+
+    let existing: i64 = c.query_row("select count(*) from stages where id = ?1", [&id], |r| r.get(0))?;
+    if existing > 0 {
+        return Err(BoardError::RetiredIdReuse);
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    c.execute(
+        "insert into stages (id, label, position, color, retired_at, created_at, created_by, version)
+         values (?1, ?2, ?3, null, null, ?4, ?5, 1)",
+        rusqlite::params![id, label, position, &now, actor],
+    )?;
+
+    commit(
+        c,
+        &Event {
+            kind: "stage.created".into(),
+            entity_id: id.clone(),
+            before: serde_json::Value::Null,
+            after: serde_json::json!({"id": id, "label": label, "position": position}),
+            verb: "addStage".into(),
+            actor: actor.into(),
+        },
+    )?;
+
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,6 +377,13 @@ mod tests {
              values(?1,?2,?3,null,'{}','[]','[]',?4,?4,1)",
             rusqlite::params![id, stage, id, now],
         ).unwrap();
+    }
+
+    fn conn_seeded_with_lead(id: &str, stage: &str) -> rusqlite::Connection {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        seed_lead(&c, id, stage);
+        c
     }
 
     #[test]
@@ -329,5 +425,42 @@ mod tests {
         assert_eq!(stage, "contacted"); // back to the state at `base`
         let remaining: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
         assert_eq!(remaining, 1);  // the base event remains
+    }
+
+    #[test]
+    fn move_lead_detects_version_conflict() {
+        let c = conn_seeded_with_lead("L1", "researching");
+        let err = move_lead(&c, "L1", "contacted", 99).unwrap_err();
+        assert!(matches!(err, BoardError::VersionConflict));
+        // and no write happened:
+        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(stage, "researching");
+    }
+
+    #[test]
+    fn move_lead_succeeds_on_correct_version() {
+        let c = conn_seeded_with_lead("L1", "researching");
+        move_lead(&c, "L1", "contacted", 1).unwrap(); // seed_lead sets version 1
+        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(stage, "contacted");
+    }
+
+    #[test]
+    fn cannot_reuse_existing_stage_id() {
+        let c = { let c = rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        // "researching" already exists from bootstrap; adding a stage that slugs to it must fail
+        let err = add_stage(&c, "Researching", 9, "local").unwrap_err();
+        assert!(matches!(err, BoardError::RetiredIdReuse));
+    }
+
+    #[test]
+    fn add_stage_creates_new_stage_and_event() {
+        let c = { let c = rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let id = add_stage(&c, "Follow up", 5, "local").unwrap();
+        assert_eq!(id, "follow-up"); // slug::slugify("Follow up") -> "follow-up"
+        let n: i64 = c.query_row("select count(*) from stages where id='follow-up'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+        let ev: i64 = c.query_row("select count(*) from events where type='stage.created'", [], |r| r.get(0)).unwrap();
+        assert_eq!(ev, 1);
     }
 }
