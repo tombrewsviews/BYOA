@@ -232,6 +232,12 @@ fn apply_state(
                 rusqlite::params![value["retired_at"].as_str(), entity_id],
             )?;
         }
+        "stage.unretired" => {
+            c.execute(
+                "update stages set retired_at = ?1, version = version + 1 where id = ?2",
+                rusqlite::params![value["retired_at"].as_str(), entity_id],
+            )?;
+        }
         "stage.reordered" => {
             if let Some(positions) = value["positions"].as_object() {
                 for (id, pos) in positions {
@@ -247,6 +253,11 @@ fn apply_state(
         "stage.created" => {
             if value.is_null() {
                 c.execute("delete from stages where id = ?1", [entity_id])?;
+            }
+        }
+        "lead.created" => {
+            if value.is_null() {
+                c.execute("delete from leads where id = ?1", [entity_id])?;
             }
         }
         _ => {
@@ -544,23 +555,19 @@ pub fn retire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
 
 /// Unretire a stage: clears `retired_at`. No gates.
 pub fn unretire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
-    let exists: i64 = c.query_row("select count(*) from stages where id = ?1", [id], |r| r.get(0))?;
-    if exists == 0 {
-        return Err(BoardError::NotFound);
-    }
-
-    c.execute(
-        "update stages set retired_at = null, version = version + 1 where id = ?1",
-        [id],
-    )?;
+    // Read current retired_at so revert can restore it.
+    let prev: Option<String> = c
+        .query_row("select retired_at from stages where id = ?1", [id], |r| r.get(0))
+        .optional()?
+        .ok_or(BoardError::NotFound)?;
 
     let seq = commit(
         c,
         &Event {
             kind: "stage.unretired".into(),
             entity_id: id.into(),
-            before: serde_json::Value::Null,
-            after: serde_json::Value::Null,
+            before: serde_json::json!({ "retired_at": prev }),
+            after: serde_json::json!({ "retired_at": null }),
             verb: "unretireStage".into(),
             actor: "local".into(),
         },
@@ -1460,6 +1467,31 @@ mod tests {
         assert_eq!(c.query_row::<i64,_,_>("select count(*) from stages where id=?1",[&id],|r|r.get(0)).unwrap(), 1);
         revert(&c, seq_before).unwrap();
         assert_eq!(c.query_row::<i64,_,_>("select count(*) from stages where id=?1",[&id],|r|r.get(0)).unwrap(), 0, "revert must remove the created stage");
+    }
+
+    #[test]
+    fn revert_add_lead_removes_row() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let base: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
+        let id = add_lead(&c, "Ada", None, "researching", "local").unwrap();
+        assert_eq!(c.query_row::<i64,_,_>("select count(*) from leads where id=?1",[&id],|r|r.get(0)).unwrap(), 1);
+        revert(&c, base).unwrap();
+        assert_eq!(c.query_row::<i64,_,_>("select count(*) from leads where id=?1",[&id],|r|r.get(0)).unwrap(), 0, "revert must remove the added lead");
+    }
+
+    #[test]
+    fn revert_unretire_restores_retired_at() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        retire_stage(&c, "won").unwrap();
+        let retired_before: Option<String> = c.query_row("select retired_at from stages where id='won'", [], |r| r.get(0)).unwrap();
+        assert!(retired_before.is_some(), "won should be retired");
+        let base: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
+        unretire_stage(&c, "won").unwrap();
+        let active: Option<String> = c.query_row("select retired_at from stages where id='won'", [], |r| r.get(0)).unwrap();
+        assert!(active.is_none(), "unretire clears retired_at");
+        revert(&c, base).unwrap();
+        let restored: Option<String> = c.query_row("select retired_at from stages where id='won'", [], |r| r.get(0)).unwrap();
+        assert!(restored.is_some(), "revert must restore retired_at → stage retired again");
     }
 
     #[test]
