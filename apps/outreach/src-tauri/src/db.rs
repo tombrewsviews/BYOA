@@ -305,6 +305,28 @@ impl Db {
         }
     }
 
+    /// Run a multi-statement SQL string. SQLite arm uses `execute_batch`
+    /// directly (its native multi-statement form). Postgres has no
+    /// single-call batch API here, so the Pg arm splits on `;` and execs
+    /// each non-empty statement individually.
+    pub fn exec_batch(&mut self, sql: &str) -> Result<(), DbError> {
+        match self {
+            Db::Sqlite(c) => {
+                c.execute_batch(sql)?;
+                Ok(())
+            }
+            Db::Pg(c) => {
+                for stmt in sql.split(';') {
+                    let stmt = stmt.trim();
+                    if !stmt.is_empty() {
+                        c.batch_execute(stmt)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Run an INSERT and return the generated sequence/id: `last_insert_rowid()`
     /// on SQLite, `RETURNING seq` on Postgres (Task 2.2).
     pub fn commit_event_returning_seq(

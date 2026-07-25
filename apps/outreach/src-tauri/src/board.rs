@@ -5,6 +5,8 @@
 
 use rusqlite::{Connection, OptionalExtension};
 
+use crate::db::{Db, DbError, SqlParam};
+
 const SCHEMA: &str = "
 create table if not exists actors (
   id         text primary key,
@@ -113,6 +115,209 @@ pub fn open(path: &std::path::Path) -> rusqlite::Result<Connection> {
     c.execute_batch("PRAGMA foreign_keys = ON;")?;
     init(&c)?;
     Ok(c)
+}
+
+/// The signed-in user driving a board session (used to seed/attribute rows
+/// created via `open_board`).
+pub struct Actor {
+    pub id: String,
+    pub label: String,
+}
+
+/// Postgres dialect of `SCHEMA`, one `create table if not exists` statement
+/// per table (Postgres arm has no multi-statement `execute_batch`, so these
+/// are run one at a time via `Db::exec`). Dialect deltas from `SCHEMA`:
+/// every integer column is `bigint`; `events.seq` is
+/// `bigint generated always as identity primary key`; `board_config.id` is
+/// `bigint primary key check (id = 1)`. The `events` column stays named
+/// `type`. Everything else ports verbatim.
+const PG_SCHEMA_STMTS: [&str; 6] = [
+    "create table if not exists actors (
+      id         text primary key,
+      label      text not null,
+      created_at text not null
+    )",
+    "create table if not exists stages (
+      id         text primary key,
+      label      text not null,
+      position   bigint not null,
+      color      text,
+      retired_at text,
+      created_at text not null,
+      created_by text not null references actors(id),
+      version    bigint not null default 1
+    )",
+    "create table if not exists leads (
+      id          text primary key,
+      stage       text not null references stages(id),
+      name        text not null,
+      org         text,
+      context     text not null default '{}',
+      messages    text not null default '[]',
+      transcripts text not null default '[]',
+      created_at  text not null,
+      updated_at  text not null,
+      version     bigint not null default 1
+    )",
+    "create table if not exists events (
+      seq        bigint generated always as identity primary key,
+      type       text not null,
+      entity_id  text not null,
+      before     text,
+      after      text,
+      verb       text not null,
+      actor      text not null references actors(id),
+      created_at text not null
+    )",
+    "create table if not exists board_config (
+      id         bigint primary key check (id = 1),
+      name       text not null default 'Outreach board',
+      created_by text not null references actors(id),
+      version    bigint not null default 1
+    )",
+    "create table if not exists rules (
+      id         text primary key,
+      name       text not null,
+      enabled    bigint not null default 1,
+      conditions text not null,
+      action     text not null
+    )",
+];
+
+/// Run the SQLite schema (idempotent) over a `Db::Sqlite` handle via
+/// `exec_batch`, reusing the same `SCHEMA` string `init` uses.
+fn ensure_schema_sqlite(db: &mut Db) -> Result<(), DbError> {
+    db.exec_batch(SCHEMA)
+}
+
+/// Run the Postgres schema (idempotent), statement-by-statement.
+fn ensure_schema_pg(db: &mut Db) -> Result<(), DbError> {
+    for stmt in PG_SCHEMA_STMTS {
+        db.exec(stmt, &[])?;
+    }
+    Ok(())
+}
+
+/// Insert `actor` into `actors` if not already present. Runs on every
+/// `open_board` call, both backends — idempotent and cheap.
+fn upsert_actor(db: &mut Db, actor: &Actor) -> Result<(), DbError> {
+    let now = chrono::Utc::now().to_rfc3339();
+    db.exec(
+        "insert into actors (id, label, created_at) values (?1, ?2, ?3) on conflict (id) do nothing",
+        &[SqlParam::Text(&actor.id), SqlParam::Text(&actor.label), SqlParam::Text(&now)],
+    )?;
+    Ok(())
+}
+
+/// One-time seed of the 5 default stages + board_config(id=1), attributed to
+/// `actor`. Idempotent both backends.
+///
+/// SQLite (`is_pg = false`): keeps the existing `count(*) from stages == 0`
+/// guard, wrapped in a plain transaction.
+///
+/// Postgres (`is_pg = true`): the guard alone isn't race-safe across
+/// concurrent first-opens, so the whole seed runs inside one transaction
+/// that first takes `pg_advisory_xact_lock(918273)` (an arbitrary constant
+/// lock id, released automatically at commit/rollback) before re-checking
+/// the guard, and every insert uses `on conflict do nothing` as a second
+/// line of defense.
+fn seed_once(db: &mut Db, actor: &Actor, is_pg: bool) -> Result<(), DbError> {
+    if is_pg {
+        db.exec("begin", &[])?;
+        let result = (|| -> Result<(), DbError> {
+            db.exec("select pg_advisory_xact_lock(918273)", &[])?;
+            let count = db
+                .query_opt("select count(*) from stages", &[], |r| r.get_i64(0))?
+                .unwrap_or(0);
+            if count == 0 {
+                seed_rows(db, actor)?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => db.exec("commit", &[]).map(|_| ()),
+            Err(e) => {
+                let _ = db.exec("rollback", &[]);
+                Err(e)
+            }
+        }
+    } else {
+        let count = db
+            .query_opt("select count(*) from stages", &[], |r| r.get_i64(0))?
+            .unwrap_or(0);
+        if count == 0 {
+            db.exec("begin", &[])?;
+            let result = seed_rows(db, actor);
+            match result {
+                Ok(()) => db.exec("commit", &[]).map(|_| ()),
+                Err(e) => {
+                    let _ = db.exec("rollback", &[]);
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// The actual seed inserts, shared by both `seed_once` arms: the configured
+/// actor FIRST (so `created_by references actors(id)` is satisfiable), then
+/// the 5 default stages, then `board_config`. Every insert uses
+/// `on conflict do nothing` so a lost race (Postgres) or a re-run is a no-op.
+fn seed_rows(db: &mut Db, actor: &Actor) -> Result<(), DbError> {
+    let now = chrono::Utc::now().to_rfc3339();
+    db.exec(
+        "insert into actors (id, label, created_at) values (?1, ?2, ?3) on conflict (id) do nothing",
+        &[SqlParam::Text(&actor.id), SqlParam::Text(&actor.label), SqlParam::Text(&now)],
+    )?;
+    for (i, (id, label)) in DEFAULT_STAGES.iter().enumerate() {
+        db.exec(
+            "insert into stages (id, label, position, color, created_at, created_by, version)
+             values (?1, ?2, ?3, null, ?4, ?5, 1) on conflict (id) do nothing",
+            &[
+                SqlParam::Text(id),
+                SqlParam::Text(label),
+                SqlParam::Int(i as i64),
+                SqlParam::Text(&now),
+                SqlParam::Text(&actor.id),
+            ],
+        )?;
+    }
+    db.exec(
+        "insert into board_config (id, name, created_by, version)
+         values (1, 'Outreach board', ?1, 1) on conflict (id) do nothing",
+        &[SqlParam::Text(&actor.id)],
+    )?;
+    Ok(())
+}
+
+/// Open a board for either backend: Postgres when `database_url` is set
+/// (creates the Postgres schema, race-safe one-time seed), otherwise SQLite
+/// under `project_dir/board.db` (existing schema + seed). Upserts `actor`
+/// into `actors` on every open, both backends.
+pub fn open_board(
+    project_dir: &std::path::Path,
+    database_url: Option<&str>,
+    actor: &Actor,
+) -> Result<Db, DbError> {
+    let mut db = match database_url {
+        Some(url) => {
+            let mut db = Db::connect_pg(url)?;
+            ensure_schema_pg(&mut db)?;
+            seed_once(&mut db, actor, true)?;
+            db
+        }
+        None => {
+            let mut db = Db::open_sqlite(&project_dir.join("board.db"))?;
+            db.exec("PRAGMA foreign_keys = ON", &[])?;
+            ensure_schema_sqlite(&mut db)?;
+            seed_once(&mut db, actor, false)?;
+            db
+        }
+    };
+    upsert_actor(&mut db, actor)?;
+    Ok(db)
 }
 
 /// A single write to the board: applied to `entity_id`'s row and recorded
@@ -1129,6 +1334,21 @@ pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_board_sqlite_seeds_once_and_registers_actor() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let actor = Actor { id: "ada".into(), label: "Ada".into() };
+        let mut db = open_board(tmp.path(), None, &actor).unwrap();
+        // seeded 5 stages, one board_config, actor upserted
+        assert_eq!(db.query_opt("select count(*) from stages", &[], |r| r.get_i64(0)).unwrap(), Some(5));
+        assert_eq!(db.query_opt("select count(*) from board_config", &[], |r| r.get_i64(0)).unwrap(), Some(1));
+        assert_eq!(db.query_opt("select label from actors where id=?1", &[crate::db::SqlParam::Text("ada")], |r| r.get_str(0)).unwrap(), Some("Ada".to_string()));
+        // reopening does not double-seed
+        drop(db);
+        let mut db2 = open_board(tmp.path(), None, &actor).unwrap();
+        assert_eq!(db2.query_opt("select count(*) from stages", &[], |r| r.get_i64(0)).unwrap(), Some(5));
+    }
 
     #[test]
     fn board_err_prefixes_are_stable_and_distinguishable() {
