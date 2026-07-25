@@ -1,6 +1,6 @@
 //! User-wide settings (small, JSON-on-disk).
 //!
-//! Lives at `~/.dreamstore/settings.json`. Only thing in v1 is the
+//! Lives at `~/.outreach/settings.json`. Only thing in v1 is the
 //! default agent CLI to spawn in the terminal panel. Plain JSON because
 //! the file is tiny and we'd rather not add a TOML dependency for two
 //! fields.
@@ -117,10 +117,38 @@ pub fn set_agent_starting_command(command: Option<String>) -> Result<(), String>
     save(&s)
 }
 
+/// Normalise a pasted DB URL into just the connection string.
+///
+/// Users often paste a whole `.env` line — e.g.
+/// `DATABASE_URL_UNPOOLED=postgresql://…` — and the leading `KEY=` prefix
+/// must not become part of the stored value. Strip a single leading
+/// `IDENT=` prefix (an all-caps/underscore/digit identifier followed by `=`),
+/// then trim surrounding whitespace and matching quotes. Returns `None` for an
+/// empty result. A real URL (`postgresql://…`) has no such prefix, so it's left
+/// untouched.
+pub fn normalize_db_url(raw: &str) -> Option<String> {
+    let mut v = raw.trim();
+    if let Some((key, rest)) = v.split_once('=') {
+        let looks_like_env_key = !key.is_empty()
+            && key
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        if looks_like_env_key {
+            v = rest.trim();
+        }
+    }
+    let v = v.trim_matches(|c| c == '"' || c == '\'').trim();
+    if v.is_empty() {
+        None
+    } else {
+        Some(v.to_string())
+    }
+}
+
 #[tauri::command]
 pub fn set_database_url(url: String) -> Result<(), String> {
     let mut s = load();
-    s.database_url = if url.trim().is_empty() { None } else { Some(url.trim().to_string()) };
+    s.database_url = normalize_db_url(&url);
     save(&s)
 }
 
@@ -146,5 +174,35 @@ mod tests {
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.database_url.as_deref(), Some("postgres://x"));
         assert_eq!(back.actor_name.as_deref(), Some("Ada"));
+    }
+
+    #[test]
+    fn normalize_strips_env_key_prefix() {
+        assert_eq!(
+            normalize_db_url("DATABASE_URL_UNPOOLED=postgresql://u:p@h/db?sslmode=require"),
+            Some("postgresql://u:p@h/db?sslmode=require".to_string()),
+        );
+        assert_eq!(
+            normalize_db_url("DATABASE_URL=postgresql://h/db"),
+            Some("postgresql://h/db".to_string()),
+        );
+    }
+
+    #[test]
+    fn normalize_leaves_a_bare_url_untouched() {
+        // A real connection string has no leading IDENT= prefix; the `=` inside
+        // a query string must not be mistaken for one.
+        let url = "postgresql://u:p@h/db?sslmode=require&x=1";
+        assert_eq!(normalize_db_url(url), Some(url.to_string()));
+    }
+
+    #[test]
+    fn normalize_trims_whitespace_and_quotes_and_empties() {
+        assert_eq!(
+            normalize_db_url("  \"postgresql://h/db\"  "),
+            Some("postgresql://h/db".to_string()),
+        );
+        assert_eq!(normalize_db_url("   "), None);
+        assert_eq!(normalize_db_url("DATABASE_URL="), None);
     }
 }

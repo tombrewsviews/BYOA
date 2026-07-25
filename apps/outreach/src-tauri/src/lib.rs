@@ -12,7 +12,7 @@ mod prompt_mode;
 mod pty;
 mod research;
 mod selection;
-mod settings;
+pub mod settings;
 mod skill;
 mod watch;
 

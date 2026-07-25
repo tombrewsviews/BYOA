@@ -99,30 +99,18 @@ fn mcp_paths() -> (String, String) {
 }
 
 /// Build the `env` map for the `outreach` MCP server entry: always
-/// `OUTREACH_PROJECT` + `BOARD_CLI`, plus `DATABASE_URL`/`OUTREACH_ACTOR` when
-/// set (so board-cli shares the UI's board + actor). `actor_name` is the raw
-/// display name — board-cli slugifies it itself. Omitting both when unset
-/// keeps `.mcp.json` local-first: board-cli falls back to local SQLite + the
-/// "local" actor.
-fn mcp_env(
-    project_dir: &Path,
-    board_cli: &str,
-    database_url: Option<&str>,
-    actor_name: Option<&str>,
-) -> serde_json::Map<String, serde_json::Value> {
+/// `OUTREACH_PROJECT` + `BOARD_CLI` only. The shared DB URL and actor name are
+/// deliberately NOT written here: board-cli runs on this machine and reads them
+/// from the app's settings store directly, so a live Postgres credential never
+/// lands in plaintext in a per-board `.mcp.json`. Local-first still holds — with
+/// no DB URL configured, board-cli falls back to local SQLite.
+fn mcp_env(project_dir: &Path, board_cli: &str) -> serde_json::Map<String, serde_json::Value> {
     let mut env = serde_json::Map::new();
     env.insert(
         "OUTREACH_PROJECT".into(),
         project_dir.to_string_lossy().as_ref().into(),
     );
     env.insert("BOARD_CLI".into(), board_cli.into());
-
-    if let Some(url) = database_url.filter(|u| !u.trim().is_empty()) {
-        env.insert("DATABASE_URL".into(), url.into());
-    }
-    if let Some(name) = actor_name.filter(|n| !n.trim().is_empty()) {
-        env.insert("OUTREACH_ACTOR".into(), name.into());
-    }
     env
 }
 
@@ -132,13 +120,7 @@ fn mcp_env(
 /// plus the shared DB url + actor name when configured in Settings.
 fn write_mcp_config(project_dir: &Path) -> std::io::Result<()> {
     let (server_js, board_cli) = mcp_paths();
-    let s = crate::settings::load();
-    let env = mcp_env(
-        project_dir,
-        &board_cli,
-        s.database_url.as_deref(),
-        s.actor_name.as_deref(),
-    );
+    let env = mcp_env(project_dir, &board_cli);
     let config = serde_json::json!({
         "mcpServers": {
             "outreach": {
@@ -188,18 +170,19 @@ mod tests {
     }
 
     #[test]
-    fn mcp_env_includes_db_url_and_actor_when_set() {
-        let e = mcp_env(Path::new("/p"), "cli", Some("postgres://x"), Some("Ada"));
-        assert_eq!(e.get("DATABASE_URL").unwrap(), "postgres://x");
-        assert_eq!(e.get("OUTREACH_ACTOR").unwrap(), "Ada");
+    fn mcp_env_has_only_project_and_cli() {
+        let e = mcp_env(Path::new("/p"), "cli");
         assert_eq!(e.get("OUTREACH_PROJECT").unwrap(), "/p");
+        assert_eq!(e.get("BOARD_CLI").unwrap(), "cli");
+        assert_eq!(e.len(), 2);
     }
 
     #[test]
-    fn mcp_env_omits_db_url_and_actor_when_unset() {
-        let e = mcp_env(Path::new("/p"), "cli", None, None);
+    fn mcp_env_never_contains_the_secret() {
+        // The DB URL and actor must never be written into .mcp.json — board-cli
+        // reads them from the app's settings store, not this file.
+        let e = mcp_env(Path::new("/p"), "cli");
         assert!(e.get("DATABASE_URL").is_none());
         assert!(e.get("OUTREACH_ACTOR").is_none());
-        assert!(e.get("OUTREACH_PROJECT").is_some());
     }
 }

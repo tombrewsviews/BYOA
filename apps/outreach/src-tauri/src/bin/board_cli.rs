@@ -182,8 +182,17 @@ fn main() {
         }
     };
     let project_dir = std::path::PathBuf::from(&project);
-    let database_url = std::env::var("DATABASE_URL").ok().filter(|s| !s.trim().is_empty());
-    let actor = board::actor_from(std::env::var("OUTREACH_ACTOR").ok().as_deref());
+    // The shared DB URL and actor name are NOT written into .mcp.json (that would
+    // leave a live credential in plaintext in every board folder). board-cli runs
+    // on the same machine as the app, so it reads them from the app's settings
+    // store directly, falling back to env only if explicitly set there.
+    let settings = outreach_app_lib::settings::load();
+    let database_url = std::env::var("DATABASE_URL")
+        .ok()
+        .or(settings.database_url)
+        .filter(|s| !s.trim().is_empty());
+    let actor_name = std::env::var("OUTREACH_ACTOR").ok().or(settings.actor_name);
+    let actor = board::actor_from(actor_name.as_deref());
     let mut db = match board::open_board(&project_dir, database_url.as_deref(), &actor) {
         Ok(db) => db,
         Err(e) => {
@@ -241,7 +250,7 @@ mod tests {
         let db = board::open_board(
             tmp.path(),
             None,
-            &Actor { id: "local".into(), label: "You".into() },
+            &board::Actor { id: "local".into(), label: "You".into() },
         )
         .unwrap();
         (tmp, db)
