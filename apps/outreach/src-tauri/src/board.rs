@@ -840,7 +840,7 @@ fn db_for_active(state: &crate::AppState) -> Result<Connection, String> {
 /// (`conflict:`, `retired-id-reuse:`, `rule-blocked:`, `needs-confirm:`,
 /// `not-found:`, `db error:`) let the frontend/MCP layer pattern-match gate
 /// outcomes without parsing the whole message.
-fn board_err(e: BoardError) -> String {
+pub fn board_err(e: BoardError) -> String {
     match e {
         BoardError::VersionConflict => "conflict: this lead changed since you loaded it — reload".into(),
         BoardError::RetiredIdReuse => "retired-id-reuse: a stage with this id already exists (ids are never reused)".into(),
@@ -855,9 +855,7 @@ fn board_err(e: BoardError) -> String {
     }
 }
 
-#[tauri::command]
-pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
+pub fn list_stages_json(c: &Connection) -> Result<serde_json::Value, String> {
     let mut stmt = c
         .prepare("select id,label,position,color,retired_at,version from stages order by position")
         .map_err(|e| format!("db error: {e}"))?;
@@ -879,8 +877,12 @@ pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<ser
 }
 
 #[tauri::command]
-pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let c = db_for_active(&state)?;
+    list_stages_json(&c)
+}
+
+pub fn get_config_json(c: &Connection) -> Result<serde_json::Value, String> {
     let row: (String, String, i64) = c
         .query_row(
             "select name, created_by, version from board_config where id = 1",
@@ -892,8 +894,12 @@ pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serd
 }
 
 #[tauri::command]
-pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let c = db_for_active(&state)?;
+    get_config_json(&c)
+}
+
+pub fn list_leads_json(c: &Connection) -> Result<serde_json::Value, String> {
     let mut stmt = c
         .prepare("select id,stage,name,org,version from leads")
         .map_err(|e| format!("db error: {e}"))?;
@@ -914,12 +920,16 @@ pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serd
 }
 
 #[tauri::command]
-pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
+pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let c = db_for_active(&state)?;
+    list_leads_json(&c)
+}
+
+pub fn get_lead_json(c: &Connection, id: &str) -> Result<serde_json::Value, String> {
     let row: Option<(String, String, String, Option<String>, String, String, String, String, String, i64)> = c
         .query_row(
             "select id,stage,name,org,context,messages,transcripts,created_at,updated_at,version from leads where id = ?1",
-            [&id],
+            [id],
             |r| {
                 Ok((
                     r.get(0)?,
@@ -957,6 +967,12 @@ pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> R
         "updatedAt": updated_at,
         "version": version,
     }))
+}
+
+#[tauri::command]
+pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    get_lead_json(&c, &id)
 }
 
 #[tauri::command]
@@ -1071,9 +1087,7 @@ pub fn board_remap_stage(
     }))
 }
 
-#[tauri::command]
-pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
+pub fn list_rules_json(c: &Connection) -> Result<serde_json::Value, String> {
     let mut stmt = c
         .prepare("select id,name,enabled,conditions,action from rules")
         .map_err(|e| format!("db error: {e}"))?;
@@ -1091,6 +1105,12 @@ pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serd
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| format!("db error: {e}"))?;
     Ok(serde_json::Value::Array(rows))
+}
+
+#[tauri::command]
+pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    list_rules_json(&c)
 }
 
 #[tauri::command]

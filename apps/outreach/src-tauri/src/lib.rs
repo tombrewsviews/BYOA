@@ -2,7 +2,7 @@
 
 mod agent_chat;
 mod agents;
-mod board;
+pub mod board;
 mod board_window;
 mod doc;
 mod paths;
