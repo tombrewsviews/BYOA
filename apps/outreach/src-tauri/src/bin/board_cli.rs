@@ -38,14 +38,29 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
     };
 
     match verb {
-        "listStages" => board::list_stages_json(c).map(|data| json!({"ok": true, "data": data})),
-        "listLeads" => board::list_leads_json(c).map(|data| json!({"ok": true, "data": data})),
+        "listStages" => Ok(match board::list_stages_json(c) {
+            Ok(data) => json!({"ok": true, "data": data}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
+        "listLeads" => Ok(match board::list_leads_json(c) {
+            Ok(data) => json!({"ok": true, "data": data}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
         "getLead" => {
             let id = get_str("id")?;
-            board::get_lead_json(c, &id).map(|data| json!({"ok": true, "data": data}))
+            Ok(match board::get_lead_json(c, &id) {
+                Ok(data) => json!({"ok": true, "data": data}),
+                Err(e) => json!({"ok": false, "error": e}),
+            })
         }
-        "listRules" => board::list_rules_json(c).map(|data| json!({"ok": true, "data": data})),
-        "getConfig" => board::get_config_json(c).map(|data| json!({"ok": true, "data": data})),
+        "listRules" => Ok(match board::list_rules_json(c) {
+            Ok(data) => json!({"ok": true, "data": data}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
+        "getConfig" => Ok(match board::get_config_json(c) {
+            Ok(data) => json!({"ok": true, "data": data}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
         "addLead" => {
             let name = get_str("name")?;
             let org = get_opt_str("org");
@@ -282,5 +297,13 @@ mod tests {
         })).unwrap();
         assert_eq!(resp["ok"], false);
         assert!(resp["error"].as_str().unwrap().starts_with("needs-confirm:"));
+    }
+
+    #[test]
+    fn get_lead_on_nonexistent_id_returns_ok_false_not_err() {
+        let c = seeded_conn();
+        let resp = dispatch(&c, "getLead", &json!({"id": "nope"})).unwrap();
+        assert_eq!(resp["ok"], false);
+        assert!(resp["error"].as_str().unwrap().starts_with("not-found:"));
     }
 }
