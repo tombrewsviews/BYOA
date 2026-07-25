@@ -10,6 +10,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use tauri::AppHandle;
+
 const SKILL_ROUTING: &str = include_str!("../skills/outreach/SKILL.md");
 
 const CLAUDE_MD: &str = r#"# Outreach board project
@@ -81,21 +83,72 @@ fn ensure_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Resolve (mcp server.js, board-cli) absolute paths. Overridable via
-/// OUTREACH_MCP_SERVER / OUTREACH_BOARD_CLI env (set by the bundled app's
-/// launcher). Dev fallback: the paths in the repo/target tree relative to the
-/// app. NOTE: bundle-mode resource resolution is finalized when the app is
-/// packaged (see Task 6 / packaging); v1 relies on the env overrides or dev
-/// paths for the end-to-end agent flow.
-fn mcp_paths() -> (String, String) {
-    let server = std::env::var("OUTREACH_MCP_SERVER").unwrap_or_else(|_| {
-        // dev: built MCP bundle in the app tree
-        "apps/outreach/mcp/dist/server.js".to_string()
-    });
-    let cli = std::env::var("OUTREACH_BOARD_CLI").unwrap_or_else(|_| {
-        "board-cli".to_string() // dev: on PATH or resolved by the caller
-    });
-    (server, cli)
+/// Resolve the three things the `.mcp.json` command line needs, as ABSOLUTE
+/// paths wherever possible: (node binary, bundled server.js, board-cli binary).
+///
+/// The external agent CLI launches `node server.js` in a minimal, Finder-style
+/// environment, so bare names ("node", relative "server.js") don't resolve in a
+/// packaged app. We resolve each against the running app:
+/// - **server.js:** `<resource_dir>/mcp/server.bundle.js` when packaged (the
+///   Tauri `bundle.resources` entry), else the dev bundle in the repo tree.
+/// - **board-cli:** a sibling of the running executable (`Contents/MacOS/` in the
+///   `.app`, the target dir in dev), else bare `board-cli`.
+/// - **node:** the first existing candidate among common install locations
+///   (Homebrew, /usr/local, system), else bare `node`.
+/// Env overrides (`OUTREACH_MCP_SERVER` / `OUTREACH_BOARD_CLI` / `OUTREACH_NODE`)
+/// win when set, for dev and troubleshooting.
+fn mcp_paths(app: Option<&AppHandle>) -> (String, String, String) {
+    let node = std::env::var("OUTREACH_NODE").unwrap_or_else(|_| resolve_node());
+    let server = std::env::var("OUTREACH_MCP_SERVER").unwrap_or_else(|_| resolve_server_js(app));
+    let cli = std::env::var("OUTREACH_BOARD_CLI").unwrap_or_else(|_| resolve_board_cli());
+    (node, server, cli)
+}
+
+/// The bundled MCP server. Packaged: `<resource_dir>/mcp/server.bundle.js`.
+/// Dev fallback: the built bundle relative to the repo working dir.
+fn resolve_server_js(app: Option<&AppHandle>) -> String {
+    use tauri::Manager;
+    if let Some(app) = app {
+        if let Ok(res) = app.path().resource_dir() {
+            let p = res.join("mcp").join("server.bundle.js");
+            if p.exists() {
+                return p.to_string_lossy().into_owned();
+            }
+        }
+    }
+    "apps/outreach/mcp/dist/server.bundle.js".to_string()
+}
+
+/// The `board-cli` binary. It sits beside the running executable in both the
+/// packaged app (`Outreach.app/Contents/MacOS/board-cli`) and the dev target
+/// dir. Falls back to bare `board-cli` (PATH) if the sibling isn't found.
+fn resolve_board_cli() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join("board-cli");
+            if p.exists() {
+                return p.to_string_lossy().into_owned();
+            }
+        }
+    }
+    "board-cli".to_string()
+}
+
+/// Find a `node` binary. A Finder-launched app has a minimal PATH that often
+/// excludes Homebrew/nvm, so we probe the common absolute install locations
+/// before giving up on bare `node`.
+fn resolve_node() -> String {
+    const CANDIDATES: &[&str] = &[
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+    ];
+    for c in CANDIDATES {
+        if Path::new(c).exists() {
+            return c.to_string();
+        }
+    }
+    "node".to_string()
 }
 
 /// Build the `env` map for the `outreach` MCP server entry: always
@@ -115,16 +168,17 @@ fn mcp_env(project_dir: &Path, board_cli: &str) -> serde_json::Map<String, serde
 }
 
 /// Register the outreach MCP server in the project's `.mcp.json` so the
-/// terminal agent has the board verbs on open. Points at the built MCP server
-/// (node dist/server.js) and passes the project dir + board-cli path via env,
-/// plus the shared DB url + actor name when configured in Settings.
-fn write_mcp_config(project_dir: &Path) -> std::io::Result<()> {
-    let (server_js, board_cli) = mcp_paths();
+/// terminal agent has the board verbs on open. Writes ABSOLUTE paths (resolved
+/// against the running app) for the node binary, the bundled server, and
+/// board-cli, so the config works when the agent CLI launches it from a
+/// minimal, Finder-style environment.
+fn write_mcp_config(project_dir: &Path, app: Option<&AppHandle>) -> std::io::Result<()> {
+    let (node, server_js, board_cli) = mcp_paths(app);
     let env = mcp_env(project_dir, &board_cli);
     let config = serde_json::json!({
         "mcpServers": {
             "outreach": {
-                "command": "node",
+                "command": node,
                 "args": [server_js],
                 "env": serde_json::Value::Object(env)
             }
@@ -137,13 +191,19 @@ fn write_mcp_config(project_dir: &Path) -> std::io::Result<()> {
 }
 
 /// Install the skill bundle for `project_path`: shared bundle + project symlink
-/// + project-root CLAUDE.md + `.mcp.json` MCP registration.
-pub fn write(project_path: &Path, bundle: &SkillBundle) -> std::io::Result<()> {
+/// + project-root CLAUDE.md + `.mcp.json` MCP registration. `app` is the running
+/// Tauri handle, used to resolve the bundled MCP server's absolute path; pass
+/// `None` only where no handle is available (falls back to dev paths).
+pub fn write(
+    project_path: &Path,
+    bundle: &SkillBundle,
+    app: Option<&AppHandle>,
+) -> std::io::Result<()> {
     let bundle_dir = materialise_bundle(bundle)?;
     let skill_link = project_path.join(".claude").join("skills").join("outreach");
     ensure_symlink(&bundle_dir, &skill_link)?;
     fs::write(project_path.join("CLAUDE.md"), bundle.claude_md)?;
-    write_mcp_config(project_path)?;
+    write_mcp_config(project_path, app)?;
     Ok(())
 }
 
@@ -155,12 +215,36 @@ mod tests {
     #[test]
     fn write_mcp_config_registers_outreach_server_with_project_dir() {
         let dir = TempDir::new().unwrap();
-        write_mcp_config(dir.path()).unwrap();
+        write_mcp_config(dir.path(), None).unwrap();
         let txt = fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
         assert!(txt.contains("mcpServers"));
         assert!(txt.contains("\"outreach\""));
         assert!(txt.contains("OUTREACH_PROJECT"));
         assert!(txt.contains(&dir.path().to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn mcp_paths_honors_env_overrides() {
+        // Overrides are the deterministic, dev/troubleshooting path — assert they
+        // flow through verbatim. (Uses set_var in a single-threaded unit test.)
+        std::env::set_var("OUTREACH_NODE", "/x/node");
+        std::env::set_var("OUTREACH_MCP_SERVER", "/x/server.js");
+        std::env::set_var("OUTREACH_BOARD_CLI", "/x/board-cli");
+        let (node, server, cli) = mcp_paths(None);
+        assert_eq!(node, "/x/node");
+        assert_eq!(server, "/x/server.js");
+        assert_eq!(cli, "/x/board-cli");
+        std::env::remove_var("OUTREACH_NODE");
+        std::env::remove_var("OUTREACH_MCP_SERVER");
+        std::env::remove_var("OUTREACH_BOARD_CLI");
+    }
+
+    #[test]
+    fn resolve_node_falls_back_to_bare_node() {
+        // Without an override and with no candidate guaranteed to exist in CI, the
+        // result is either an absolute candidate path or the bare "node" fallback.
+        let n = resolve_node();
+        assert!(n == "node" || Path::new(&n).is_absolute());
     }
 
     #[test]

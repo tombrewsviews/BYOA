@@ -104,7 +104,7 @@ pub fn projects_list(canvas: Option<String>) -> Result<Vec<ProjectMeta>, String>
 }
 
 /// Create + seed a new Brainstorm project folder.
-fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
+fn create_project_dir(name: &str, app: &AppHandle) -> Result<ProjectMeta, String> {
     let home = crate::paths::projects_dir();
     fs::create_dir_all(&home).map_err(|e| format!("mkdir home: {}", e))?;
 
@@ -128,7 +128,7 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
         let _ = crate::board::open_board(&dir, s.database_url.as_deref(), &actor)
             .map_err(|e| format!("init board.db: {}", e))?;
     }
-    crate::skill::write(&dir, &crate::skill::OUTREACH_BUNDLE)
+    crate::skill::write(&dir, &crate::skill::OUTREACH_BUNDLE, Some(app))
         .map_err(|e| format!("write skill: {}", e))?;
     crate::research::ensure_research_dir(&dir).map_err(|e| format!("mkdir research: {}", e))?;
 
@@ -141,9 +141,13 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
 }
 
 #[tauri::command]
-pub fn projects_create(name: String, canvas: Option<String>) -> Result<ProjectMeta, String> {
+pub fn projects_create(
+    name: String,
+    canvas: Option<String>,
+    app: AppHandle,
+) -> Result<ProjectMeta, String> {
     let _ = canvas; // always Brainstorm
-    create_project_dir(&name)
+    create_project_dir(&name, &app)
 }
 
 #[tauri::command]
@@ -161,7 +165,7 @@ pub fn project_open(
 
     let watcher = watch::spawn(doc.clone(), app.clone()).map_err(|e| format!("watcher: {}", e))?;
     crate::prompt_mode::ensure_seeded(&path_buf);
-    crate::skill::write(&path_buf, &crate::skill::OUTREACH_BUNDLE)
+    crate::skill::write(&path_buf, &crate::skill::OUTREACH_BUNDLE, Some(&app))
         .map_err(|e| format!("write skill: {}", e))?;
     crate::research::ensure_research_dir(&path_buf).map_err(|e| format!("mkdir research: {}", e))?;
 
