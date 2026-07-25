@@ -17,7 +17,8 @@ const SharingField: React.FC<{
   label: string;
   initialValue: string;
   onSave: (value: string) => void;
-}> = ({ label, initialValue, onSave }) => {
+  mask?: boolean;
+}> = ({ label, initialValue, onSave, mask }) => {
   const [value, setValue] = useState(initialValue);
 
   const commit = () => {
@@ -28,6 +29,7 @@ const SharingField: React.FC<{
     <div className="flex flex-col gap-1">
       <div className="text-xs text-muted-foreground">{label}</div>
       <Input
+        type={mask ? "password" : "text"}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onBlur={commit}
@@ -84,10 +86,11 @@ export const Settings: React.FC<SettingsProps> = ({
           label="Shared database URL"
           initialValue={databaseUrl ?? ""}
           onSave={onSaveDbUrl}
+          mask
         />
         <div className="text-xs text-muted-foreground">
           With a shared URL, everyone using it sees and edits the same board live. Changes apply
-          on next app open.
+          the next time you open this board.
         </div>
       </div>
       <div className="text-xs text-muted-foreground">Created by {config?.createdBy ?? "—"}</div>
