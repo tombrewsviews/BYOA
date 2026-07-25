@@ -37,6 +37,15 @@ pub struct Settings {
     /// the built-in `default_agent` launcher.
     #[serde(default)]
     pub agent_starting_command: Option<String>,
+    /// Shared Postgres board URL. When set (non-empty), the board opens against
+    /// this database instead of the local SQLite `board.db` — enabling a
+    /// multi-user shared board. Empty/None = local-first (default).
+    #[serde(default)]
+    pub database_url: Option<String>,
+    /// This user's display name, used as the board actor (who did what). When
+    /// unset, the board falls back to the built-in `"You"` actor.
+    #[serde(default)]
+    pub actor_name: Option<String>,
 }
 
 fn path() -> PathBuf {
@@ -106,4 +115,36 @@ pub fn set_agent_starting_command(command: Option<String>) -> Result<(), String>
     let mut s = load();
     s.agent_starting_command = command;
     save(&s)
+}
+
+#[tauri::command]
+pub fn set_database_url(url: String) -> Result<(), String> {
+    let mut s = load();
+    s.database_url = if url.trim().is_empty() { None } else { Some(url.trim().to_string()) };
+    save(&s)
+}
+
+#[tauri::command]
+pub fn set_actor_name(name: String) -> Result<(), String> {
+    let mut s = load();
+    s.actor_name = if name.trim().is_empty() { None } else { Some(name.trim().to_string()) };
+    save(&s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_roundtrip_db_url_and_actor() {
+        let s = Settings {
+            database_url: Some("postgres://x".into()),
+            actor_name: Some("Ada".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.database_url.as_deref(), Some("postgres://x"));
+        assert_eq!(back.actor_name.as_deref(), Some("Ada"));
+    }
 }

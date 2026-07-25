@@ -84,6 +84,8 @@ pub fn run() {
             settings::set_default_agent,
             settings::set_skip_permissions,
             settings::set_agent_starting_command,
+            settings::set_database_url,
+            settings::set_actor_name,
             prompt_mode::get_prompt_mode,
             prompt_mode::set_prompt_mode,
             selection::set_selection,
