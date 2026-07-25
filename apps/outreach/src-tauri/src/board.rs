@@ -126,6 +126,64 @@ pub struct Event {
     pub actor: String,
 }
 
+/// A transaction that composes: if the connection is already inside a
+/// transaction, this opens a SAVEPOINT (nestable); otherwise a plain BEGIN.
+/// Must call `.commit()` on the success path — on drop without commit it
+/// rolls back (a bare `ROLLBACK` when top-level, `ROLLBACK TO <savepoint>`
+/// when nested).
+///
+/// `Connection::unchecked_transaction()` in rusqlite 0.31 always issues a
+/// raw BEGIN and errors with "cannot start a transaction within a
+/// transaction" if one is already open — it does NOT compose. This type
+/// fills that gap using raw SAVEPOINT/RELEASE/ROLLBACK TO SQL, which is
+/// SQLite's supported way to nest transactions and only needs `&Connection`
+/// (rusqlite's `Savepoint` API requires `&mut Connection`, which callers
+/// here don't have).
+struct ComposableTx<'c> {
+    conn: &'c Connection,
+    name: String,
+    done: bool,
+}
+
+impl<'c> ComposableTx<'c> {
+    fn begin(conn: &'c Connection) -> rusqlite::Result<Self> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        if conn.is_autocommit() {
+            conn.execute_batch("begin;")?;
+            Ok(Self { conn, name: String::new(), done: false })
+        } else {
+            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let name = format!("board_sp_{n}");
+            conn.execute_batch(&format!("savepoint {name};"))?;
+            Ok(Self { conn, name, done: false })
+        }
+    }
+
+    fn commit(mut self) -> rusqlite::Result<()> {
+        let sql = if self.name.is_empty() {
+            "commit;".to_string()
+        } else {
+            format!("release {};", self.name)
+        };
+        self.conn.execute_batch(&sql)?;
+        self.done = true;
+        Ok(())
+    }
+}
+
+impl Drop for ComposableTx<'_> {
+    fn drop(&mut self) {
+        if !self.done {
+            let sql = if self.name.is_empty() {
+                "rollback;".to_string()
+            } else {
+                format!("rollback to {};", self.name)
+            };
+            let _ = self.conn.execute_batch(&sql);
+        }
+    }
+}
+
 /// Applies `value` (a before- or after-state) to the row identified by
 /// (kind, entity_id). Version-bumps the row. Unlisted kinds are a no-op
 /// (event-only, no row change). Shared by `commit` (applies `after`) and
@@ -176,35 +234,30 @@ fn apply_state(
 }
 
 /// Apply `ev.after` to its target row and record the event, atomically.
-/// Returns the event's `seq`.
+/// Uses `ComposableTx`, which opens a SAVEPOINT if a transaction is already
+/// active (composing with an outer transaction) or a plain BEGIN otherwise
+/// (standalone use). Returns the event's `seq`.
 pub fn commit(c: &Connection, ev: &Event) -> rusqlite::Result<i64> {
     let now = chrono::Utc::now().to_rfc3339();
-    c.execute_batch("begin;")?;
-    let result = (|| -> rusqlite::Result<()> {
-        apply_state(c, &ev.kind, &ev.entity_id, &ev.after)?;
+    let tx = ComposableTx::begin(c)?;
 
-        c.execute(
-            "insert into events(type, entity_id, before, after, verb, actor, created_at)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![
-                ev.kind,
-                ev.entity_id,
-                ev.before.to_string(),
-                ev.after.to_string(),
-                ev.verb,
-                ev.actor,
-                &now
-            ],
-        )?;
-        Ok(())
-    })();
-    match result {
-        Ok(()) => c.execute_batch("commit;")?,
-        Err(e) => {
-            c.execute_batch("rollback;")?;
-            return Err(e);
-        }
-    }
+    apply_state(c, &ev.kind, &ev.entity_id, &ev.after)?;
+
+    c.execute(
+        "insert into events(type, entity_id, before, after, verb, actor, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            ev.kind,
+            ev.entity_id,
+            ev.before.to_string(),
+            ev.after.to_string(),
+            ev.verb,
+            ev.actor,
+            &now
+        ],
+    )?;
+
+    tx.commit()?;
 
     Ok(c.last_insert_rowid())
 }
@@ -532,6 +585,11 @@ pub fn remap_stage(
         return Err(BoardError::RuleBlocked(blocking));
     }
 
+    let to_exists: i64 = c.query_row("select count(*) from stages where id = ?1", [to], |r| r.get(0))?;
+    if to_exists == 0 {
+        return Err(BoardError::NotFound);
+    }
+
     let lead_ids: Vec<String> = match &filter {
         Some(LeadFilter { org: Some(org) }) => {
             let mut stmt = c.prepare("select id from leads where stage = ?1 and org = ?2")?;
@@ -558,9 +616,12 @@ pub fn remap_stage(
         return Err(BoardError::NeedsConfirm(affected));
     }
 
-    // Each `commit` call below is already atomic (its own begin/commit), so
-    // no outer transaction is needed here. The key invariant is one event
-    // row per lead — never a single batched event.
+    // One outer transaction wraps every write below (§15.3: all-or-none).
+    // Each `commit` call nests as a SAVEPOINT inside it, so a failure
+    // partway through rolls back the entire remap, not just one lead.
+    let tx = ComposableTx::begin(c)?;
+
+    // The key invariant is one event row per lead — never a single batched event.
     for id in &lead_ids {
         commit(
             c,
@@ -593,6 +654,8 @@ pub fn remap_stage(
             },
         )?;
     }
+
+    tx.commit()?;
 
     Ok(RemapResult { affected, lead_ids })
 }
@@ -802,6 +865,19 @@ mod tests {
         for i in 0..6 { seed_lead(&c3, &format!("L{i}"), "contacted"); }
         let r3 = remap_stage(&c3, "contacted", "warm", None, false, true, true).unwrap();
         assert_eq!(r3.affected, 6);
+    }
+
+    #[test]
+    fn remap_is_atomic_bad_target_writes_nothing() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        for i in 0..3 { seed_lead(&c, &format!("L{i}"), "contacted"); }
+        // remap to a NON-EXISTENT stage -> must fail cleanly with NO partial writes
+        let err = remap_stage(&c, "contacted", "does_not_exist", None, false, false, false).unwrap_err();
+        assert!(matches!(err, BoardError::NotFound));
+        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events, 0);            // nothing written
+        let still: i64 = c.query_row("select count(*) from leads where stage='contacted'", [], |r| r.get(0)).unwrap();
+        assert_eq!(still, 3);            // all leads still in source
     }
 
     #[test]
