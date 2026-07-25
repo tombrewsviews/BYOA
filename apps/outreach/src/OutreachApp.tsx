@@ -7,7 +7,16 @@ import { Input } from "@/components/ui/input";
 import { PanelRight, Plus, Trash2 } from "./icons";
 import { Inspector } from "./properties/Inspector";
 import { Settings } from "./properties/Settings";
-import { listStages, listLeads, getLead, getConfig, renameStage } from "./board/api";
+import {
+  listStages,
+  listLeads,
+  getLead,
+  getConfig,
+  renameStage,
+  getSettings,
+  setActorName,
+  setDatabaseUrl,
+} from "./board/api";
 import type { Stage, Lead } from "./board/types";
 import type { LeadDetail, BoardConfig } from "./board/api";
 
@@ -30,6 +39,18 @@ const PropertiesPanel: React.FC = () => {
   const [config, setConfig] = useState<BoardConfig | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string>("");
   const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
+  const [actorName, setActorNameState] = useState<string | undefined>(undefined);
+  const [databaseUrl, setDatabaseUrlState] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void getSettings()
+      .then((s) => {
+        setActorNameState(s.actorName);
+        setDatabaseUrlState(s.databaseUrl);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -70,6 +91,16 @@ const PropertiesPanel: React.FC = () => {
       .then(() => listStages())
       .then(setStages)
       .catch(() => {});
+  }, []);
+
+  const handleSaveActor = useCallback((name: string) => {
+    setActorNameState(name);
+    void setActorName(name).catch(() => {});
+  }, []);
+
+  const handleSaveDbUrl = useCallback((url: string) => {
+    setDatabaseUrlState(url);
+    void setDatabaseUrl(url).catch(() => {});
   }, []);
 
   return (
@@ -113,7 +144,15 @@ const PropertiesPanel: React.FC = () => {
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
-          <Settings stages={stages} config={config} onRename={handleRename} />
+          <Settings
+            stages={stages}
+            config={config}
+            onRename={handleRename}
+            actorName={actorName}
+            databaseUrl={databaseUrl}
+            onSaveActor={handleSaveActor}
+            onSaveDbUrl={handleSaveDbUrl}
+          />
         </div>
       )}
     </div>

@@ -26,4 +26,25 @@ describe("Settings", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRename).toHaveBeenCalledWith("researching", "Prospecting");
   });
+  it("renders sharing fields and saves name + db url", () => {
+    const onSaveActor = vi.fn();
+    const onSaveDbUrl = vi.fn();
+    render(
+      <Settings
+        stages={stages}
+        config={config}
+        actorName="Ada"
+        databaseUrl="postgres://x"
+        onRename={() => {}}
+        onSaveActor={onSaveActor}
+        onSaveDbUrl={onSaveDbUrl}
+      />,
+    );
+    expect(screen.getByText("Your name")).toBeInTheDocument();
+    expect(screen.getByText("Shared database URL")).toBeInTheDocument();
+    const name = screen.getByDisplayValue("Ada");
+    fireEvent.change(name, { target: { value: "Grace" } });
+    fireEvent.keyDown(name, { key: "Enter" });
+    expect(onSaveActor).toHaveBeenCalledWith("Grace");
+  });
 });

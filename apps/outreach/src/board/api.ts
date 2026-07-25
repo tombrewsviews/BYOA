@@ -13,6 +13,7 @@ export interface LeadDetail {
   createdAt: string; updatedAt: string; version: number;
 }
 export interface BoardConfig { name: string; createdBy: string; version: number }
+export interface AppSettings { databaseUrl?: string; actorName?: string }
 
 export const listStages = () => call<Stage[]>("board_list_stages");
 export const listLeads = () => call<Lead[]>("board_list_leads");
@@ -22,6 +23,9 @@ export const getLead = (id: string) => call<LeadDetail>("board_get_lead", { id }
 export const getConfig = () => call<BoardConfig>("board_get_config");
 export const renameStage = (id: string, label: string) =>
   call<number>("board_rename_stage", { id, label });
+export const getSettings = () => call<AppSettings>("get_settings");
+export const setDatabaseUrl = (url: string) => call<void>("set_database_url", { url });
+export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 
 /**
  * Re-fetch stages+leads every `intervalMs` and hand them to `onChange`.
