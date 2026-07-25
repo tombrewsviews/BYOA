@@ -5,12 +5,120 @@ import { Terminal } from "./terminal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PanelRight, Plus, Trash2 } from "./icons";
+import { Inspector } from "./properties/Inspector";
+import { Settings } from "./properties/Settings";
+import { listStages, listLeads, getLead, getConfig, renameStage } from "./board/api";
+import type { Stage, Lead } from "./board/types";
+import type { LeadDetail, BoardConfig } from "./board/api";
 
 type ProjectMeta = { name: string; path: string; lastOpened?: string };
 type ViewMode = "terminal" | "chat";
+type PropertiesTab = "inspector" | "settings";
 
 const agentLabelFor = (id: string): string =>
   id === "codex" ? "Codex" : id === "gemini" ? "Gemini" : "Claude";
+
+/**
+ * The Properties panel: Inspector (a selected lead's context/messages/
+ * transcripts) and Settings (stage list with stable ids + board created_by,
+ * rename-in-place).
+ */
+const PropertiesPanel: React.FC = () => {
+  const [tab, setTab] = useState<PropertiesTab>("inspector");
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [config, setConfig] = useState<BoardConfig | null>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<string>("");
+  const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const [s, l, c] = await Promise.all([listStages(), listLeads(), getConfig()]);
+        if (!stopped) {
+          setStages(s);
+          setLeads(l);
+          setConfig(c);
+        }
+      } catch {
+        /* transient — try again next tick */
+      }
+    };
+    void tick();
+    const h = setInterval(tick, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(h);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri() || !selectedLeadId) {
+      setSelectedLead(null);
+      return;
+    }
+    void getLead(selectedLeadId)
+      .then(setSelectedLead)
+      .catch(() => setSelectedLead(null));
+  }, [selectedLeadId]);
+
+  const handleRename = useCallback((id: string, label: string) => {
+    void renameStage(id, label)
+      .then(() => listStages())
+      .then(setStages)
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-none items-center gap-1 border-b border-border p-2">
+        <Button
+          size="sm"
+          variant={tab === "inspector" ? "default" : "secondary"}
+          onClick={() => setTab("inspector")}
+        >
+          Inspector
+        </Button>
+        <Button
+          size="sm"
+          variant={tab === "settings" ? "default" : "secondary"}
+          onClick={() => setTab("settings")}
+        >
+          Settings
+        </Button>
+      </div>
+
+      {tab === "inspector" ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-none p-2">
+            <select
+              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              value={selectedLeadId}
+              onChange={(e) => setSelectedLeadId(e.target.value)}
+            >
+              <option value="">Select a lead…</option>
+              {leads.map((lead) => (
+                <option key={lead.id} value={lead.id}>
+                  {lead.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <Inspector lead={selectedLead} />
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Settings stages={stages} config={config} onRename={handleRename} />
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * The board/agent view: the main window is the Agent panel (Terminal/Chat)
@@ -108,8 +216,7 @@ const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
           </div>
         </div>
         <aside className="w-80 flex-none overflow-auto border-l border-border bg-card">
-          {/* Task 4.2 fills this with the Lead Inspector + Settings. */}
-          <div className="p-4 text-sm text-muted-foreground">Properties</div>
+          <PropertiesPanel />
         </aside>
       </div>
     </div>

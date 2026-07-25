@@ -88,6 +88,7 @@ pub fn run() {
             selection::set_selection,
             open_dreamstore,
             board::board_list_stages,
+            board::board_get_config,
             board::board_list_leads,
             board::board_get_lead,
             board::board_add_lead,

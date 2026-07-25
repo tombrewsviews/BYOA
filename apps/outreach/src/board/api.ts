@@ -5,10 +5,23 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
+export interface LeadDetail {
+  id: string; stage: string; name: string; org: string | null;
+  context: { facts?: unknown[] };
+  messages: unknown[];
+  transcripts: { raw: string; summary: string }[];
+  createdAt: string; updatedAt: string; version: number;
+}
+export interface BoardConfig { name: string; createdBy: string; version: number }
+
 export const listStages = () => call<Stage[]>("board_list_stages");
 export const listLeads = () => call<Lead[]>("board_list_leads");
 export const moveLead = (id: string, toStage: string, expectedVersion: number) =>
   call<number>("board_move_lead", { id, toStage, expectedVersion });
+export const getLead = (id: string) => call<LeadDetail>("board_get_lead", { id });
+export const getConfig = () => call<BoardConfig>("board_get_config");
+export const renameStage = (id: string, label: string) =>
+  call<number>("board_rename_stage", { id, label });
 
 /**
  * Re-fetch stages+leads every `intervalMs` and hand them to `onChange`.

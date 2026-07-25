@@ -879,6 +879,19 @@ pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<ser
 }
 
 #[tauri::command]
+pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    let row: (String, String, i64) = c
+        .query_row(
+            "select name, created_by, version from board_config where id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| format!("db error: {e}"))?;
+    Ok(serde_json::json!({ "name": row.0, "createdBy": row.1, "version": row.2 }))
+}
+
+#[tauri::command]
 pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let c = db_for_active(&state)?;
     let mut stmt = c
@@ -1098,6 +1111,16 @@ mod tests {
         assert!(board_err(BoardError::NeedsConfirm(7)).starts_with("needs-confirm:"));
         assert!(board_err(BoardError::NotFound).starts_with("not-found:"));
         assert!(board_err(BoardError::Sql(rusqlite::Error::QueryReturnedNoRows)).starts_with("db error:"));
+    }
+
+    #[test]
+    fn board_config_seeds_created_by_local() {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        let created_by: String = c
+            .query_row("select created_by from board_config where id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(created_by, "local");
     }
 
     #[test]
