@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"sess-4"}
+{"type":"assistant","message":{"id":"msg_4","role":"assistant","content":[{"type":"tool_use","id":"toolu_3","name":"Bash","input":{"command":"rm -rf /"}}]}}
+{"type":"permission_request","prompt_id":"perm-2","tool":"Bash","args":{"command":"rm -rf /"},"scope":"command"}
+{"type":"permission_decision","prompt_id":"perm-2","decision":"deny"}
+{"type":"result","subtype":"success","session_id":"sess-4","is_error":false}
