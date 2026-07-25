@@ -497,6 +497,106 @@ pub fn unretire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
     Ok(seq)
 }
 
+/// Result of a `remap_stage` call: how many leads were (or would be)
+/// affected, and their ids.
+#[derive(Debug)]
+pub struct RemapResult {
+    pub affected: usize,
+    pub lead_ids: Vec<String>,
+}
+
+/// Narrows which leads a `remap_stage` call touches (for splits). `None`
+/// fields match all leads.
+pub struct LeadFilter {
+    pub org: Option<String>,
+}
+
+/// Remap every lead in stage `from` to stage `to` (merge, split via
+/// `filter`, or retire-with-cards via `retire_source`). Blocked
+/// (`RuleBlocked`) if an enabled rule references `from`. `dry_run` returns
+/// the affected count/ids with no writes. Otherwise, if more than 5 leads
+/// would be affected and `confirmed` is false, returns `NeedsConfirm`.
+/// Writes one `lead.stage` event per lead (never batched); if
+/// `retire_source`, also sets `from.retired_at` (never deletes the row).
+pub fn remap_stage(
+    c: &Connection,
+    from: &str,
+    to: &str,
+    filter: Option<LeadFilter>,
+    dry_run: bool,
+    retire_source: bool,
+    confirmed: bool,
+) -> Result<RemapResult, BoardError> {
+    let blocking = rules_referencing(c, from)?;
+    if !blocking.is_empty() {
+        return Err(BoardError::RuleBlocked(blocking));
+    }
+
+    let lead_ids: Vec<String> = match &filter {
+        Some(LeadFilter { org: Some(org) }) => {
+            let mut stmt = c.prepare("select id from leads where stage = ?1 and org = ?2")?;
+            let rows = stmt
+                .query_map(rusqlite::params![from, org], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        }
+        _ => {
+            let mut stmt = c.prepare("select id from leads where stage = ?1")?;
+            let rows = stmt
+                .query_map([from], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        }
+    };
+    let affected = lead_ids.len();
+
+    if dry_run {
+        return Ok(RemapResult { affected, lead_ids });
+    }
+
+    if affected > 5 && !confirmed {
+        return Err(BoardError::NeedsConfirm(affected));
+    }
+
+    // Each `commit` call below is already atomic (its own begin/commit), so
+    // no outer transaction is needed here. The key invariant is one event
+    // row per lead — never a single batched event.
+    for id in &lead_ids {
+        commit(
+            c,
+            &Event {
+                kind: "lead.stage".into(),
+                entity_id: id.clone(),
+                before: serde_json::json!({"stage": from}),
+                after: serde_json::json!({"stage": to}),
+                verb: "remapStage".into(),
+                actor: "local".into(),
+            },
+        )?;
+    }
+
+    if retire_source {
+        let now = chrono::Utc::now().to_rfc3339();
+        c.execute(
+            "update stages set retired_at = ?1, version = version + 1 where id = ?2",
+            rusqlite::params![&now, from],
+        )?;
+        commit(
+            c,
+            &Event {
+                kind: "stage.retired".into(),
+                entity_id: from.into(),
+                before: serde_json::json!({"retired_at": null}),
+                after: serde_json::json!({"retired_at": now}),
+                verb: "remapStage".into(),
+                actor: "local".into(),
+            },
+        )?;
+    }
+
+    Ok(RemapResult { affected, lead_ids })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,5 +758,59 @@ mod tests {
         retire_stage(&c, "warm").unwrap(); // rule is disabled -> no block
         let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
         assert!(retired.is_some());
+    }
+
+    #[test]
+    fn remap_dryrun_counts_without_writing() {
+        let c = conn_seeded_with_lead("L1", "contacted");
+        seed_lead(&c, "L2", "contacted");
+        let r = remap_stage(&c, "contacted", "warm", None, true, false, false).unwrap();
+        assert_eq!(r.affected, 2);
+        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events, 0); // dryRun wrote nothing
+        let still: i64 = c.query_row("select count(*) from leads where stage='contacted'", [], |r| r.get(0)).unwrap();
+        assert_eq!(still, 2); // leads unchanged
+    }
+
+    #[test]
+    fn remap_writes_one_event_per_lead() {
+        let c = conn_seeded_with_lead("L1", "contacted");
+        seed_lead(&c, "L2", "contacted");
+        let r = remap_stage(&c, "contacted", "warm", None, false, false, false).unwrap();
+        assert_eq!(r.affected, 2);
+        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events, 2); // one per lead, never batched
+        let moved: i64 = c.query_row("select count(*) from leads where stage='warm'", [], |r| r.get(0)).unwrap();
+        assert_eq!(moved, 2);
+    }
+
+    #[test]
+    fn remap_over_five_needs_confirm() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        for i in 0..6 { seed_lead(&c, &format!("L{i}"), "contacted"); } // 6 > 5
+        let err = remap_stage(&c, "contacted", "warm", None, false, false, false).unwrap_err();
+        assert!(matches!(err, BoardError::NeedsConfirm(6)));
+        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events, 0); // blocked, no writes
+        // exactly 5 proceeds without confirm (boundary):
+        let c2 = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        for i in 0..5 { seed_lead(&c2, &format!("L{i}"), "contacted"); }
+        let r = remap_stage(&c2, "contacted", "warm", None, false, false, false).unwrap();
+        assert_eq!(r.affected, 5);
+        // and with confirmed=true, 6 proceeds:
+        let c3 = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        for i in 0..6 { seed_lead(&c3, &format!("L{i}"), "contacted"); }
+        let r3 = remap_stage(&c3, "contacted", "warm", None, false, true, true).unwrap();
+        assert_eq!(r3.affected, 6);
+    }
+
+    #[test]
+    fn remap_retire_source_sets_retired_at_never_deletes() {
+        let c = conn_seeded_with_lead("L1", "contacted");
+        remap_stage(&c, "contacted", "warm", None, false, true, false).unwrap();
+        let retired: Option<String> = c.query_row("select retired_at from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        assert!(retired.is_some()); // retired, not deleted
+        let exists: i64 = c.query_row("select count(*) from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        assert_eq!(exists, 1); // row still there
     }
 }
