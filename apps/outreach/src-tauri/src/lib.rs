@@ -4,6 +4,7 @@ mod agent_chat;
 mod agents;
 pub mod board;
 mod board_window;
+mod db;
 mod doc;
 mod paths;
 mod projects;
