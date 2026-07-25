@@ -3,6 +3,7 @@
 mod agent_chat;
 mod agents;
 mod board;
+mod board_window;
 mod doc;
 mod migrate;
 mod paths;
@@ -108,6 +109,8 @@ pub fn run() {
             board::board_remap_stage,
             board::board_list_rules,
             board::board_revert,
+            board_window::board_window_open,
+            board_window::board_window_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
