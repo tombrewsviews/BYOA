@@ -162,7 +162,7 @@ impl std::error::Error for DbError {}
 // events.seq (identity) and all `version` columns.
 pub enum Db {
     Sqlite(Connection),
-    Pg(postgres::Client),
+    Pg { client: postgres::Client, tx_depth: u32 },
 }
 
 impl Db {
@@ -181,7 +181,7 @@ impl Db {
         let connector = native_tls::TlsConnector::new()?;
         let connector = postgres_native_tls::MakeTlsConnector::new(connector);
         let client = postgres::Client::connect(url, connector)?;
-        Ok(Db::Pg(client))
+        Ok(Db::Pg { client, tx_depth: 0 })
     }
 
     /// Run a statement that doesn't return rows (insert/update/delete/ddl).
@@ -194,8 +194,8 @@ impl Db {
                 let n = c.execute(sql, rusqlite_params.as_slice())?;
                 Ok(n as u64)
             }
-            Db::Pg(c) => {
-                let n = c.execute(&translate_placeholders(sql), &to_pg_params(params))?;
+            Db::Pg { client, .. } => {
+                let n = client.execute(&translate_placeholders(sql), &to_pg_params(params))?;
                 Ok(n)
             }
         }
@@ -222,8 +222,8 @@ impl Db {
                     None => Ok(None),
                 }
             }
-            Db::Pg(c) => {
-                match c.query_opt(&translate_placeholders(sql), &to_pg_params(params))? {
+            Db::Pg { client, .. } => {
+                match client.query_opt(&translate_placeholders(sql), &to_pg_params(params))? {
                     Some(row) => {
                         let wrapped: &dyn Row = &row;
                         Ok(Some(f(wrapped)?))
@@ -254,8 +254,8 @@ impl Db {
                 }
                 Ok(out)
             }
-            Db::Pg(c) => {
-                let rows = c.query(&translate_placeholders(sql), &to_pg_params(params))?;
+            Db::Pg { client, .. } => {
+                let rows = client.query(&translate_placeholders(sql), &to_pg_params(params))?;
                 let mut out = Vec::new();
                 for row in &rows {
                     let wrapped: &dyn Row = row;
@@ -273,8 +273,12 @@ impl Db {
                 c.execute_batch(&format!("SAVEPOINT {name};"))?;
                 Ok(())
             }
-            Db::Pg(c) => {
-                c.batch_execute(&format!("SAVEPOINT {name}"))?;
+            Db::Pg { client, tx_depth } => {
+                if *tx_depth == 0 {
+                    client.batch_execute("BEGIN")?;
+                }
+                client.batch_execute(&format!("SAVEPOINT {name}"))?;
+                *tx_depth += 1;
                 Ok(())
             }
         }
@@ -287,8 +291,12 @@ impl Db {
                 c.execute_batch(&format!("RELEASE {name};"))?;
                 Ok(())
             }
-            Db::Pg(c) => {
-                c.batch_execute(&format!("RELEASE SAVEPOINT {name}"))?;
+            Db::Pg { client, tx_depth } => {
+                client.batch_execute(&format!("RELEASE SAVEPOINT {name}"))?;
+                *tx_depth -= 1;
+                if *tx_depth == 0 {
+                    client.batch_execute("COMMIT")?;
+                }
                 Ok(())
             }
         }
@@ -302,8 +310,8 @@ impl Db {
                 c.execute_batch(&format!("ROLLBACK TO {name};"))?;
                 Ok(())
             }
-            Db::Pg(c) => {
-                c.batch_execute(&format!("ROLLBACK TO SAVEPOINT {name}"))?;
+            Db::Pg { client, tx_depth: _ } => {
+                client.batch_execute(&format!("ROLLBACK TO SAVEPOINT {name}"))?;
                 Ok(())
             }
         }
@@ -319,11 +327,11 @@ impl Db {
                 c.execute_batch(sql)?;
                 Ok(())
             }
-            Db::Pg(c) => {
+            Db::Pg { client, .. } => {
                 for stmt in sql.split(';') {
                     let stmt = stmt.trim();
                     if !stmt.is_empty() {
-                        c.batch_execute(stmt)?;
+                        client.batch_execute(stmt)?;
                     }
                 }
                 Ok(())
@@ -345,9 +353,9 @@ impl Db {
                 c.execute(insert_sql, rusqlite_params.as_slice())?;
                 Ok(c.last_insert_rowid())
             }
-            Db::Pg(c) => {
+            Db::Pg { client, .. } => {
                 let sql = format!("{} returning seq", translate_placeholders(insert_sql));
-                let row = c.query_one(&sql, &to_pg_params(params))?;
+                let row = client.query_one(&sql, &to_pg_params(params))?;
                 Ok(row.get::<_, i64>(0))
             }
         }
