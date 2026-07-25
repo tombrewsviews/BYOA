@@ -660,6 +660,158 @@ pub fn remap_stage(
     Ok(RemapResult { affected, lead_ids })
 }
 
+/// Create a new lead, recording a `lead.created` event (event-only — the
+/// row insert and event write happen together, atomically).
+pub fn add_lead(
+    c: &Connection,
+    name: &str,
+    org: Option<&str>,
+    stage: &str,
+    actor: &str,
+) -> Result<String, BoardError> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = ComposableTx::begin(c)?;
+
+    c.execute(
+        "insert into leads (id, stage, name, org, context, messages, transcripts, created_at, updated_at, version)
+         values (?1, ?2, ?3, ?4, '{}', '[]', '[]', ?5, ?5, 1)",
+        rusqlite::params![id, stage, name, org, &now],
+    )?;
+
+    commit(
+        c,
+        &Event {
+            kind: "lead.created".into(),
+            entity_id: id.clone(),
+            before: serde_json::Value::Null,
+            after: serde_json::json!({"name": name, "org": org, "stage": stage}),
+            verb: "addLead".into(),
+            actor: actor.into(),
+        },
+    )?;
+
+    tx.commit()?;
+
+    Ok(id)
+}
+
+/// Append one research item to a lead's `context.facts` array — MERGE, never
+/// clobber. Reads the current context, pushes `research` onto its `facts`
+/// array (treating a missing/non-array `facts` as empty), and commits the
+/// merged object as the new context. Enforces optimistic concurrency via
+/// `expected_version`.
+pub fn append_context(
+    c: &Connection,
+    id: &str,
+    research: serde_json::Value,
+    expected_version: i64,
+) -> Result<i64, BoardError> {
+    let current: Option<(String, i64)> = c
+        .query_row(
+            "select context, version from leads where id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (context_text, version) = current.ok_or(BoardError::NotFound)?;
+    if version != expected_version {
+        return Err(BoardError::VersionConflict);
+    }
+
+    let before: serde_json::Value = serde_json::from_str(&context_text).map_err(|e| {
+        BoardError::Sql(rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(e),
+        ))
+    })?;
+
+    let mut facts = before["facts"].as_array().cloned().unwrap_or_default();
+    facts.push(research);
+    let after = serde_json::json!({"facts": facts});
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "lead.context".into(),
+            entity_id: id.into(),
+            before,
+            after,
+            verb: "appendContext".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Draft a message onto a lead's `messages` array — appended, never sent.
+pub fn draft_message(c: &Connection, id: &str, msg: serde_json::Value) -> Result<i64, BoardError> {
+    let messages_text: Option<String> = c
+        .query_row("select messages from leads where id = ?1", [id], |r| r.get(0))
+        .optional()?;
+    let messages_text = messages_text.ok_or(BoardError::NotFound)?;
+
+    let before: serde_json::Value = serde_json::from_str(&messages_text).map_err(|e| {
+        BoardError::Sql(rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(e),
+        ))
+    })?;
+
+    let mut messages = before.as_array().cloned().unwrap_or_default();
+    messages.push(msg);
+    let after = serde_json::Value::Array(messages);
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "lead.messages".into(),
+            entity_id: id.into(),
+            before,
+            after,
+            verb: "draftMessage".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Attach a call/meeting transcript to a lead's `transcripts` array.
+pub fn attach_transcript(c: &Connection, id: &str, raw: &str, summary: &str) -> Result<i64, BoardError> {
+    let transcripts_text: Option<String> = c
+        .query_row("select transcripts from leads where id = ?1", [id], |r| r.get(0))
+        .optional()?;
+    let transcripts_text = transcripts_text.ok_or(BoardError::NotFound)?;
+
+    let before: serde_json::Value = serde_json::from_str(&transcripts_text).map_err(|e| {
+        BoardError::Sql(rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(e),
+        ))
+    })?;
+
+    let mut transcripts = before.as_array().cloned().unwrap_or_default();
+    transcripts.push(serde_json::json!({"raw": raw, "summary": summary}));
+    let after = serde_json::Value::Array(transcripts);
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "lead.transcripts".into(),
+            entity_id: id.into(),
+            before,
+            after,
+            verb: "attachTranscript".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -888,5 +1040,48 @@ mod tests {
         assert!(retired.is_some()); // retired, not deleted
         let exists: i64 = c.query_row("select count(*) from stages where id='contacted'", [], |r| r.get(0)).unwrap();
         assert_eq!(exists, 1); // row still there
+    }
+
+    #[test]
+    fn append_context_merges_never_replaces() {
+        let c = conn_seeded_with_lead("L1", "researching"); // seed_lead sets version 1
+        append_context(&c, "L1", serde_json::json!({"fact":"CTO is Ana","source":"paste-1"}), 1).unwrap();
+        // version bumped to 2 after first append:
+        append_context(&c, "L1", serde_json::json!({"fact":"Series B","source":"paste-2"}), 2).unwrap();
+        let ctx: String = c.query_row("select context from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&ctx).unwrap();
+        let facts = v["facts"].as_array().unwrap();
+        assert_eq!(facts.len(), 2); // BOTH preserved
+        assert_eq!(facts[0]["fact"], "CTO is Ana");
+        assert_eq!(facts[1]["fact"], "Series B");
+    }
+
+    #[test]
+    fn append_context_version_conflict_writes_nothing() {
+        let c = conn_seeded_with_lead("L1", "researching");
+        let err = append_context(&c, "L1", serde_json::json!({"fact":"x"}), 99).unwrap_err();
+        assert!(matches!(err, BoardError::VersionConflict));
+        let ctx: String = c.query_row("select context from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(ctx, "{}"); // untouched
+    }
+
+    #[test]
+    fn add_lead_creates_row_and_event() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let id = add_lead(&c, "Ana Costa", Some("Acme"), "researching", "local").unwrap();
+        let n: i64 = c.query_row("select count(*) from leads where id=?1", [&id], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+        let ev: i64 = c.query_row("select count(*) from events where type='lead.created'", [], |r| r.get(0)).unwrap();
+        assert_eq!(ev, 1);
+    }
+
+    #[test]
+    fn attach_transcript_appends() {
+        let c = conn_seeded_with_lead("L1", "researching");
+        attach_transcript(&c, "L1", "raw call text", "they want a demo").unwrap();
+        let t: String = c.query_row("select transcripts from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!(v[0]["summary"], "they want a demo");
     }
 }
