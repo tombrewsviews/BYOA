@@ -1,11 +1,10 @@
-//! Tauri 2 entry for standalone Brainstorm: app state + command registration.
+//! Tauri 2 entry for standalone Outreach: app state + command registration.
 
 mod agent_chat;
 mod agents;
 mod board;
 mod board_window;
 mod doc;
-mod migrate;
 mod paths;
 mod projects;
 mod prompt_mode;
@@ -54,11 +53,6 @@ pub struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // One-time, non-destructive copy of pre-separation Brainstorm boards from
-    // the DreamStore shell into this app's isolated dirs. Idempotent
-    // (marker-gated).
-    migrate::migrate_once();
-
     let state = AppState {
         active_project: Mutex::new(None),
         ptys: DashMap::new(),

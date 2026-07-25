@@ -1,16 +1,16 @@
-//! Central user-level paths for standalone Brainstorm.
+//! Central user-level paths for standalone Outreach.
 //!
-//! Fully isolated from the DreamStore shell: Brainstorm owns `~/.brainstorm/`
-//! (recipients, recents, skills bundle) and `~/Brainstorm Projects/` (the
-//! project pool). There is NO migration from any legacy location — this
+//! Fully isolated from Brainstorm and the DreamStore shell: Outreach owns
+//! `~/.outreach/` (skills bundle, per-user state) and `~/Outreach Projects/`
+//! (the project pool). There is NO migration from any legacy location — this
 //! app is independent and starts clean.
 
 use std::path::PathBuf;
 
 pub fn user_dir() -> PathBuf {
     dirs::home_dir()
-        .map(|h| h.join(".brainstorm"))
-        .unwrap_or_else(|| PathBuf::from(".brainstorm"))
+        .map(|h| h.join(".outreach"))
+        .unwrap_or_else(|| PathBuf::from(".outreach"))
 }
 
 pub fn user_path(rel: &str) -> PathBuf {
@@ -19,8 +19,8 @@ pub fn user_path(rel: &str) -> PathBuf {
 
 pub fn projects_dir() -> PathBuf {
     dirs::home_dir()
-        .map(|h| h.join("Brainstorm Projects"))
-        .unwrap_or_else(|| PathBuf::from("Brainstorm Projects"))
+        .map(|h| h.join("Outreach Projects"))
+        .unwrap_or_else(|| PathBuf::from("Outreach Projects"))
 }
 
 #[cfg(test)]
@@ -28,13 +28,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn user_path_is_under_dot_brainstorm() {
-        let p = user_path("brainstorm-recipients.json");
-        assert!(p.ends_with(".brainstorm/brainstorm-recipients.json"));
+    fn user_path_is_under_dot_outreach() {
+        let p = user_path("state.json");
+        assert!(p.ends_with(".outreach/state.json"));
     }
 
     #[test]
-    fn projects_dir_is_brainstorm_projects() {
-        assert!(projects_dir().ends_with("Brainstorm Projects"));
+    fn projects_dir_is_outreach_projects() {
+        assert!(projects_dir().ends_with("Outreach Projects"));
     }
 }
