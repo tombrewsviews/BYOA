@@ -226,6 +226,29 @@ fn apply_state(
                 rusqlite::params![value["label"].as_str(), entity_id],
             )?;
         }
+        "stage.retired" => {
+            c.execute(
+                "update stages set retired_at = ?1, version = version + 1 where id = ?2",
+                rusqlite::params![value["retired_at"].as_str(), entity_id],
+            )?;
+        }
+        "stage.reordered" => {
+            if let Some(positions) = value["positions"].as_object() {
+                for (id, pos) in positions {
+                    if let Some(pos) = pos.as_i64() {
+                        c.execute(
+                            "update stages set position = ?1 where id = ?2",
+                            rusqlite::params![pos, id],
+                        )?;
+                    }
+                }
+            }
+        }
+        "stage.created" => {
+            if value.is_null() {
+                c.execute("delete from stages where id = ?1", [entity_id])?;
+            }
+        }
         _ => {
             // other kinds applied by their verbs in later tasks
         }
@@ -451,33 +474,32 @@ pub fn rename_stage(c: &Connection, id: &str, label: &str) -> Result<i64, BoardE
 }
 
 /// Set each stage's `position` to its index in `ids`, atomically. Records a
-/// single `stage.reordered` event (event-only — apply_state has no arm for it).
+/// `stage.reordered` event whose `before`/`after` carry the old/new position
+/// maps, so `apply_state`'s `stage.reordered` arm can restore either side.
 pub fn reorder_stages(c: &Connection, ids: &[&str]) -> Result<(), BoardError> {
-    c.execute_batch("begin;")?;
-    let result = (|| -> Result<(), BoardError> {
-        for (i, id) in ids.iter().enumerate() {
-            c.execute(
-                "update stages set position = ?1 where id = ?2",
-                rusqlite::params![i as i64, id],
-            )?;
-        }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => c.execute_batch("commit;")?,
-        Err(e) => {
-            c.execute_batch("rollback;")?;
-            return Err(e);
-        }
-    }
+    let mut stmt = c.prepare("select id, position from stages")?;
+    let before_positions = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+        .collect::<rusqlite::Result<Vec<(String, i64)>>>()?;
+    drop(stmt);
+    let before_map: serde_json::Map<String, serde_json::Value> = before_positions
+        .into_iter()
+        .map(|(id, pos)| (id, serde_json::json!(pos)))
+        .collect();
+
+    let after_map: serde_json::Map<String, serde_json::Value> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.to_string(), serde_json::json!(i as i64)))
+        .collect();
 
     commit(
         c,
         &Event {
             kind: "stage.reordered".into(),
             entity_id: "board".into(),
-            before: serde_json::Value::Null,
-            after: serde_json::json!({"ids": ids}),
+            before: serde_json::json!({"positions": before_map}),
+            after: serde_json::json!({"positions": after_map, "ids": ids}),
             verb: "reorderStages".into(),
             actor: "local".into(),
         },
@@ -505,10 +527,6 @@ pub fn retire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    c.execute(
-        "update stages set retired_at = ?1, version = version + 1 where id = ?2",
-        rusqlite::params![&now, id],
-    )?;
 
     let seq = commit(
         c,
@@ -638,10 +656,6 @@ pub fn remap_stage(
 
     if retire_source {
         let now = chrono::Utc::now().to_rfc3339();
-        c.execute(
-            "update stages set retired_at = ?1, version = version + 1 where id = ?2",
-            rusqlite::params![&now, from],
-        )?;
         commit(
             c,
             &Event {
@@ -1083,6 +1097,56 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&t).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 1);
         assert_eq!(v[0]["summary"], "they want a demo");
+    }
+
+    #[test]
+    fn revert_restores_retired_at() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let before_seq: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
+        retire_stage(&c, "warm").unwrap();
+        let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        assert!(retired.is_some());
+        revert(&c, before_seq).unwrap();
+        let after: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        assert!(after.is_none(), "revert must clear retired_at"); // was the bug
+    }
+    #[test]
+    fn revert_merge_with_retire_source_unretires_source() {
+        // The exact acceptance-test path: reverting a merge-with-retireSource must un-retire the source.
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        for id in ["A","B","C","D"] { seed_lead(&c, id, "contacted"); }
+        let seq_before: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
+        remap_stage(&c, "contacted", "won", None, false, true, true).unwrap();
+        let retired: Option<String> = c.query_row("select retired_at from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        assert!(retired.is_some());
+        revert(&c, seq_before).unwrap();
+        for id in ["A","B","C","D"] {
+            let s: String = c.query_row(&format!("select stage from leads where id='{id}'"), [], |r| r.get(0)).unwrap();
+            assert_eq!(s, "contacted");
+        }
+        let after: Option<String> = c.query_row("select retired_at from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        assert!(after.is_none(), "reverting the merge must un-retire the source stage");
+    }
+    #[test]
+    fn revert_reorder_restores_positions() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let before_pos: i64 = c.query_row("select position from stages where id='researching'", [], |r| r.get(0)).unwrap();
+        let seq_before: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
+        reorder_stages(&c, &["won","warm","contacted","ready_to_contact","researching"]).unwrap();
+        let moved: i64 = c.query_row("select position from stages where id='researching'", [], |r| r.get(0)).unwrap();
+        assert_ne!(moved, before_pos);
+        revert(&c, seq_before).unwrap();
+        let restored: i64 = c.query_row("select position from stages where id='researching'", [], |r| r.get(0)).unwrap();
+        assert_eq!(restored, before_pos, "revert must restore original positions");
+    }
+    #[test]
+    fn revert_add_stage_removes_row() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let seq_before: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
+        let id = add_stage(&c, "Temp", 9, "local").unwrap();
+        assert_eq!(c.query_row::<i64,_,_>("select count(*) from stages where id=?1",[&id],|r|r.get(0)).unwrap(), 1);
+        revert(&c, seq_before).unwrap();
+        assert_eq!(c.query_row::<i64,_,_>("select count(*) from stages where id=?1",[&id],|r|r.get(0)).unwrap(), 0, "revert must remove the created stage");
     }
 
     #[test]
