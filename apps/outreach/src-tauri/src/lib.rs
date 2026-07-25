@@ -2,7 +2,7 @@
 
 mod agent_chat;
 mod agents;
-// board module added in Phase 1
+mod board;
 mod doc;
 mod migrate;
 mod paths;
