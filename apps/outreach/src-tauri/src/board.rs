@@ -826,9 +826,279 @@ pub fn attach_transcript(c: &Connection, id: &str, raw: &str, summary: &str) -> 
     Ok(seq)
 }
 
+// ---------------------------------------------------------------------------
+// Tauri command layer — exposes the board verbs above to the frontend.
+// ---------------------------------------------------------------------------
+
+/// Open `board.db` under the active project's directory.
+fn db_for_active(state: &crate::AppState) -> Result<Connection, String> {
+    let dir = crate::projects::active_path(state)?;
+    open(&dir.join("board.db")).map_err(|e| format!("open board.db: {e}"))
+}
+
+/// Map a `BoardError` to a frontend-facing string. Stable prefixes
+/// (`conflict:`, `retired-id-reuse:`, `rule-blocked:`, `needs-confirm:`,
+/// `not-found:`, `db error:`) let the frontend/MCP layer pattern-match gate
+/// outcomes without parsing the whole message.
+fn board_err(e: BoardError) -> String {
+    match e {
+        BoardError::VersionConflict => "conflict: this lead changed since you loaded it — reload".into(),
+        BoardError::RetiredIdReuse => "retired-id-reuse: a stage with this id already exists (ids are never reused)".into(),
+        BoardError::RuleBlocked(names) => format!(
+            "rule-blocked: {} rule(s) reference this stage — remap or disable them first: {}",
+            names.len(),
+            names.join(", ")
+        ),
+        BoardError::NeedsConfirm(n) => format!("needs-confirm: this affects {n} cards — re-run with confirm=true"),
+        BoardError::NotFound => "not-found: no such lead or stage".into(),
+        BoardError::Sql(err) => format!("db error: {err}"),
+    }
+}
+
+#[tauri::command]
+pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    let mut stmt = c
+        .prepare("select id,label,position,color,retired_at,version from stages order by position")
+        .map_err(|e| format!("db error: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "label": r.get::<_, String>(1)?,
+                "position": r.get::<_, i64>(2)?,
+                "color": r.get::<_, Option<String>>(3)?,
+                "retiredAt": r.get::<_, Option<String>>(4)?,
+                "version": r.get::<_, i64>(5)?,
+            }))
+        })
+        .map_err(|e| format!("db error: {e}"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("db error: {e}"))?;
+    Ok(serde_json::Value::Array(rows))
+}
+
+#[tauri::command]
+pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    let mut stmt = c
+        .prepare("select id,stage,name,org,version from leads")
+        .map_err(|e| format!("db error: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "stage": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "org": r.get::<_, Option<String>>(3)?,
+                "version": r.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(|e| format!("db error: {e}"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("db error: {e}"))?;
+    Ok(serde_json::Value::Array(rows))
+}
+
+#[tauri::command]
+pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    let row: Option<(String, String, String, Option<String>, String, String, String, String, String, i64)> = c
+        .query_row(
+            "select id,stage,name,org,context,messages,transcripts,created_at,updated_at,version from leads where id = ?1",
+            [&id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("db error: {e}"))?;
+
+    let (id, stage, name, org, context, messages, transcripts, created_at, updated_at, version) =
+        row.ok_or_else(|| board_err(BoardError::NotFound))?;
+
+    let parse = |s: &str| -> Result<serde_json::Value, String> {
+        serde_json::from_str(s).map_err(|e| format!("db error: corrupt json: {e}"))
+    };
+
+    Ok(serde_json::json!({
+        "id": id,
+        "stage": stage,
+        "name": name,
+        "org": org,
+        "context": parse(&context)?,
+        "messages": parse(&messages)?,
+        "transcripts": parse(&transcripts)?,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+        "version": version,
+    }))
+}
+
+#[tauri::command]
+pub fn board_add_lead(
+    state: tauri::State<'_, crate::AppState>,
+    name: String,
+    org: Option<String>,
+    stage: String,
+) -> Result<String, String> {
+    let c = db_for_active(&state)?;
+    add_lead(&c, &name, org.as_deref(), &stage, "local").map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_move_lead(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    to_stage: String,
+    expected_version: i64,
+) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    move_lead(&c, &id, &to_stage, expected_version).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_append_context(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    research: serde_json::Value,
+    expected_version: i64,
+) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    append_context(&c, &id, research, expected_version).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_draft_message(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    msg: serde_json::Value,
+) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    draft_message(&c, &id, msg).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_attach_transcript(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    raw: String,
+    summary: String,
+) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    attach_transcript(&c, &id, &raw, &summary).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_rename_stage(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    label: String,
+) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    rename_stage(&c, &id, &label).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_reorder_stages(state: tauri::State<'_, crate::AppState>, ids: Vec<String>) -> Result<(), String> {
+    let c = db_for_active(&state)?;
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    reorder_stages(&c, &refs).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_add_stage(
+    state: tauri::State<'_, crate::AppState>,
+    label: String,
+    position: i64,
+) -> Result<String, String> {
+    let c = db_for_active(&state)?;
+    add_stage(&c, &label, position, "local").map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_retire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    retire_stage(&c, &id).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_unretire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
+    let c = db_for_active(&state)?;
+    unretire_stage(&c, &id).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_remap_stage(
+    state: tauri::State<'_, crate::AppState>,
+    from: String,
+    to: String,
+    org_filter: Option<String>,
+    dry_run: bool,
+    retire_source: bool,
+    confirmed: bool,
+) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    let filter = org_filter.map(|org| LeadFilter { org: Some(org) });
+    let result = remap_stage(&c, &from, &to, filter, dry_run, retire_source, confirmed).map_err(board_err)?;
+    Ok(serde_json::json!({
+        "affected": result.affected,
+        "lead_ids": result.lead_ids,
+    }))
+}
+
+#[tauri::command]
+pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let c = db_for_active(&state)?;
+    let mut stmt = c
+        .prepare("select id,name,enabled,conditions,action from rules")
+        .map_err(|e| format!("db error: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "enabled": r.get::<_, i64>(2)? != 0,
+                "conditions": r.get::<_, String>(3)?,
+                "action": r.get::<_, String>(4)?,
+            }))
+        })
+        .map_err(|e| format!("db error: {e}"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("db error: {e}"))?;
+    Ok(serde_json::Value::Array(rows))
+}
+
+#[tauri::command]
+pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Result<usize, String> {
+    let c = db_for_active(&state)?;
+    revert(&c, seq).map_err(|e| format!("db error: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn board_err_prefixes_are_stable_and_distinguishable() {
+        assert!(board_err(BoardError::VersionConflict).starts_with("conflict:"));
+        assert!(board_err(BoardError::RetiredIdReuse).starts_with("retired-id-reuse:"));
+        assert!(board_err(BoardError::RuleBlocked(vec!["r1".into(), "r2".into()])).starts_with("rule-blocked:"));
+        assert!(board_err(BoardError::NeedsConfirm(7)).starts_with("needs-confirm:"));
+        assert!(board_err(BoardError::NotFound).starts_with("not-found:"));
+        assert!(board_err(BoardError::Sql(rusqlite::Error::QueryReturnedNoRows)).starts_with("db error:"));
+    }
 
     #[test]
     fn bootstrap_seeds_default_stages_and_actor() {

@@ -92,6 +92,22 @@ pub fn run() {
             prompt_mode::set_prompt_mode,
             selection::set_selection,
             open_dreamstore,
+            board::board_list_stages,
+            board::board_list_leads,
+            board::board_get_lead,
+            board::board_add_lead,
+            board::board_move_lead,
+            board::board_append_context,
+            board::board_draft_message,
+            board::board_attach_transcript,
+            board::board_rename_stage,
+            board::board_reorder_stages,
+            board::board_add_stage,
+            board::board_retire_stage,
+            board::board_unretire_stage,
+            board::board_remap_stage,
+            board::board_list_rules,
+            board::board_revert,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
