@@ -35,6 +35,39 @@ pub fn research_folder_open(state: State<'_, AppState>) -> Result<(), String> {
         .and_then(|s| if s.success() { Ok(()) } else { Err("open failed".into()) })
 }
 
+/// Copy a picked file into the active board at `attachments/<lead_id>/<name>`
+/// and return the stored absolute path. Used to attach a presentation (or any
+/// file) to a lead — the frontend records the returned path on the lead's
+/// context. Keeps attachments inside the board folder so they travel with it.
+#[tauri::command]
+pub fn attach_file(
+    state: State<'_, AppState>,
+    lead_id: String,
+    src_path: String,
+) -> Result<String, String> {
+    let src = std::path::PathBuf::from(&src_path);
+    let name = src
+        .file_name()
+        .ok_or_else(|| "source has no file name".to_string())?;
+    let dir = projects::active_path(&state)?
+        .join("attachments")
+        .join(&lead_id);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir attachments: {}", e))?;
+    let dest = dir.join(name);
+    std::fs::copy(&src, &dest).map_err(|e| format!("copy attachment: {}", e))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Reveal a stored file in Finder (e.g. an attachment), so the user can open it.
+#[tauri::command]
+pub fn reveal_file(path: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .args(["-R", &path])
+        .status()
+        .map_err(|e| format!("reveal: {}", e))
+        .and_then(|s| if s.success() { Ok(()) } else { Err("reveal failed".into()) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

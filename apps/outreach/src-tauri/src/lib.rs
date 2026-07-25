@@ -19,6 +19,7 @@ mod watch;
 use std::sync::Mutex;
 
 use dashmap::DashMap;
+use tauri::Manager;
 
 /// Launch the DreamStore launcher app. Standalone Brainstorm is independent,
 /// but the user can jump back to the store from here. Tries the app bundle by
@@ -52,6 +53,21 @@ pub struct AppState {
     pub active_project: Mutex<Option<projects::ActiveProject>>,
     pub ptys: DashMap<String, pty::PtySession>,
     pub agent_chats: DashMap<String, agent_chat::AgentChatTurn>,
+}
+
+impl AppState {
+    /// Kill every live PTY child (the agent CLI and its subprocesses). Called on
+    /// app exit: without it, a running agent's process tree outlives the app and
+    /// the exit hangs (or the reader/flusher threads panic emitting into a
+    /// torn-down app). Best-effort — a kill error on one PTY must not stop the
+    /// others.
+    pub fn kill_all_ptys(&self) {
+        for entry in self.ptys.iter() {
+            if let Ok(mut child) = entry.value().child.lock() {
+                let _ = child.kill();
+            }
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -92,6 +108,8 @@ pub fn run() {
             prompt_mode::set_prompt_mode,
             selection::set_selection,
             research::research_folder_open,
+            research::attach_file,
+            research::reveal_file,
             open_dreamstore,
             board::board_list_stages,
             board::board_get_config,
@@ -113,6 +131,13 @@ pub fn run() {
             board_window::board_window_open,
             board_window::board_window_close,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // On exit, reap PTY children so a running agent process tree doesn't
+            // keep the app alive (the quit-hang) or crash the emit threads.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                app.state::<AppState>().kill_all_ptys();
+            }
+        });
 }

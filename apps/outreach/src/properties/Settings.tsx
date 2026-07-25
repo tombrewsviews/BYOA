@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ArrowUp, ArrowDown } from "../icons";
 import type { Stage } from "../board/types";
 import { openResearchFolder, type BoardConfig } from "../board/api";
 
@@ -8,6 +9,8 @@ interface SettingsProps {
   stages: Stage[];
   config: BoardConfig | null;
   onRename: (id: string, label: string) => void;
+  onReorder: (ids: string[]) => void;
+  onAddStage: (label: string) => void;
   actorName?: string;
   databaseUrl?: string;
   onSaveActor: (name: string) => void;
@@ -44,10 +47,12 @@ const SharingField: React.FC<{
   );
 };
 
-const StageRow: React.FC<{ stage: Stage; onRename: (id: string, label: string) => void }> = ({
-  stage,
-  onRename,
-}) => {
+const StageRow: React.FC<{
+  stage: Stage;
+  onRename: (id: string, label: string) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+}> = ({ stage, onRename, onMoveUp, onMoveDown }) => {
   const [label, setLabel] = useState(stage.label);
 
   const commit = () => {
@@ -56,15 +61,61 @@ const StageRow: React.FC<{ stage: Stage; onRename: (id: string, label: string) =
 
   return (
     <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1">
+        <Input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+          }}
+        />
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={!onMoveUp}
+          onClick={onMoveUp}
+          title="Move up"
+        >
+          <ArrowUp className="size-4" />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={!onMoveDown}
+          onClick={onMoveDown}
+          title="Move down"
+        >
+          <ArrowDown className="size-4" />
+        </Button>
+      </div>
+      <div className="font-mono text-xs text-muted-foreground">{stage.id}</div>
+    </div>
+  );
+};
+
+/** Inline add-a-column form for Settings. */
+const AddStageRow: React.FC<{ onAdd: (label: string) => void }> = ({ onAdd }) => {
+  const [label, setLabel] = useState("");
+  const submit = () => {
+    const l = label.trim();
+    if (!l) return;
+    onAdd(l);
+    setLabel("");
+  };
+  return (
+    <div className="flex items-center gap-1">
       <Input
         value={label}
+        placeholder="New column name…"
         onChange={(e) => setLabel(e.target.value)}
-        onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
+          if (e.key === "Enter") submit();
         }}
       />
-      <div className="font-mono text-xs text-muted-foreground">{stage.id}</div>
+      <Button size="sm" variant="secondary" disabled={!label.trim()} onClick={submit}>
+        Add
+      </Button>
     </div>
   );
 };
@@ -76,9 +127,21 @@ export const Settings: React.FC<SettingsProps> = ({
   actorName,
   databaseUrl,
   onSaveActor,
+  onReorder,
+  onAddStage,
   onSaveDbUrl,
 }) => {
-  const ordered = [...stages].sort((a, b) => a.position - b.position);
+  const ordered = [...stages]
+    .filter((s) => s.retiredAt === null)
+    .sort((a, b) => a.position - b.position);
+
+  const move = (index: number, delta: number) => {
+    const ids = ordered.map((s) => s.id);
+    const target = index + delta;
+    if (target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    onReorder(ids);
+  };
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -120,9 +183,16 @@ export const Settings: React.FC<SettingsProps> = ({
             below each is its permanent id, which keeps history intact when you rename.
           </div>
         </div>
-        {ordered.map((stage) => (
-          <StageRow key={stage.id} stage={stage} onRename={onRename} />
+        {ordered.map((stage, i) => (
+          <StageRow
+            key={stage.id}
+            stage={stage}
+            onRename={onRename}
+            onMoveUp={i > 0 ? () => move(i, -1) : undefined}
+            onMoveDown={i < ordered.length - 1 ? () => move(i, 1) : undefined}
+          />
         ))}
+        <AddStageRow onAdd={onAddStage} />
       </div>
     </div>
   );

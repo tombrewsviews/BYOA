@@ -15,9 +15,18 @@ const leads: Lead[] = [
   { id: "l3", stage: "ghost_stage", name: "Orphan Lead", org: null, version: 1 }, // stage not in list → Unsorted
 ];
 
+const noop = () => {};
+const baseProps = {
+  onMove: noop,
+  onSelect: noop,
+  onAddLead: noop,
+  onAddColumn: noop,
+  selectedId: null,
+};
+
 describe("Kanban", () => {
   it("renders one column per non-retired stage, cards in the right column", () => {
-    render(<Kanban stages={stages} leads={leads} onMove={() => {}} />);
+    render(<Kanban {...baseProps} stages={stages} leads={leads} />);
     expect(screen.getByText("Researching")).toBeInTheDocument();
     expect(screen.getByText("Contacted")).toBeInTheDocument();
     // retired stage hidden
@@ -27,14 +36,14 @@ describe("Kanban", () => {
   });
 
   it("puts a lead whose stage id is unknown into an Unsorted column (§15.5)", () => {
-    render(<Kanban stages={stages} leads={leads} onMove={() => {}} />);
+    render(<Kanban {...baseProps} stages={stages} leads={leads} />);
     expect(screen.getByText("Unsorted")).toBeInTheDocument();
     expect(screen.getByText("Orphan Lead")).toBeInTheDocument();
   });
 
   it("does not render Unsorted when every lead maps to a known stage", () => {
     const clean = leads.filter((l) => l.stage !== "ghost_stage");
-    render(<Kanban stages={stages} leads={clean} onMove={() => {}} />);
+    render(<Kanban {...baseProps} stages={stages} leads={clean} />);
     expect(screen.queryByText("Unsorted")).not.toBeInTheDocument();
   });
 });

@@ -72,10 +72,15 @@ The human can also drop research **files** into the board's `research/` folder
 (reachable at the relative path `research/` — your cwd is the board folder).
 When they ask you to *"ingest the new research"* (or similar), do this:
 
-1. **List `research/`.** Ignore the `research/.ingested` ledger file itself.
-2. **Skip already-processed files.** `research/.ingested` is a plain-text list,
-   one filename per line, of files you've already ingested. Process only files
-   NOT listed there. If the ledger doesn't exist yet, treat every file as new.
+1. **List `research/`** (recurse into subfolders — the human may drop a whole
+   folder of files, or a folder-of-folders). Ignore the `research/.ingested`
+   ledger file itself.
+2. **Skip already-processed entries.** `research/.ingested` is a plain-text list,
+   one entry per line, of what you've already ingested — a file path OR a folder
+   name (record the folder name when you ingest a batch dropped as one folder).
+   Process only entries NOT listed there. If the ledger doesn't exist yet, treat
+   everything as new. When you finish a folder-batch, record the folder name so
+   the whole batch is skipped next time.
 3. **Read each new file:**
    - `.txt`, `.md`, `.csv`, `.json` → read directly.
    - `.pdf` → extract its text with your own tools. If you can't, say so and

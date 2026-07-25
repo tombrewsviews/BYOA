@@ -13,6 +13,12 @@ import {
   getLead,
   getConfig,
   renameStage,
+  reorderStages,
+  addStage,
+  moveLead,
+  appendContext,
+  attachFile,
+  revealFile,
   getSettings,
   setActorName,
   setDatabaseUrl,
@@ -33,14 +39,18 @@ const agentLabelFor = (id: string): string =>
  * four views share a single tab bar; this component only renders the body
  * for whichever of the two is active.
  */
-const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) => {
+const PropertiesPanel: React.FC<{
+  tab: "inspector" | "settings";
+  selectedLeadId: string;
+  setSelectedLeadId: (id: string) => void;
+}> = ({ tab, selectedLeadId, setSelectedLeadId }) => {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [config, setConfig] = useState<BoardConfig | null>(null);
-  const [selectedLeadId, setSelectedLeadId] = useState<string>("");
   const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
   const [actorName, setActorNameState] = useState<string | undefined>(undefined);
   const [databaseUrl, setDatabaseUrlState] = useState<string | undefined>(undefined);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -84,13 +94,62 @@ const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) =
     void getLead(selectedLeadId)
       .then(setSelectedLead)
       .catch(() => setSelectedLead(null));
-  }, [selectedLeadId]);
+  }, [selectedLeadId, reloadKey]);
+
+  const reloadLead = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const handleRename = useCallback((id: string, label: string) => {
     void renameStage(id, label)
       .then(() => listStages())
       .then(setStages)
       .catch(() => {});
+  }, []);
+
+  const handleChangeStage = useCallback(
+    (toStage: string) => {
+      if (!selectedLead) return;
+      void moveLead(selectedLead.id, toStage, selectedLead.version)
+        .then(reloadLead)
+        .catch(() => {});
+    },
+    [selectedLead, reloadLead],
+  );
+
+  const handleAddNote = useCallback(
+    (note: string) => {
+      if (!selectedLead) return;
+      void appendContext(selectedLead.id, { note }, selectedLead.version)
+        .then(reloadLead)
+        .catch(() => {});
+    },
+    [selectedLead, reloadLead],
+  );
+
+  const handleAttach = useCallback(() => {
+    if (!selectedLead) return;
+    const lead = selectedLead;
+    void (async () => {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: false,
+        title: "Attach a presentation",
+      }).catch(() => null);
+      if (!picked || typeof picked !== "string") return;
+      const stored = await attachFile(lead.id, picked).catch(() => null);
+      if (!stored) return;
+      const name = picked.split("/").pop() ?? "Attachment";
+      // Re-read the lead for a fresh version before appending (attach is async).
+      const fresh = await getLead(lead.id).catch(() => null);
+      const version = fresh?.version ?? lead.version;
+      await appendContext(lead.id, { presentation: { name, path: stored } }, version).catch(
+        () => {},
+      );
+      reloadLead();
+    })();
+  }, [selectedLead, reloadLead]);
+
+  const handleReveal = useCallback((path: string) => {
+    void revealFile(path).catch(() => {});
   }, []);
 
   const handleSaveActor = useCallback((name: string) => {
@@ -101,6 +160,23 @@ const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) =
   const handleSaveDbUrl = useCallback((url: string) => {
     setDatabaseUrlState(url);
     void setDatabaseUrl(url).catch(() => {});
+  }, []);
+
+  const handleReorder = useCallback((ids: string[]) => {
+    void reorderStages(ids)
+      .then(() => listStages())
+      .then(setStages)
+      .catch(() => {});
+  }, []);
+
+  const handleAddStage = useCallback((label: string) => {
+    void (async () => {
+      const current = await listStages().catch(() => [] as Stage[]);
+      const maxPos = current.reduce((m, s) => Math.max(m, s.position), -1);
+      await addStage(label, maxPos + 1).catch(() => {});
+      const fresh = await listStages().catch(() => current);
+      setStages(fresh);
+    })();
   }, []);
 
   return tab === "inspector" ? (
@@ -120,7 +196,14 @@ const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) =
         </select>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <Inspector lead={selectedLead} />
+        <Inspector
+          lead={selectedLead}
+          stages={stages}
+          onChangeStage={handleChangeStage}
+          onAddNote={handleAddNote}
+          onAttach={handleAttach}
+          onRevealAttachment={handleReveal}
+        />
       </div>
     </div>
   ) : (
@@ -129,6 +212,8 @@ const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) =
         stages={stages}
         config={config}
         onRename={handleRename}
+        onReorder={handleReorder}
+        onAddStage={handleAddStage}
         actorName={actorName}
         databaseUrl={databaseUrl}
         onSaveActor={handleSaveActor}
@@ -146,6 +231,24 @@ const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) =
 const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
   const [viewMode, setViewMode] = useState<ViewMode>("terminal");
   const [agentId, setAgentId] = useState<"claude" | "codex" | "gemini">("claude");
+  const [selectedLeadId, setSelectedLeadId] = useState<string>("");
+
+  // Clicking a card in the board window emits this; open the Inspector on it.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let off: (() => void) | undefined;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const un = await listen<string>("board://select-lead", (e) => {
+        setSelectedLeadId(e.payload);
+        setViewMode("inspector");
+      });
+      off = () => un();
+    })();
+    return () => {
+      if (off) off();
+    };
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -247,7 +350,11 @@ const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         </div>
         {viewMode === "inspector" || viewMode === "settings" ? (
           <div className="absolute inset-0 overflow-auto">
-            <PropertiesPanel tab={viewMode} />
+            <PropertiesPanel
+              tab={viewMode}
+              selectedLeadId={selectedLeadId}
+              setSelectedLeadId={setSelectedLeadId}
+            />
           </div>
         ) : null}
       </div>

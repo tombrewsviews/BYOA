@@ -37,7 +37,7 @@ pub fn board_window_close(app: AppHandle) -> Result<(), String> {
 }
 
 /// Width reserved for the agent panel (main window) when tiling.
-const AGENT_PANEL_W: f64 = 380.0;
+const AGENT_PANEL_W: f64 = 430.0;
 
 /// Tile the two windows to fill the work area: the agent panel (main window) on
 /// the left at a fixed width, the board window filling the rest.

@@ -28,4 +28,6 @@ export {
   MessageSquare,
   PanelRight,
   Trash2,
+  Copy,
+  Paperclip,
 } from "lucide-react";

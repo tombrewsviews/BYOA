@@ -23,10 +23,20 @@ export const getLead = (id: string) => call<LeadDetail>("board_get_lead", { id }
 export const getConfig = () => call<BoardConfig>("board_get_config");
 export const renameStage = (id: string, label: string) =>
   call<number>("board_rename_stage", { id, label });
+export const addLead = (name: string, org: string | null, stage: string) =>
+  call<string>("board_add_lead", { name, org, stage });
+export const addStage = (label: string, position: number) =>
+  call<string>("board_add_stage", { label, position });
+export const reorderStages = (ids: string[]) => call<void>("board_reorder_stages", { ids });
+export const appendContext = (id: string, research: unknown, expectedVersion: number) =>
+  call<number>("board_append_context", { id, research, expectedVersion });
 export const getSettings = () => call<AppSettings>("get_settings");
 export const setDatabaseUrl = (url: string) => call<void>("set_database_url", { url });
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 export const openResearchFolder = () => call<void>("research_folder_open");
+export const attachFile = (leadId: string, srcPath: string) =>
+  call<string>("attach_file", { leadId, srcPath });
+export const revealFile = (path: string) => call<void>("reveal_file", { path });
 
 /**
  * Re-fetch stages+leads every `intervalMs` and hand them to `onChange`.

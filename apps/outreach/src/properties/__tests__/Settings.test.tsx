@@ -21,6 +21,8 @@ describe("Settings", () => {
       <Settings
         stages={stages}
         config={config}
+        onReorder={noop}
+        onAddStage={noop}
         onRename={noop}
         onSaveActor={noop}
         onSaveDbUrl={noop}
@@ -36,6 +38,8 @@ describe("Settings", () => {
       <Settings
         stages={stages}
         config={config}
+        onReorder={noop}
+        onAddStage={noop}
         onRename={onRename}
         onSaveActor={noop}
         onSaveDbUrl={noop}
@@ -51,6 +55,8 @@ describe("Settings", () => {
       <Settings
         stages={stages}
         config={config}
+        onReorder={noop}
+        onAddStage={noop}
         onRename={noop}
         onSaveActor={noop}
         onSaveDbUrl={noop}
@@ -66,6 +72,8 @@ describe("Settings", () => {
       <Settings
         stages={stages}
         config={config}
+        onReorder={noop}
+        onAddStage={noop}
         actorName="Ada"
         databaseUrl="postgres://x"
         onRename={() => {}}
