@@ -10,6 +10,7 @@ mod paths;
 mod projects;
 mod prompt_mode;
 mod pty;
+mod research;
 mod selection;
 mod settings;
 mod skill;
@@ -90,6 +91,7 @@ pub fn run() {
             prompt_mode::get_prompt_mode,
             prompt_mode::set_prompt_mode,
             selection::set_selection,
+            research::research_folder_open,
             open_dreamstore,
             board::board_list_stages,
             board::board_get_config,

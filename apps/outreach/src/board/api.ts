@@ -26,6 +26,7 @@ export const renameStage = (id: string, label: string) =>
 export const getSettings = () => call<AppSettings>("get_settings");
 export const setDatabaseUrl = (url: string) => call<void>("set_database_url", { url });
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
+export const openResearchFolder = () => call<void>("research_folder_open");
 
 /**
  * Re-fetch stages+leads every `intervalMs` and hand them to `onChange`.

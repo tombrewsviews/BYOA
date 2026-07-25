@@ -130,6 +130,7 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
     }
     crate::skill::write(&dir, &crate::skill::OUTREACH_BUNDLE)
         .map_err(|e| format!("write skill: {}", e))?;
+    crate::research::ensure_research_dir(&dir).map_err(|e| format!("mkdir research: {}", e))?;
 
     let display_name = if name.trim().is_empty() { "Untitled".into() } else { name.to_string() };
     Ok(ProjectMeta {
@@ -162,6 +163,7 @@ pub fn project_open(
     crate::prompt_mode::ensure_seeded(&path_buf);
     crate::skill::write(&path_buf, &crate::skill::OUTREACH_BUNDLE)
         .map_err(|e| format!("write skill: {}", e))?;
+    crate::research::ensure_research_dir(&path_buf).map_err(|e| format!("mkdir research: {}", e))?;
 
     *state.active_project.lock().unwrap() =
         Some(ActiveProject { path: path_buf.clone(), _watcher: watcher });

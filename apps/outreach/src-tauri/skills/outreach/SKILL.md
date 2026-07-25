@@ -66,6 +66,33 @@ this, in order:
    **"yes"** before committing any card change. Enrichment via `appendContext`
    is safe to do as you go; **stage moves and new leads wait for the yes.**
 
+## Ingesting research files
+
+The human can also drop research **files** into the board's `research/` folder
+(reachable at the relative path `research/` — your cwd is the board folder).
+When they ask you to *"ingest the new research"* (or similar), do this:
+
+1. **List `research/`.** Ignore the `research/.ingested` ledger file itself.
+2. **Skip already-processed files.** `research/.ingested` is a plain-text list,
+   one filename per line, of files you've already ingested. Process only files
+   NOT listed there. If the ledger doesn't exist yet, treat every file as new.
+3. **Read each new file:**
+   - `.txt`, `.md`, `.csv`, `.json` → read directly.
+   - `.pdf` → extract its text with your own tools. If you can't, say so and
+     skip that file (do NOT guess at its contents, and do NOT mark it ingested).
+   - Anything else you can't read → skip and tell the human.
+4. **Run each file's contents through the pasted-research flow above** — the
+   exact same steps: identify the lead(s), match-or-create, `appendContext`
+   (merge, never clobber), classify transcripts (`attachTranscript`) vs notes,
+   propose any stage moves through the gate, then **report and wait for the
+   human's "yes"** before committing card moves or new leads.
+5. **After a file is successfully ingested, append its filename** (on its own
+   line) to `research/.ingested`, so a later "ingest" won't re-process it. Only
+   record files you actually ingested — never ones you skipped.
+
+To force a re-read of a file, the human can delete its line from
+`research/.ingested` (mention this if they ask why a file was skipped).
+
 ## Respecting the gates
 
 The server returns structured, prefixed errors — act on them, don't fight them:

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import type { Stage } from "../board/types";
-import type { BoardConfig } from "../board/api";
+import { openResearchFolder, type BoardConfig } from "../board/api";
 
 interface SettingsProps {
   stages: Stage[];
@@ -96,6 +97,19 @@ export const Settings: React.FC<SettingsProps> = ({
           onSave={onSaveDbUrl}
           mask
         />
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="text-sm font-medium text-foreground">Research</div>
+        <div className="text-xs text-muted-foreground">
+          Drop research files (notes, transcripts, PDFs) into this board&apos;s folder, then tell
+          the agent “ingest the new research”. It reads them and enriches your leads — nothing is
+          sent or overwritten without your say-so.
+        </div>
+        <div>
+          <Button size="sm" variant="secondary" onClick={() => void openResearchFolder()}>
+            Open research folder
+          </Button>
+        </div>
       </div>
       <div className="text-xs text-muted-foreground">Created by {config?.createdBy ?? "—"}</div>
       <div className="flex flex-col gap-3">
