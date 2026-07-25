@@ -6,7 +6,7 @@
 //! Every signature in this file is chosen so the Postgres arm can slot in
 //! without changing them — see the `// Pg arm: Task 2.2` markers below.
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 
 /// A query/exec parameter, backend-agnostic. Covers every param shape
 /// `board.rs` uses today: plain strings, optional strings (nullable JSON
@@ -35,22 +35,22 @@ impl SqlParam<'_> {
 /// backend (rusqlite here; `postgres::Row` in Task 2.2) so the closure body
 /// in `board.rs` is written once and runs over either.
 pub trait Row {
-    fn get_str(&self, i: usize) -> String;
-    fn get_i64(&self, i: usize) -> i64;
-    fn get_opt_str(&self, i: usize) -> Option<String>;
+    fn get_str(&self, i: usize) -> Result<String, DbError>;
+    fn get_i64(&self, i: usize) -> Result<i64, DbError>;
+    fn get_opt_str(&self, i: usize) -> Result<Option<String>, DbError>;
 }
 
 impl Row for rusqlite::Row<'_> {
-    fn get_str(&self, i: usize) -> String {
-        self.get(i).expect("column type mismatch: expected text")
+    fn get_str(&self, i: usize) -> Result<String, DbError> {
+        self.get::<_, String>(i).map_err(DbError::from)
     }
 
-    fn get_i64(&self, i: usize) -> i64 {
-        self.get(i).expect("column type mismatch: expected int")
+    fn get_i64(&self, i: usize) -> Result<i64, DbError> {
+        self.get::<_, i64>(i).map_err(DbError::from)
     }
 
-    fn get_opt_str(&self, i: usize) -> Option<String> {
-        self.get(i).expect("column type mismatch: expected optional text")
+    fn get_opt_str(&self, i: usize) -> Result<Option<String>, DbError> {
+        self.get::<_, Option<String>>(i).map_err(DbError::from)
     }
 }
 
@@ -111,7 +111,7 @@ impl Db {
     }
 
     /// Run a query expected to return zero or one row.
-    pub fn query_opt<T, F: FnMut(&dyn Row) -> T>(
+    pub fn query_opt<T, F: FnMut(&dyn Row) -> Result<T, DbError>>(
         &mut self,
         sql: &str,
         params: &[SqlParam],
@@ -121,19 +121,21 @@ impl Db {
             Db::Sqlite(c) => {
                 let rusqlite_params: Vec<&dyn rusqlite::ToSql> =
                     params.iter().map(|p| p.to_rusqlite()).collect();
-                let result = c
-                    .query_row(sql, rusqlite_params.as_slice(), |r| {
-                        let row: &dyn Row = r;
-                        Ok(f(row))
-                    })
-                    .optional()?;
-                Ok(result)
+                let mut stmt = c.prepare(sql)?;
+                let mut rows = stmt.query(rusqlite_params.as_slice())?;
+                match rows.next()? {
+                    Some(row) => {
+                        let wrapped: &dyn Row = row;
+                        Ok(Some(f(wrapped)?))
+                    }
+                    None => Ok(None),
+                }
             } // Pg arm: Task 2.2 — Client::query_opt, map the returned postgres::Row through f.
         }
     }
 
     /// Run a query, mapping every returned row.
-    pub fn query_all<T, F: FnMut(&dyn Row) -> T>(
+    pub fn query_all<T, F: FnMut(&dyn Row) -> Result<T, DbError>>(
         &mut self,
         sql: &str,
         params: &[SqlParam],
@@ -144,13 +146,13 @@ impl Db {
                 let rusqlite_params: Vec<&dyn rusqlite::ToSql> =
                     params.iter().map(|p| p.to_rusqlite()).collect();
                 let mut stmt = c.prepare(sql)?;
-                let rows = stmt
-                    .query_map(rusqlite_params.as_slice(), |r| {
-                        let row: &dyn Row = r;
-                        Ok(f(row))
-                    })?
-                    .collect::<rusqlite::Result<Vec<T>>>()?;
-                Ok(rows)
+                let mut rows = stmt.query(rusqlite_params.as_slice())?;
+                let mut out = Vec::new();
+                while let Some(row) = rows.next()? {
+                    let wrapped: &dyn Row = row;
+                    out.push(f(wrapped)?);
+                }
+                Ok(out)
             } // Pg arm: Task 2.2 — Client::query, map each postgres::Row through f.
         }
     }
@@ -218,7 +220,9 @@ mod tests {
         )
         .unwrap();
         let n = db
-            .query_opt("select n from t where id=?1", &[SqlParam::Text("a")], |r| r.get_i64(0))
+            .query_opt("select n from t where id=?1", &[SqlParam::Text("a")], |r| {
+                Ok(r.get_i64(0)?)
+            })
             .unwrap();
         assert_eq!(n, Some(1));
         // savepoint rollback
@@ -230,7 +234,8 @@ mod tests {
         .unwrap();
         db.rollback_to("sp1").unwrap();
         db.release("sp1").unwrap();
-        let cnt = db.query_opt("select count(*) from t", &[], |r| r.get_i64(0)).unwrap();
+        let cnt =
+            db.query_opt("select count(*) from t", &[], |r| Ok(r.get_i64(0)?)).unwrap();
         assert_eq!(cnt, Some(1), "rolled-back insert must be gone");
     }
 
@@ -241,8 +246,8 @@ mod tests {
         db.exec("create table t (id text)", &[]).unwrap();
         db.exec("insert into t values (?1)", &[SqlParam::Text("x")]).unwrap();
         assert_eq!(
-            db.query_opt("select id from t where id=?1", &[SqlParam::Text("x")], |r| r
-                .get_str(0))
+            db.query_opt("select id from t where id=?1", &[SqlParam::Text("x")], |r| Ok(r
+                .get_str(0)?))
                 .unwrap(),
             Some("x".to_string())
         );
