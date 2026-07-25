@@ -2,7 +2,7 @@
   "name": "outreach-app",
   "version": "0.1.0",
   "private": true,
-  "description": "Brainstorm Canvas — standalone app (extracted from DreamStore).",
+  "description": "Outreach — standalone app",
   "type": "module",
   "scripts": {
     "dev": "vite",
