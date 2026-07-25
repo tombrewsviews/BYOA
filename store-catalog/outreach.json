@@ -1,0 +1,32 @@
+{
+  "id": "outreach",
+  "name": "Outreach",
+  "launchable": true,
+  "blurb": "Agent-native lead board",
+  "description": "Turn pasted research into lead cards on a kanban board, operated by the agent in the terminal. Bring your own Claude / Codex / Gemini. It ingests prospect notes, replies, and call transcripts — enriching leads additively (never clobbering), summarizing transcripts, drafting messages it never auto-sends, and proposing card moves through dryRun/confirm gates. Every write goes through an append-only, fully reversible event log, so nothing is ever lost.",
+  "creator": "altramanera",
+  "version": "0.1.0",
+  "tokens": 0,
+  "files": 70,
+  "loc": 3100,
+  "rating": 0,
+  "ratingCount": 0,
+  "tags": ["crm", "pipeline", "outreach", "agent-native"],
+  "hue": 150,
+  "status": "available",
+  "releasedAt": "2026-07-25",
+  "sizeBytes": 2400000,
+  "category": "productivity",
+  "visibility": "public",
+  "skills": [
+    { "name": "addLead", "on": true },
+    { "name": "moveLead", "on": true },
+    { "name": "appendContext", "on": true },
+    { "name": "draftMessage", "on": true },
+    { "name": "attachTranscript", "on": true },
+    { "name": "addStage", "on": true },
+    { "name": "renameStage", "on": true },
+    { "name": "retireStage", "on": true },
+    { "name": "remapStage", "on": true }
+  ]
+}
