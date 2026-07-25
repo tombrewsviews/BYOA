@@ -27,7 +27,7 @@ export function Kanban({ stages, leads, onMove }: KanbanProps) {
   };
 
   return (
-    <div className="flex h-full gap-3 overflow-x-auto bg-background p-3">
+    <div className="flex h-screen gap-3 overflow-x-auto bg-background p-3">
       {columns.map((stage) => (
         <div
           key={stage.id}

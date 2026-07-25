@@ -15,10 +15,11 @@ interface SettingsProps {
 
 const SharingField: React.FC<{
   label: string;
+  hint: string;
   initialValue: string;
   onSave: (value: string) => void;
   mask?: boolean;
-}> = ({ label, initialValue, onSave, mask }) => {
+}> = ({ label, hint, initialValue, onSave, mask }) => {
   const [value, setValue] = useState(initialValue);
 
   const commit = () => {
@@ -37,6 +38,7 @@ const SharingField: React.FC<{
           if (e.key === "Enter") commit();
         }}
       />
+      <div className="text-xs text-muted-foreground">{hint}</div>
     </div>
   );
 };
@@ -81,20 +83,29 @@ export const Settings: React.FC<SettingsProps> = ({
     <div className="flex flex-col gap-4 p-4">
       <div className="flex flex-col gap-3">
         <div className="text-sm font-medium text-foreground">Sharing</div>
-        <SharingField label="Your name" initialValue={actorName ?? ""} onSave={onSaveActor} />
+        <SharingField
+          label="Your name"
+          hint="Stamped on every change you make, so people sharing this board can see who did what."
+          initialValue={actorName ?? ""}
+          onSave={onSaveActor}
+        />
         <SharingField
           label="Shared database URL"
+          hint="Paste a Postgres URL to make this a shared board — everyone with the same URL sees and edits it live. Leave empty to keep the board local to this machine. Changes apply the next time you open the board."
           initialValue={databaseUrl ?? ""}
           onSave={onSaveDbUrl}
           mask
         />
-        <div className="text-xs text-muted-foreground">
-          With a shared URL, everyone using it sees and edits the same board live. Changes apply
-          the next time you open this board.
-        </div>
       </div>
       <div className="text-xs text-muted-foreground">Created by {config?.createdBy ?? "—"}</div>
       <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="text-sm font-medium text-foreground">Pipeline stages</div>
+          <div className="text-xs text-muted-foreground">
+            The columns on your board. Rename a column by editing its name here; the grey code
+            below each is its permanent id, which keeps history intact when you rename.
+          </div>
+        </div>
         {ordered.map((stage) => (
           <StageRow key={stage.id} stage={stage} onRename={onRename} />
         ))}

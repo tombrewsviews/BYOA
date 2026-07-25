@@ -21,19 +21,19 @@ import type { Stage, Lead } from "./board/types";
 import type { LeadDetail, BoardConfig } from "./board/api";
 
 type ProjectMeta = { name: string; path: string; lastOpened?: string };
-type ViewMode = "terminal" | "chat";
-type PropertiesTab = "inspector" | "settings";
+type ViewMode = "terminal" | "chat" | "inspector" | "settings";
 
 const agentLabelFor = (id: string): string =>
   id === "codex" ? "Codex" : id === "gemini" ? "Gemini" : "Claude";
 
 /**
- * The Properties panel: Inspector (a selected lead's context/messages/
+ * The Properties content: Inspector (a selected lead's context/messages/
  * transcripts) and Settings (stage list with stable ids + board created_by,
- * rename-in-place).
+ * rename-in-place). Its own tab bar was hoisted into OutreachEditor so all
+ * four views share a single tab bar; this component only renders the body
+ * for whichever of the two is active.
  */
-const PropertiesPanel: React.FC = () => {
-  const [tab, setTab] = useState<PropertiesTab>("inspector");
+const PropertiesPanel: React.FC<{ tab: "inspector" | "settings" }> = ({ tab }) => {
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [config, setConfig] = useState<BoardConfig | null>(null);
@@ -103,58 +103,37 @@ const PropertiesPanel: React.FC = () => {
     void setDatabaseUrl(url).catch(() => {});
   }, []);
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex flex-none items-center gap-1 border-b border-border p-2">
-        <Button
-          size="sm"
-          variant={tab === "inspector" ? "default" : "secondary"}
-          onClick={() => setTab("inspector")}
+  return tab === "inspector" ? (
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-2xl flex-col">
+      <div className="flex-none p-2">
+        <select
+          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+          value={selectedLeadId}
+          onChange={(e) => setSelectedLeadId(e.target.value)}
         >
-          Inspector
-        </Button>
-        <Button
-          size="sm"
-          variant={tab === "settings" ? "default" : "secondary"}
-          onClick={() => setTab("settings")}
-        >
-          Settings
-        </Button>
+          <option value="">Select a lead…</option>
+          {leads.map((lead) => (
+            <option key={lead.id} value={lead.id}>
+              {lead.name}
+            </option>
+          ))}
+        </select>
       </div>
-
-      {tab === "inspector" ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-none p-2">
-            <select
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              value={selectedLeadId}
-              onChange={(e) => setSelectedLeadId(e.target.value)}
-            >
-              <option value="">Select a lead…</option>
-              {leads.map((lead) => (
-                <option key={lead.id} value={lead.id}>
-                  {lead.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            <Inspector lead={selectedLead} />
-          </div>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Settings
-            stages={stages}
-            config={config}
-            onRename={handleRename}
-            actorName={actorName}
-            databaseUrl={databaseUrl}
-            onSaveActor={handleSaveActor}
-            onSaveDbUrl={handleSaveDbUrl}
-          />
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Inspector lead={selectedLead} />
+      </div>
+    </div>
+  ) : (
+    <div className="mx-auto h-full min-h-0 w-full max-w-2xl overflow-auto">
+      <Settings
+        stages={stages}
+        config={config}
+        onRename={handleRename}
+        actorName={actorName}
+        databaseUrl={databaseUrl}
+        onSaveActor={handleSaveActor}
+        onSaveDbUrl={handleSaveDbUrl}
+      />
     </div>
   );
 };
@@ -218,6 +197,20 @@ const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
           {`Chat · ${agentLabelFor(agentId)}`}
         </Button>
         <Button
+          size="sm"
+          variant={viewMode === "inspector" ? "default" : "secondary"}
+          onClick={() => setViewMode("inspector")}
+        >
+          Inspector
+        </Button>
+        <Button
+          size="sm"
+          variant={viewMode === "settings" ? "default" : "secondary"}
+          onClick={() => setViewMode("settings")}
+        >
+          Settings
+        </Button>
+        <Button
           variant="secondary"
           size="icon-sm"
           onClick={openBoard}
@@ -228,35 +221,35 @@ const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1">
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: viewMode === "terminal" ? "block" : "none",
-            }}
-          >
-            <Terminal />
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: viewMode === "chat" ? "block" : "none",
-            }}
-          >
-            <Chat
-              agentId={agentId}
-              agentLabel={agentLabelFor(agentId)}
-              cwd={project.path}
-              onSwitchToTerminal={() => setViewMode("terminal")}
-            />
-          </div>
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: viewMode === "terminal" ? "block" : "none",
+          }}
+        >
+          <Terminal />
         </div>
-        <aside className="w-80 flex-none overflow-auto border-l border-border bg-card">
-          <PropertiesPanel />
-        </aside>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: viewMode === "chat" ? "block" : "none",
+          }}
+        >
+          <Chat
+            agentId={agentId}
+            agentLabel={agentLabelFor(agentId)}
+            cwd={project.path}
+            onSwitchToTerminal={() => setViewMode("terminal")}
+          />
+        </div>
+        {viewMode === "inspector" || viewMode === "settings" ? (
+          <div className="absolute inset-0 overflow-auto">
+            <PropertiesPanel tab={viewMode} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
