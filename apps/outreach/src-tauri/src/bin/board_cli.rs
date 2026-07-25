@@ -9,7 +9,7 @@
 
 use std::io::Read as _;
 
-use outreach_app_lib::board::{self, Actor, Db, LeadFilter};
+use outreach_app_lib::board::{self, Db, LeadFilter};
 use serde_json::{json, Value};
 
 /// Dispatch one `{verb, args}` request against an already-open board handle,
