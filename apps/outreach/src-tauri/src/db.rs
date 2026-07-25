@@ -29,6 +29,46 @@ impl SqlParam<'_> {
             SqlParam::Json(s) => s,
         }
     }
+
+    /// Convert to postgres's param type for the Pg arm.
+    fn to_postgres(&self) -> &(dyn postgres::types::ToSql + Sync) {
+        match self {
+            SqlParam::Text(s) => s,
+            SqlParam::OptText(s) => s,
+            SqlParam::Int(n) => n,
+            SqlParam::Json(s) => s,
+        }
+    }
+}
+
+/// Adapt a `&[SqlParam]` slice into the `&[&(dyn ToSql + Sync)]` shape
+/// `postgres::Client`'s query methods expect.
+fn to_pg_params<'a>(params: &'a [SqlParam]) -> Vec<&'a (dyn postgres::types::ToSql + Sync)> {
+    params.iter().map(|p| p.to_postgres()).collect()
+}
+
+/// Translate SQLite-style `?N` placeholders to Postgres-style `$N`
+/// (regex-free: scan for `?` followed by an ASCII digit run, copy the run
+/// after `$`; anything else is copied verbatim).
+pub fn translate_placeholders(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '?' && chars.peek().is_some_and(|d| d.is_ascii_digit()) {
+            out.push('$');
+            while let Some(d) = chars.peek() {
+                if d.is_ascii_digit() {
+                    out.push(*d);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Row accessor the verbs' mapping closures use — implemented once per
@@ -54,13 +94,31 @@ impl Row for rusqlite::Row<'_> {
     }
 }
 
+impl Row for postgres::Row {
+    fn get_str(&self, i: usize) -> Result<String, DbError> {
+        self.try_get::<_, String>(i).map_err(DbError::from)
+    }
+
+    fn get_i64(&self, i: usize) -> Result<i64, DbError> {
+        self.try_get::<_, i64>(i).map_err(DbError::from)
+    }
+
+    fn get_opt_str(&self, i: usize) -> Result<Option<String>, DbError> {
+        self.try_get::<_, Option<String>>(i).map_err(DbError::from)
+    }
+}
+
 /// Errors from either backend. `board.rs`'s `BoardError::Sql` currently
 /// wraps `rusqlite::Error` directly; Phase 3 maps `DbError` into
 /// `BoardError`, so this stays convertible via `From`.
 #[derive(Debug)]
 pub enum DbError {
     Sqlite(rusqlite::Error),
-    // Pg arm: Task 2.2 adds a `Pg(postgres::Error)` variant here.
+    Pg(postgres::Error),
+    /// TLS setup failure connecting to Postgres (`connect_pg`'s one extra
+    /// failure mode; native_tls::Error isn't a postgres::Error, so it can't
+    /// fold into `Pg`).
+    Tls(native_tls::Error),
 }
 
 impl From<rusqlite::Error> for DbError {
@@ -69,21 +127,38 @@ impl From<rusqlite::Error> for DbError {
     }
 }
 
+impl From<postgres::Error> for DbError {
+    fn from(e: postgres::Error) -> Self {
+        DbError::Pg(e)
+    }
+}
+
+impl From<native_tls::Error> for DbError {
+    fn from(e: native_tls::Error) -> Self {
+        DbError::Tls(e)
+    }
+}
+
 impl std::fmt::Display for DbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DbError::Sqlite(e) => write!(f, "sqlite error: {e}"),
+            DbError::Pg(e) => write!(f, "postgres error: {e}"),
+            DbError::Tls(e) => write!(f, "tls error: {e}"),
         }
     }
 }
 
 impl std::error::Error for DbError {}
 
-/// The DB handle. SQLite arm only for now (Task 2.1); Task 2.2 adds
-/// `Pg(postgres::Client)`.
+/// The DB handle. SQLite arm (Task 2.1) plus the Postgres arm (Task 2.2).
+//
+// NOTE (Task 2.3): Postgres DDL must declare every integer column as
+// `bigint` so `Row::get_i64` (which reads i64) works uniformly — esp.
+// events.seq (identity) and all `version` columns.
 pub enum Db {
     Sqlite(Connection),
-    // Pg arm: Task 2.2 adds `Pg(postgres::Client)` here.
+    Pg(postgres::Client),
 }
 
 impl Db {
@@ -97,6 +172,14 @@ impl Db {
         Ok(Db::Sqlite(Connection::open(path)?))
     }
 
+    /// Connect to a Postgres database (Neon requires TLS, `sslmode=require`).
+    pub fn connect_pg(url: &str) -> Result<Self, DbError> {
+        let connector = native_tls::TlsConnector::new()?;
+        let connector = postgres_native_tls::MakeTlsConnector::new(connector);
+        let client = postgres::Client::connect(url, connector)?;
+        Ok(Db::Pg(client))
+    }
+
     /// Run a statement that doesn't return rows (insert/update/delete/ddl).
     /// Returns the number of rows affected.
     pub fn exec(&mut self, sql: &str, params: &[SqlParam]) -> Result<u64, DbError> {
@@ -106,7 +189,11 @@ impl Db {
                     params.iter().map(|p| p.to_rusqlite()).collect();
                 let n = c.execute(sql, rusqlite_params.as_slice())?;
                 Ok(n as u64)
-            } // Pg arm: Task 2.2 — translate ?N -> $N, run via postgres::Client::execute.
+            }
+            Db::Pg(c) => {
+                let n = c.execute(&translate_placeholders(sql), &to_pg_params(params))?;
+                Ok(n)
+            }
         }
     }
 
@@ -130,7 +217,16 @@ impl Db {
                     }
                     None => Ok(None),
                 }
-            } // Pg arm: Task 2.2 — Client::query_opt, map the returned postgres::Row through f.
+            }
+            Db::Pg(c) => {
+                match c.query_opt(&translate_placeholders(sql), &to_pg_params(params))? {
+                    Some(row) => {
+                        let wrapped: &dyn Row = &row;
+                        Ok(Some(f(wrapped)?))
+                    }
+                    None => Ok(None),
+                }
+            }
         }
     }
 
@@ -153,7 +249,16 @@ impl Db {
                     out.push(f(wrapped)?);
                 }
                 Ok(out)
-            } // Pg arm: Task 2.2 — Client::query, map each postgres::Row through f.
+            }
+            Db::Pg(c) => {
+                let rows = c.query(&translate_placeholders(sql), &to_pg_params(params))?;
+                let mut out = Vec::new();
+                for row in &rows {
+                    let wrapped: &dyn Row = row;
+                    out.push(f(wrapped)?);
+                }
+                Ok(out)
+            }
         }
     }
 
@@ -163,7 +268,11 @@ impl Db {
             Db::Sqlite(c) => {
                 c.execute_batch(&format!("SAVEPOINT {name};"))?;
                 Ok(())
-            } // Pg arm: Task 2.2 — `SAVEPOINT <name>` (Postgres supports the same SQL).
+            }
+            Db::Pg(c) => {
+                c.batch_execute(&format!("SAVEPOINT {name}"))?;
+                Ok(())
+            }
         }
     }
 
@@ -173,7 +282,11 @@ impl Db {
             Db::Sqlite(c) => {
                 c.execute_batch(&format!("RELEASE {name};"))?;
                 Ok(())
-            } // Pg arm: Task 2.2 — `RELEASE SAVEPOINT <name>`.
+            }
+            Db::Pg(c) => {
+                c.batch_execute(&format!("RELEASE SAVEPOINT {name}"))?;
+                Ok(())
+            }
         }
     }
 
@@ -184,7 +297,11 @@ impl Db {
             Db::Sqlite(c) => {
                 c.execute_batch(&format!("ROLLBACK TO {name};"))?;
                 Ok(())
-            } // Pg arm: Task 2.2 — `ROLLBACK TO SAVEPOINT <name>`.
+            }
+            Db::Pg(c) => {
+                c.batch_execute(&format!("ROLLBACK TO SAVEPOINT {name}"))?;
+                Ok(())
+            }
         }
     }
 
@@ -201,7 +318,12 @@ impl Db {
                     params.iter().map(|p| p.to_rusqlite()).collect();
                 c.execute(insert_sql, rusqlite_params.as_slice())?;
                 Ok(c.last_insert_rowid())
-            } // Pg arm: Task 2.2 — append `RETURNING seq`, use query_one + row.get(0).
+            }
+            Db::Pg(c) => {
+                let sql = format!("{} returning seq", translate_placeholders(insert_sql));
+                let row = c.query_one(&sql, &to_pg_params(params))?;
+                Ok(row.get::<_, i64>(0))
+            }
         }
     }
 }
@@ -237,6 +359,20 @@ mod tests {
         let cnt =
             db.query_opt("select count(*) from t", &[], |r| Ok(r.get_i64(0)?)).unwrap();
         assert_eq!(cnt, Some(1), "rolled-back insert must be gone");
+    }
+
+    #[test]
+    fn translate_placeholders_qmark_to_dollar() {
+        assert_eq!(
+            translate_placeholders("select * from t where a=?1 and b=?2"),
+            "select * from t where a=$1 and b=$2"
+        );
+        assert_eq!(
+            translate_placeholders("insert into t values (?1,?2,?3)"),
+            "insert into t values ($1,$2,$3)"
+        );
+        // ?10 must not be mangled into ?1 + 0
+        assert_eq!(translate_placeholders("x=?10"), "x=$10");
     }
 
     #[test]
