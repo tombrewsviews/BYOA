@@ -3,9 +3,12 @@
 //! Schema + default-stage bootstrap live here (Task 1.1). Later tasks add
 //! commit(), revert(), and the board verbs to this same file.
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 
-use crate::db::{Db, DbError, SqlParam};
+use crate::db::{DbError, SqlParam};
+// Re-export the `Db` seam (via a `pub use`) so binaries (board-cli) can name
+// it as `outreach_app_lib::board::Db` without the `db` module being public.
+pub use crate::db::Db;
 
 const SCHEMA: &str = "
 create table if not exists actors (
@@ -331,60 +334,35 @@ pub struct Event {
     pub actor: String,
 }
 
-/// A transaction that composes: if the connection is already inside a
-/// transaction, this opens a SAVEPOINT (nestable); otherwise a plain BEGIN.
-/// Must call `.commit()` on the success path — on drop without commit it
-/// rolls back (a bare `ROLLBACK` when top-level, `ROLLBACK TO <savepoint>`
-/// when nested).
-///
-/// `Connection::unchecked_transaction()` in rusqlite 0.31 always issues a
-/// raw BEGIN and errors with "cannot start a transaction within a
-/// transaction" if one is already open — it does NOT compose. This type
-/// fills that gap using raw SAVEPOINT/RELEASE/ROLLBACK TO SQL, which is
-/// SQLite's supported way to nest transactions and only needs `&Connection`
-/// (rusqlite's `Savepoint` API requires `&mut Connection`, which callers
-/// here don't have).
-struct ComposableTx<'c> {
-    conn: &'c Connection,
-    name: String,
-    done: bool,
+/// Monotonic savepoint-name source (names must be unique to nest safely).
+fn next_sp_name() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("board_sp_{n}")
 }
 
-impl<'c> ComposableTx<'c> {
-    fn begin(conn: &'c Connection) -> rusqlite::Result<Self> {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        if conn.is_autocommit() {
-            conn.execute_batch("begin;")?;
-            Ok(Self { conn, name: String::new(), done: false })
-        } else {
-            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let name = format!("board_sp_{n}");
-            conn.execute_batch(&format!("savepoint {name};"))?;
-            Ok(Self { conn, name, done: false })
+/// Run `body` inside a SAVEPOINT: release on Ok, rollback-to + release on Err.
+/// Nests correctly (SAVEPOINTs compose in SQLite and Postgres) and works
+/// standalone (a top-level SAVEPOINT implicitly opens a transaction, and
+/// RELEASE commits it). Replaces the old `is_autocommit` BEGIN/SAVEPOINT
+/// split with one uniform, backend-agnostic path.
+fn with_tx<T>(
+    db: &mut Db,
+    body: impl FnOnce(&mut Db) -> Result<T, DbError>,
+) -> Result<T, DbError> {
+    let name = next_sp_name();
+    db.savepoint(&name)?;
+    match body(db) {
+        Ok(v) => {
+            db.release(&name)?;
+            Ok(v)
         }
-    }
-
-    fn commit(mut self) -> rusqlite::Result<()> {
-        let sql = if self.name.is_empty() {
-            "commit;".to_string()
-        } else {
-            format!("release {};", self.name)
-        };
-        self.conn.execute_batch(&sql)?;
-        self.done = true;
-        Ok(())
-    }
-}
-
-impl Drop for ComposableTx<'_> {
-    fn drop(&mut self) {
-        if !self.done {
-            let sql = if self.name.is_empty() {
-                "rollback;".to_string()
-            } else {
-                format!("rollback to {};", self.name)
-            };
-            let _ = self.conn.execute_batch(&sql);
+        Err(e) => {
+            // best-effort unwind; `rollback_to` leaves the savepoint open in
+            // both dialects, so release it too. Propagate the ORIGINAL error.
+            let _ = db.rollback_to(&name);
+            let _ = db.release(&name);
+            Err(e)
         }
     }
 }
@@ -394,62 +372,62 @@ impl Drop for ComposableTx<'_> {
 /// (event-only, no row change). Shared by `commit` (applies `after`) and
 /// `revert` (applies `before`) so the two stay in lockstep.
 fn apply_state(
-    c: &Connection,
+    db: &mut Db,
     kind: &str,
     entity_id: &str,
     value: &serde_json::Value,
-) -> rusqlite::Result<()> {
+) -> Result<(), DbError> {
     let now = chrono::Utc::now().to_rfc3339();
     match kind {
         "lead.stage" => {
-            c.execute(
+            db.exec(
                 "update leads set stage = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                rusqlite::params![value["stage"].as_str(), &now, entity_id],
+                &[SqlParam::OptText(value["stage"].as_str()), SqlParam::Text(&now), SqlParam::Text(entity_id)],
             )?;
         }
         "lead.context" => {
-            c.execute(
+            db.exec(
                 "update leads set context = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                rusqlite::params![value.to_string(), &now, entity_id],
+                &[SqlParam::Json(value.to_string()), SqlParam::Text(&now), SqlParam::Text(entity_id)],
             )?;
         }
         "lead.messages" => {
-            c.execute(
+            db.exec(
                 "update leads set messages = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                rusqlite::params![value.to_string(), &now, entity_id],
+                &[SqlParam::Json(value.to_string()), SqlParam::Text(&now), SqlParam::Text(entity_id)],
             )?;
         }
         "lead.transcripts" => {
-            c.execute(
+            db.exec(
                 "update leads set transcripts = ?1, updated_at = ?2, version = version + 1 where id = ?3",
-                rusqlite::params![value.to_string(), &now, entity_id],
+                &[SqlParam::Json(value.to_string()), SqlParam::Text(&now), SqlParam::Text(entity_id)],
             )?;
         }
         "stage.renamed" => {
-            c.execute(
+            db.exec(
                 "update stages set label = ?1, version = version + 1 where id = ?2",
-                rusqlite::params![value["label"].as_str(), entity_id],
+                &[SqlParam::OptText(value["label"].as_str()), SqlParam::Text(entity_id)],
             )?;
         }
         "stage.retired" => {
-            c.execute(
+            db.exec(
                 "update stages set retired_at = ?1, version = version + 1 where id = ?2",
-                rusqlite::params![value["retired_at"].as_str(), entity_id],
+                &[SqlParam::OptText(value["retired_at"].as_str()), SqlParam::Text(entity_id)],
             )?;
         }
         "stage.unretired" => {
-            c.execute(
+            db.exec(
                 "update stages set retired_at = ?1, version = version + 1 where id = ?2",
-                rusqlite::params![value["retired_at"].as_str(), entity_id],
+                &[SqlParam::OptText(value["retired_at"].as_str()), SqlParam::Text(entity_id)],
             )?;
         }
         "stage.reordered" => {
             if let Some(positions) = value["positions"].as_object() {
                 for (id, pos) in positions {
                     if let Some(pos) = pos.as_i64() {
-                        c.execute(
+                        db.exec(
                             "update stages set position = ?1 where id = ?2",
-                            rusqlite::params![pos, id],
+                            &[SqlParam::Int(pos), SqlParam::Text(id)],
                         )?;
                     }
                 }
@@ -457,12 +435,12 @@ fn apply_state(
         }
         "stage.created" => {
             if value.is_null() {
-                c.execute("delete from stages where id = ?1", [entity_id])?;
+                db.exec("delete from stages where id = ?1", &[SqlParam::Text(entity_id)])?;
             }
         }
         "lead.created" => {
             if value.is_null() {
-                c.execute("delete from leads where id = ?1", [entity_id])?;
+                db.exec("delete from leads where id = ?1", &[SqlParam::Text(entity_id)])?;
             }
         }
         _ => {
@@ -473,75 +451,51 @@ fn apply_state(
 }
 
 /// Apply `ev.after` to its target row and record the event, atomically.
-/// Uses `ComposableTx`, which opens a SAVEPOINT if a transaction is already
-/// active (composing with an outer transaction) or a plain BEGIN otherwise
-/// (standalone use). Returns the event's `seq`.
-pub fn commit(c: &Connection, ev: &Event) -> rusqlite::Result<i64> {
+/// Runs inside a SAVEPOINT via `with_tx`, which composes with an outer
+/// `with_tx` (nested SAVEPOINT) or stands alone. Returns the event's `seq`.
+pub fn commit(db: &mut Db, ev: &Event) -> Result<i64, DbError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let tx = ComposableTx::begin(c)?;
-
-    apply_state(c, &ev.kind, &ev.entity_id, &ev.after)?;
-
-    c.execute(
-        "insert into events(type, entity_id, before, after, verb, actor, created_at)
-         values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![
-            ev.kind,
-            ev.entity_id,
-            ev.before.to_string(),
-            ev.after.to_string(),
-            ev.verb,
-            ev.actor,
-            &now
-        ],
-    )?;
-
-    tx.commit()?;
-
-    Ok(c.last_insert_rowid())
+    with_tx(db, |db| {
+        apply_state(db, &ev.kind, &ev.entity_id, &ev.after)?;
+        let seq = db.commit_event_returning_seq(
+            "insert into events(type, entity_id, before, after, verb, actor, created_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            &[
+                SqlParam::Text(&ev.kind),
+                SqlParam::Text(&ev.entity_id),
+                SqlParam::Json(ev.before.to_string()),
+                SqlParam::Json(ev.after.to_string()),
+                SqlParam::Text(&ev.verb),
+                SqlParam::Text(&ev.actor),
+                SqlParam::Text(&now),
+            ],
+        )?;
+        Ok(seq)
+    })
 }
 
 /// Undo every event after `seq`, newest-first, restoring each one's
 /// `before` state. Deletes the reverted event rows. Returns the count
-/// of events reverted. Atomic (single transaction).
-pub fn revert(c: &Connection, seq: i64) -> rusqlite::Result<usize> {
-    c.execute_batch("begin;")?;
-    let result = (|| -> rusqlite::Result<usize> {
-        let mut stmt = c.prepare(
+/// of events reverted. Atomic (single SAVEPOINT).
+pub fn revert(db: &mut Db, seq: i64) -> Result<usize, DbError> {
+    with_tx(db, |db| {
+        let rows: Vec<(String, String, String)> = db.query_all(
             "select type, entity_id, before from events where seq > ?1 order by seq desc",
+            &[SqlParam::Int(seq)],
+            |r| Ok((r.get_str(0)?, r.get_str(1)?, r.get_str(2)?)),
         )?;
-        let rows = stmt
-            .query_map([seq], |r| {
-                let kind: String = r.get(0)?;
-                let entity_id: String = r.get(1)?;
-                let before: String = r.get(2)?;
-                Ok((kind, entity_id, before))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        drop(stmt);
 
         let mut count = 0usize;
         for (kind, entity_id, before) in rows {
-            let before: serde_json::Value = serde_json::from_str(&before).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
-            })?;
-            apply_state(c, &kind, &entity_id, &before)?;
+            let before: serde_json::Value = serde_json::from_str(&before)
+                .map_err(|e: serde_json::Error| DbError::Json(e.to_string()))?;
+            apply_state(db, &kind, &entity_id, &before)?;
             count += 1;
         }
 
-        c.execute("delete from events where seq > ?1", [seq])?;
+        db.exec("delete from events where seq > ?1", &[SqlParam::Int(seq)])?;
         Ok(count)
-    })();
-    match result {
-        Ok(count) => {
-            c.execute_batch("commit;")?;
-            Ok(count)
-        }
-        Err(e) => {
-            c.execute_batch("rollback;")?;
-            Err(e)
-        }
-    }
+    })
 }
 
 /// Errors shared by all board verbs.
@@ -552,30 +506,28 @@ pub enum BoardError {
     RuleBlocked(Vec<String>), // rule NAMES blocking the op
     NeedsConfirm(usize),      // affected count exceeding the blast-radius threshold
     NotFound,
-    Sql(rusqlite::Error),
+    Db(DbError),
 }
 
-impl From<rusqlite::Error> for BoardError {
-    fn from(e: rusqlite::Error) -> Self {
-        BoardError::Sql(e)
+impl From<DbError> for BoardError {
+    fn from(e: DbError) -> Self {
+        BoardError::Db(e)
     }
 }
 
 /// Move a lead to a new stage, enforcing optimistic concurrency: the caller
 /// must supply the version they last read, or the write is rejected.
 pub fn move_lead(
-    c: &Connection,
+    db: &mut Db,
     id: &str,
     to_stage: &str,
     expected_version: i64,
 ) -> Result<i64, BoardError> {
-    let current: Option<(String, i64)> = c
-        .query_row(
-            "select stage, version from leads where id = ?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
+    let current: Option<(String, i64)> = db.query_opt(
+        "select stage, version from leads where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| Ok((r.get_str(0)?, r.get_i64(1)?)),
+    )?;
 
     let (current_stage, version) = current.ok_or(BoardError::NotFound)?;
     if version != expected_version {
@@ -583,7 +535,7 @@ pub fn move_lead(
     }
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "lead.stage".into(),
             entity_id: id.into(),
@@ -599,27 +551,37 @@ pub fn move_lead(
 /// Add a new stage, refusing to reuse the id of any existing (active or
 /// retired) stage row.
 pub fn add_stage(
-    c: &Connection,
+    db: &mut Db,
     label: &str,
     position: i64,
     actor: &str,
 ) -> Result<String, BoardError> {
     let id = slug::slugify(label);
 
-    let existing: i64 = c.query_row("select count(*) from stages where id = ?1", [&id], |r| r.get(0))?;
+    let existing: i64 = db
+        .query_opt("select count(*) from stages where id = ?1", &[SqlParam::Text(&id)], |r| {
+            r.get_i64(0)
+        })?
+        .unwrap_or(0);
     if existing > 0 {
         return Err(BoardError::RetiredIdReuse);
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    c.execute(
+    db.exec(
         "insert into stages (id, label, position, color, retired_at, created_at, created_by, version)
          values (?1, ?2, ?3, null, null, ?4, ?5, 1)",
-        rusqlite::params![id, label, position, &now, actor],
+        &[
+            SqlParam::Text(&id),
+            SqlParam::Text(label),
+            SqlParam::Int(position),
+            SqlParam::Text(&now),
+            SqlParam::Text(actor),
+        ],
     )?;
 
     commit(
-        c,
+        db,
         &Event {
             kind: "stage.created".into(),
             entity_id: id.clone(),
@@ -634,27 +596,25 @@ pub fn add_stage(
 }
 
 /// Count leads currently sitting in `stage_id`.
-pub fn count_leads_in(c: &Connection, stage_id: &str) -> Result<usize, BoardError> {
-    let n: i64 = c.query_row(
-        "select count(*) from leads where stage = ?1",
-        [stage_id],
-        |r| r.get(0),
-    )?;
+pub fn count_leads_in(db: &mut Db, stage_id: &str) -> Result<usize, BoardError> {
+    let n: i64 = db
+        .query_opt(
+            "select count(*) from leads where stage = ?1",
+            &[SqlParam::Text(stage_id)],
+            |r| r.get_i64(0),
+        )?
+        .unwrap_or(0);
     Ok(n as usize)
 }
 
 /// Names of all ENABLED rules whose `conditions` JSON references `stage_id`
 /// (i.e. `conditions["stage"] == stage_id`).
-pub fn rules_referencing(c: &Connection, stage_id: &str) -> Result<Vec<String>, BoardError> {
-    let mut stmt = c.prepare("select name, conditions from rules where enabled = 1")?;
-    let rows = stmt
-        .query_map([], |r| {
-            let name: String = r.get(0)?;
-            let conditions: String = r.get(1)?;
-            Ok((name, conditions))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    drop(stmt);
+pub fn rules_referencing(db: &mut Db, stage_id: &str) -> Result<Vec<String>, BoardError> {
+    let rows: Vec<(String, String)> = db.query_all(
+        "select name, conditions from rules where enabled = 1",
+        &[],
+        |r| Ok((r.get_str(0)?, r.get_str(1)?)),
+    )?;
 
     let mut names = Vec::new();
     for (name, conditions) in rows {
@@ -669,14 +629,16 @@ pub fn rules_referencing(c: &Connection, stage_id: &str) -> Result<Vec<String>, 
 
 /// Rename a stage's label. No card impact (the stage id is unchanged), so
 /// no rule check is needed.
-pub fn rename_stage(c: &Connection, id: &str, label: &str) -> Result<i64, BoardError> {
-    let current_label: Option<String> = c
-        .query_row("select label from stages where id = ?1", [id], |r| r.get(0))
-        .optional()?;
+pub fn rename_stage(db: &mut Db, id: &str, label: &str) -> Result<i64, BoardError> {
+    let current_label: Option<String> = db.query_opt(
+        "select label from stages where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| r.get_str(0),
+    )?;
     let current_label = current_label.ok_or(BoardError::NotFound)?;
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "stage.renamed".into(),
             entity_id: id.into(),
@@ -692,12 +654,12 @@ pub fn rename_stage(c: &Connection, id: &str, label: &str) -> Result<i64, BoardE
 /// Set each stage's `position` to its index in `ids`, atomically. Records a
 /// `stage.reordered` event whose `before`/`after` carry the old/new position
 /// maps, so `apply_state`'s `stage.reordered` arm can restore either side.
-pub fn reorder_stages(c: &Connection, ids: &[&str]) -> Result<(), BoardError> {
-    let mut stmt = c.prepare("select id, position from stages")?;
-    let before_positions = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
-        .collect::<rusqlite::Result<Vec<(String, i64)>>>()?;
-    drop(stmt);
+pub fn reorder_stages(db: &mut Db, ids: &[&str]) -> Result<(), BoardError> {
+    let before_positions: Vec<(String, i64)> = db.query_all(
+        "select id, position from stages",
+        &[],
+        |r| Ok((r.get_str(0)?, r.get_i64(1)?)),
+    )?;
     let before_map: serde_json::Map<String, serde_json::Value> = before_positions
         .into_iter()
         .map(|(id, pos)| (id, serde_json::json!(pos)))
@@ -710,7 +672,7 @@ pub fn reorder_stages(c: &Connection, ids: &[&str]) -> Result<(), BoardError> {
         .collect();
 
     commit(
-        c,
+        db,
         &Event {
             kind: "stage.reordered".into(),
             entity_id: "board".into(),
@@ -726,18 +688,22 @@ pub fn reorder_stages(c: &Connection, ids: &[&str]) -> Result<(), BoardError> {
 /// Retire a stage: blocked if an enabled rule references it, or if more
 /// than 5 leads still sit in it (large retires must route through
 /// `remap_stage`, added in a later task). Otherwise sets `retired_at`.
-pub fn retire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
-    let exists: i64 = c.query_row("select count(*) from stages where id = ?1", [id], |r| r.get(0))?;
+pub fn retire_stage(db: &mut Db, id: &str) -> Result<i64, BoardError> {
+    let exists: i64 = db
+        .query_opt("select count(*) from stages where id = ?1", &[SqlParam::Text(id)], |r| {
+            r.get_i64(0)
+        })?
+        .unwrap_or(0);
     if exists == 0 {
         return Err(BoardError::NotFound);
     }
 
-    let blocking = rules_referencing(c, id)?;
+    let blocking = rules_referencing(db, id)?;
     if !blocking.is_empty() {
         return Err(BoardError::RuleBlocked(blocking));
     }
 
-    let n = count_leads_in(c, id)?;
+    let n = count_leads_in(db, id)?;
     if n > 5 {
         return Err(BoardError::NeedsConfirm(n));
     }
@@ -745,7 +711,7 @@ pub fn retire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
     let now = chrono::Utc::now().to_rfc3339();
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "stage.retired".into(),
             entity_id: id.into(),
@@ -759,15 +725,18 @@ pub fn retire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
 }
 
 /// Unretire a stage: clears `retired_at`. No gates.
-pub fn unretire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
+pub fn unretire_stage(db: &mut Db, id: &str) -> Result<i64, BoardError> {
     // Read current retired_at so revert can restore it.
-    let prev: Option<String> = c
-        .query_row("select retired_at from stages where id = ?1", [id], |r| r.get(0))
-        .optional()?
+    let prev: Option<String> = db
+        .query_opt(
+            "select retired_at from stages where id = ?1",
+            &[SqlParam::Text(id)],
+            |r| r.get_opt_str(0),
+        )?
         .ok_or(BoardError::NotFound)?;
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "stage.unretired".into(),
             entity_id: id.into(),
@@ -802,7 +771,7 @@ pub struct LeadFilter {
 /// Writes one `lead.stage` event per lead (never batched); if
 /// `retire_source`, also sets `from.retired_at` (never deletes the row).
 pub fn remap_stage(
-    c: &Connection,
+    db: &mut Db,
     from: &str,
     to: &str,
     filter: Option<LeadFilter>,
@@ -810,31 +779,31 @@ pub fn remap_stage(
     retire_source: bool,
     confirmed: bool,
 ) -> Result<RemapResult, BoardError> {
-    let blocking = rules_referencing(c, from)?;
+    let blocking = rules_referencing(db, from)?;
     if !blocking.is_empty() {
         return Err(BoardError::RuleBlocked(blocking));
     }
 
-    let to_exists: i64 = c.query_row("select count(*) from stages where id = ?1", [to], |r| r.get(0))?;
+    let to_exists: i64 = db
+        .query_opt("select count(*) from stages where id = ?1", &[SqlParam::Text(to)], |r| {
+            r.get_i64(0)
+        })?
+        .unwrap_or(0);
     if to_exists == 0 {
         return Err(BoardError::NotFound);
     }
 
     let lead_ids: Vec<String> = match &filter {
-        Some(LeadFilter { org: Some(org) }) => {
-            let mut stmt = c.prepare("select id from leads where stage = ?1 and org = ?2")?;
-            let rows = stmt
-                .query_map(rusqlite::params![from, org], |r| r.get(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        }
-        _ => {
-            let mut stmt = c.prepare("select id from leads where stage = ?1")?;
-            let rows = stmt
-                .query_map([from], |r| r.get(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        }
+        Some(LeadFilter { org: Some(org) }) => db.query_all(
+            "select id from leads where stage = ?1 and org = ?2",
+            &[SqlParam::Text(from), SqlParam::Text(org)],
+            |r| r.get_str(0),
+        )?,
+        _ => db.query_all(
+            "select id from leads where stage = ?1",
+            &[SqlParam::Text(from)],
+            |r| r.get_str(0),
+        )?,
     };
     let affected = lead_ids.len();
 
@@ -846,42 +815,41 @@ pub fn remap_stage(
         return Err(BoardError::NeedsConfirm(affected));
     }
 
-    // One outer transaction wraps every write below (§15.3: all-or-none).
-    // Each `commit` call nests as a SAVEPOINT inside it, so a failure
+    // One outer SAVEPOINT wraps every write below (§15.3: all-or-none).
+    // Each `commit` call nests its own SAVEPOINT inside it, so a failure
     // partway through rolls back the entire remap, not just one lead.
-    let tx = ComposableTx::begin(c)?;
+    with_tx(db, |db| {
+        // The key invariant is one event row per lead — never a single batched event.
+        for id in &lead_ids {
+            commit(
+                db,
+                &Event {
+                    kind: "lead.stage".into(),
+                    entity_id: id.clone(),
+                    before: serde_json::json!({"stage": from}),
+                    after: serde_json::json!({"stage": to}),
+                    verb: "remapStage".into(),
+                    actor: "local".into(),
+                },
+            )?;
+        }
 
-    // The key invariant is one event row per lead — never a single batched event.
-    for id in &lead_ids {
-        commit(
-            c,
-            &Event {
-                kind: "lead.stage".into(),
-                entity_id: id.clone(),
-                before: serde_json::json!({"stage": from}),
-                after: serde_json::json!({"stage": to}),
-                verb: "remapStage".into(),
-                actor: "local".into(),
-            },
-        )?;
-    }
-
-    if retire_source {
-        let now = chrono::Utc::now().to_rfc3339();
-        commit(
-            c,
-            &Event {
-                kind: "stage.retired".into(),
-                entity_id: from.into(),
-                before: serde_json::json!({"retired_at": null}),
-                after: serde_json::json!({"retired_at": now}),
-                verb: "remapStage".into(),
-                actor: "local".into(),
-            },
-        )?;
-    }
-
-    tx.commit()?;
+        if retire_source {
+            let now = chrono::Utc::now().to_rfc3339();
+            commit(
+                db,
+                &Event {
+                    kind: "stage.retired".into(),
+                    entity_id: from.into(),
+                    before: serde_json::json!({"retired_at": null}),
+                    after: serde_json::json!({"retired_at": now}),
+                    verb: "remapStage".into(),
+                    actor: "local".into(),
+                },
+            )?;
+        }
+        Ok(())
+    })?;
 
     Ok(RemapResult { affected, lead_ids })
 }
@@ -889,7 +857,7 @@ pub fn remap_stage(
 /// Create a new lead, recording a `lead.created` event (event-only — the
 /// row insert and event write happen together, atomically).
 pub fn add_lead(
-    c: &Connection,
+    db: &mut Db,
     name: &str,
     org: Option<&str>,
     stage: &str,
@@ -898,27 +866,32 @@ pub fn add_lead(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
-    let tx = ComposableTx::begin(c)?;
+    with_tx(db, |db| {
+        db.exec(
+            "insert into leads (id, stage, name, org, context, messages, transcripts, created_at, updated_at, version)
+             values (?1, ?2, ?3, ?4, '{}', '[]', '[]', ?5, ?5, 1)",
+            &[
+                SqlParam::Text(&id),
+                SqlParam::Text(stage),
+                SqlParam::Text(name),
+                SqlParam::OptText(org),
+                SqlParam::Text(&now),
+            ],
+        )?;
 
-    c.execute(
-        "insert into leads (id, stage, name, org, context, messages, transcripts, created_at, updated_at, version)
-         values (?1, ?2, ?3, ?4, '{}', '[]', '[]', ?5, ?5, 1)",
-        rusqlite::params![id, stage, name, org, &now],
-    )?;
-
-    commit(
-        c,
-        &Event {
-            kind: "lead.created".into(),
-            entity_id: id.clone(),
-            before: serde_json::Value::Null,
-            after: serde_json::json!({"name": name, "org": org, "stage": stage}),
-            verb: "addLead".into(),
-            actor: actor.into(),
-        },
-    )?;
-
-    tx.commit()?;
+        commit(
+            db,
+            &Event {
+                kind: "lead.created".into(),
+                entity_id: id.clone(),
+                before: serde_json::Value::Null,
+                after: serde_json::json!({"name": name, "org": org, "stage": stage}),
+                verb: "addLead".into(),
+                actor: actor.into(),
+            },
+        )?;
+        Ok(())
+    })?;
 
     Ok(id)
 }
@@ -929,37 +902,30 @@ pub fn add_lead(
 /// merged object as the new context. Enforces optimistic concurrency via
 /// `expected_version`.
 pub fn append_context(
-    c: &Connection,
+    db: &mut Db,
     id: &str,
     research: serde_json::Value,
     expected_version: i64,
 ) -> Result<i64, BoardError> {
-    let current: Option<(String, i64)> = c
-        .query_row(
-            "select context, version from leads where id = ?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
+    let current: Option<(String, i64)> = db.query_opt(
+        "select context, version from leads where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| Ok((r.get_str(0)?, r.get_i64(1)?)),
+    )?;
     let (context_text, version) = current.ok_or(BoardError::NotFound)?;
     if version != expected_version {
         return Err(BoardError::VersionConflict);
     }
 
-    let before: serde_json::Value = serde_json::from_str(&context_text).map_err(|e| {
-        BoardError::Sql(rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))
-    })?;
+    let before: serde_json::Value = serde_json::from_str(&context_text)
+        .map_err(|e: serde_json::Error| BoardError::Db(DbError::Json(e.to_string())))?;
 
     let mut facts = before["facts"].as_array().cloned().unwrap_or_default();
     facts.push(research);
     let after = serde_json::json!({"facts": facts});
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "lead.context".into(),
             entity_id: id.into(),
@@ -973,26 +939,23 @@ pub fn append_context(
 }
 
 /// Draft a message onto a lead's `messages` array — appended, never sent.
-pub fn draft_message(c: &Connection, id: &str, msg: serde_json::Value) -> Result<i64, BoardError> {
-    let messages_text: Option<String> = c
-        .query_row("select messages from leads where id = ?1", [id], |r| r.get(0))
-        .optional()?;
+pub fn draft_message(db: &mut Db, id: &str, msg: serde_json::Value) -> Result<i64, BoardError> {
+    let messages_text: Option<String> = db.query_opt(
+        "select messages from leads where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| r.get_str(0),
+    )?;
     let messages_text = messages_text.ok_or(BoardError::NotFound)?;
 
-    let before: serde_json::Value = serde_json::from_str(&messages_text).map_err(|e| {
-        BoardError::Sql(rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))
-    })?;
+    let before: serde_json::Value = serde_json::from_str(&messages_text)
+        .map_err(|e: serde_json::Error| BoardError::Db(DbError::Json(e.to_string())))?;
 
     let mut messages = before.as_array().cloned().unwrap_or_default();
     messages.push(msg);
     let after = serde_json::Value::Array(messages);
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "lead.messages".into(),
             entity_id: id.into(),
@@ -1006,26 +969,23 @@ pub fn draft_message(c: &Connection, id: &str, msg: serde_json::Value) -> Result
 }
 
 /// Attach a call/meeting transcript to a lead's `transcripts` array.
-pub fn attach_transcript(c: &Connection, id: &str, raw: &str, summary: &str) -> Result<i64, BoardError> {
-    let transcripts_text: Option<String> = c
-        .query_row("select transcripts from leads where id = ?1", [id], |r| r.get(0))
-        .optional()?;
+pub fn attach_transcript(db: &mut Db, id: &str, raw: &str, summary: &str) -> Result<i64, BoardError> {
+    let transcripts_text: Option<String> = db.query_opt(
+        "select transcripts from leads where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| r.get_str(0),
+    )?;
     let transcripts_text = transcripts_text.ok_or(BoardError::NotFound)?;
 
-    let before: serde_json::Value = serde_json::from_str(&transcripts_text).map_err(|e| {
-        BoardError::Sql(rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))
-    })?;
+    let before: serde_json::Value = serde_json::from_str(&transcripts_text)
+        .map_err(|e: serde_json::Error| BoardError::Db(DbError::Json(e.to_string())))?;
 
     let mut transcripts = before.as_array().cloned().unwrap_or_default();
     transcripts.push(serde_json::json!({"raw": raw, "summary": summary}));
     let after = serde_json::Value::Array(transcripts);
 
     let seq = commit(
-        c,
+        db,
         &Event {
             kind: "lead.transcripts".into(),
             entity_id: id.into(),
@@ -1042,10 +1002,13 @@ pub fn attach_transcript(c: &Connection, id: &str, raw: &str, summary: &str) -> 
 // Tauri command layer — exposes the board verbs above to the frontend.
 // ---------------------------------------------------------------------------
 
-/// Open `board.db` under the active project's directory.
-fn db_for_active(state: &crate::AppState) -> Result<Connection, String> {
+/// Open the board under the active project's directory. Routes through
+/// `open_board` (local SQLite, actor "local") — Phase 4.1 swaps the
+/// `None`/`"local"` for the configured `database_url`/actor.
+fn db_for_active(state: &crate::AppState) -> Result<Db, String> {
     let dir = crate::projects::active_path(state)?;
-    open(&dir.join("board.db")).map_err(|e| format!("open board.db: {e}"))
+    open_board(&dir, None, &Actor { id: "local".into(), label: "You".into() })
+        .map_err(|e| format!("open board.db: {e}"))
 }
 
 /// Map a `BoardError` to a frontend-facing string. Stable prefixes
@@ -1063,101 +1026,95 @@ pub fn board_err(e: BoardError) -> String {
         ),
         BoardError::NeedsConfirm(n) => format!("needs-confirm: this affects {n} cards — re-run with confirm=true"),
         BoardError::NotFound => "not-found: no such lead or stage".into(),
-        BoardError::Sql(err) => format!("db error: {err}"),
+        BoardError::Db(err) => format!("db error: {err}"),
     }
 }
 
-pub fn list_stages_json(c: &Connection) -> Result<serde_json::Value, String> {
-    let mut stmt = c
-        .prepare("select id,label,position,color,retired_at,version from stages order by position")
-        .map_err(|e| format!("db error: {e}"))?;
-    let rows = stmt
-        .query_map([], |r| {
-            Ok(serde_json::json!({
-                "id": r.get::<_, String>(0)?,
-                "label": r.get::<_, String>(1)?,
-                "position": r.get::<_, i64>(2)?,
-                "color": r.get::<_, Option<String>>(3)?,
-                "retiredAt": r.get::<_, Option<String>>(4)?,
-                "version": r.get::<_, i64>(5)?,
-            }))
-        })
-        .map_err(|e| format!("db error: {e}"))?
-        .collect::<rusqlite::Result<Vec<_>>>()
+pub fn list_stages_json(db: &mut Db) -> Result<serde_json::Value, String> {
+    let rows = db
+        .query_all(
+            "select id,label,position,color,retired_at,version from stages order by position",
+            &[],
+            |r| {
+                Ok(serde_json::json!({
+                    "id": r.get_str(0)?,
+                    "label": r.get_str(1)?,
+                    "position": r.get_i64(2)?,
+                    "color": r.get_opt_str(3)?,
+                    "retiredAt": r.get_opt_str(4)?,
+                    "version": r.get_i64(5)?,
+                }))
+            },
+        )
         .map_err(|e| format!("db error: {e}"))?;
     Ok(serde_json::Value::Array(rows))
 }
 
 #[tauri::command]
 pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
-    list_stages_json(&c)
+    let mut db = db_for_active(&state)?;
+    list_stages_json(&mut db)
 }
 
-pub fn get_config_json(c: &Connection) -> Result<serde_json::Value, String> {
-    let row: (String, String, i64) = c
-        .query_row(
+pub fn get_config_json(db: &mut Db) -> Result<serde_json::Value, String> {
+    let row: (String, String, i64) = db
+        .query_opt(
             "select name, created_by, version from board_config where id = 1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            &[],
+            |r| Ok((r.get_str(0)?, r.get_str(1)?, r.get_i64(2)?)),
         )
-        .map_err(|e| format!("db error: {e}"))?;
+        .map_err(|e| format!("db error: {e}"))?
+        .ok_or_else(|| "db error: missing board_config".to_string())?;
     Ok(serde_json::json!({ "name": row.0, "createdBy": row.1, "version": row.2 }))
 }
 
 #[tauri::command]
 pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
-    get_config_json(&c)
+    let mut db = db_for_active(&state)?;
+    get_config_json(&mut db)
 }
 
-pub fn list_leads_json(c: &Connection) -> Result<serde_json::Value, String> {
-    let mut stmt = c
-        .prepare("select id,stage,name,org,version from leads")
-        .map_err(|e| format!("db error: {e}"))?;
-    let rows = stmt
-        .query_map([], |r| {
+pub fn list_leads_json(db: &mut Db) -> Result<serde_json::Value, String> {
+    let rows = db
+        .query_all("select id,stage,name,org,version from leads", &[], |r| {
             Ok(serde_json::json!({
-                "id": r.get::<_, String>(0)?,
-                "stage": r.get::<_, String>(1)?,
-                "name": r.get::<_, String>(2)?,
-                "org": r.get::<_, Option<String>>(3)?,
-                "version": r.get::<_, i64>(4)?,
+                "id": r.get_str(0)?,
+                "stage": r.get_str(1)?,
+                "name": r.get_str(2)?,
+                "org": r.get_opt_str(3)?,
+                "version": r.get_i64(4)?,
             }))
         })
-        .map_err(|e| format!("db error: {e}"))?
-        .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| format!("db error: {e}"))?;
     Ok(serde_json::Value::Array(rows))
 }
 
 #[tauri::command]
 pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
-    list_leads_json(&c)
+    let mut db = db_for_active(&state)?;
+    list_leads_json(&mut db)
 }
 
-pub fn get_lead_json(c: &Connection, id: &str) -> Result<serde_json::Value, String> {
-    let row: Option<(String, String, String, Option<String>, String, String, String, String, String, i64)> = c
-        .query_row(
+pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String> {
+    let row: Option<(String, String, String, Option<String>, String, String, String, String, String, i64)> = db
+        .query_opt(
             "select id,stage,name,org,context,messages,transcripts,created_at,updated_at,version from leads where id = ?1",
-            [id],
+            &[SqlParam::Text(id)],
             |r| {
                 Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                    r.get(6)?,
-                    r.get(7)?,
-                    r.get(8)?,
-                    r.get(9)?,
+                    r.get_str(0)?,
+                    r.get_str(1)?,
+                    r.get_str(2)?,
+                    r.get_opt_str(3)?,
+                    r.get_str(4)?,
+                    r.get_str(5)?,
+                    r.get_str(6)?,
+                    r.get_str(7)?,
+                    r.get_str(8)?,
+                    r.get_i64(9)?,
                 ))
             },
         )
-        .optional()
         .map_err(|e| format!("db error: {e}"))?;
 
     let (id, stage, name, org, context, messages, transcripts, created_at, updated_at, version) =
@@ -1183,8 +1140,8 @@ pub fn get_lead_json(c: &Connection, id: &str) -> Result<serde_json::Value, Stri
 
 #[tauri::command]
 pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
-    get_lead_json(&c, &id)
+    let mut db = db_for_active(&state)?;
+    get_lead_json(&mut db, &id)
 }
 
 #[tauri::command]
@@ -1194,8 +1151,8 @@ pub fn board_add_lead(
     org: Option<String>,
     stage: String,
 ) -> Result<String, String> {
-    let c = db_for_active(&state)?;
-    add_lead(&c, &name, org.as_deref(), &stage, "local").map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    add_lead(&mut db, &name, org.as_deref(), &stage, "local").map_err(board_err)
 }
 
 #[tauri::command]
@@ -1205,8 +1162,8 @@ pub fn board_move_lead(
     to_stage: String,
     expected_version: i64,
 ) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    move_lead(&c, &id, &to_stage, expected_version).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    move_lead(&mut db, &id, &to_stage, expected_version).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1216,8 +1173,8 @@ pub fn board_append_context(
     research: serde_json::Value,
     expected_version: i64,
 ) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    append_context(&c, &id, research, expected_version).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    append_context(&mut db, &id, research, expected_version).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1226,8 +1183,8 @@ pub fn board_draft_message(
     id: String,
     msg: serde_json::Value,
 ) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    draft_message(&c, &id, msg).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    draft_message(&mut db, &id, msg).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1237,8 +1194,8 @@ pub fn board_attach_transcript(
     raw: String,
     summary: String,
 ) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    attach_transcript(&c, &id, &raw, &summary).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    attach_transcript(&mut db, &id, &raw, &summary).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1247,15 +1204,15 @@ pub fn board_rename_stage(
     id: String,
     label: String,
 ) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    rename_stage(&c, &id, &label).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    rename_stage(&mut db, &id, &label).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_reorder_stages(state: tauri::State<'_, crate::AppState>, ids: Vec<String>) -> Result<(), String> {
-    let c = db_for_active(&state)?;
+    let mut db = db_for_active(&state)?;
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    reorder_stages(&c, &refs).map_err(board_err)
+    reorder_stages(&mut db, &refs).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1264,20 +1221,20 @@ pub fn board_add_stage(
     label: String,
     position: i64,
 ) -> Result<String, String> {
-    let c = db_for_active(&state)?;
-    add_stage(&c, &label, position, "local").map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    add_stage(&mut db, &label, position, "local").map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_retire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    retire_stage(&c, &id).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    retire_stage(&mut db, &id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_unretire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
-    let c = db_for_active(&state)?;
-    unretire_stage(&c, &id).map_err(board_err)
+    let mut db = db_for_active(&state)?;
+    unretire_stage(&mut db, &id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1290,45 +1247,40 @@ pub fn board_remap_stage(
     retire_source: bool,
     confirmed: bool,
 ) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
+    let mut db = db_for_active(&state)?;
     let filter = org_filter.map(|org| LeadFilter { org: Some(org) });
-    let result = remap_stage(&c, &from, &to, filter, dry_run, retire_source, confirmed).map_err(board_err)?;
+    let result = remap_stage(&mut db, &from, &to, filter, dry_run, retire_source, confirmed).map_err(board_err)?;
     Ok(serde_json::json!({
         "affected": result.affected,
         "lead_ids": result.lead_ids,
     }))
 }
 
-pub fn list_rules_json(c: &Connection) -> Result<serde_json::Value, String> {
-    let mut stmt = c
-        .prepare("select id,name,enabled,conditions,action from rules")
-        .map_err(|e| format!("db error: {e}"))?;
-    let rows = stmt
-        .query_map([], |r| {
+pub fn list_rules_json(db: &mut Db) -> Result<serde_json::Value, String> {
+    let rows = db
+        .query_all("select id,name,enabled,conditions,action from rules", &[], |r| {
             Ok(serde_json::json!({
-                "id": r.get::<_, String>(0)?,
-                "name": r.get::<_, String>(1)?,
-                "enabled": r.get::<_, i64>(2)? != 0,
-                "conditions": r.get::<_, String>(3)?,
-                "action": r.get::<_, String>(4)?,
+                "id": r.get_str(0)?,
+                "name": r.get_str(1)?,
+                "enabled": r.get_i64(2)? != 0,
+                "conditions": r.get_str(3)?,
+                "action": r.get_str(4)?,
             }))
         })
-        .map_err(|e| format!("db error: {e}"))?
-        .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| format!("db error: {e}"))?;
     Ok(serde_json::Value::Array(rows))
 }
 
 #[tauri::command]
 pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let c = db_for_active(&state)?;
-    list_rules_json(&c)
+    let mut db = db_for_active(&state)?;
+    list_rules_json(&mut db)
 }
 
 #[tauri::command]
 pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Result<usize, String> {
-    let c = db_for_active(&state)?;
-    revert(&c, seq).map_err(|e| format!("db error: {e}"))
+    let mut db = db_for_active(&state)?;
+    revert(&mut db, seq).map_err(|e| format!("db error: {e}"))
 }
 
 #[cfg(test)]
@@ -1357,7 +1309,7 @@ mod tests {
         assert!(board_err(BoardError::RuleBlocked(vec!["r1".into(), "r2".into()])).starts_with("rule-blocked:"));
         assert!(board_err(BoardError::NeedsConfirm(7)).starts_with("needs-confirm:"));
         assert!(board_err(BoardError::NotFound).starts_with("not-found:"));
-        assert!(board_err(BoardError::Sql(rusqlite::Error::QueryReturnedNoRows)).starts_with("db error:"));
+        assert!(board_err(BoardError::Db(DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows))).starts_with("db error:"));
     }
 
     #[test]
@@ -1395,36 +1347,54 @@ mod tests {
         assert_eq!(actors, 1);
     }
 
-    fn seed_lead(c: &rusqlite::Connection, id: &str, stage: &str) {
+    /// Build a seeded `Db` (local SQLite, actor "local") on a temp dir.
+    /// Returns the `TempDir` guard alongside so the `board.db` file stays
+    /// alive for the test's duration.
+    fn seeded_db() -> (tempfile::TempDir, Db) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = open_board(tmp.path(), None, &Actor { id: "local".into(), label: "You".into() }).unwrap();
+        (tmp, db)
+    }
+
+    fn seed_lead(db: &mut Db, id: &str, stage: &str) {
         let now = chrono::Utc::now().to_rfc3339();
-        c.execute(
+        db.exec(
             "insert into leads(id,stage,name,org,context,messages,transcripts,created_at,updated_at,version)
              values(?1,?2,?3,null,'{}','[]','[]',?4,?4,1)",
-            rusqlite::params![id, stage, id, now],
+            &[SqlParam::Text(id), SqlParam::Text(stage), SqlParam::Text(id), SqlParam::Text(&now)],
         ).unwrap();
     }
 
-    fn conn_seeded_with_lead(id: &str, stage: &str) -> rusqlite::Connection {
-        let c = rusqlite::Connection::open_in_memory().unwrap();
-        init(&c).unwrap();
-        seed_lead(&c, id, stage);
-        c
+    fn db_seeded_with_lead(id: &str, stage: &str) -> (tempfile::TempDir, Db) {
+        let (tmp, mut db) = seeded_db();
+        seed_lead(&mut db, id, stage);
+        (tmp, db)
+    }
+
+    // Assertion helpers over `Db` (replacing the old `Connection::query_row`).
+    fn q_str(db: &mut Db, sql: &str) -> String {
+        db.query_opt(sql, &[], |r| r.get_str(0)).unwrap().unwrap()
+    }
+    fn q_i64(db: &mut Db, sql: &str) -> i64 {
+        db.query_opt(sql, &[], |r| r.get_i64(0)).unwrap().unwrap()
+    }
+    fn q_opt_str(db: &mut Db, sql: &str) -> Option<String> {
+        db.query_opt(sql, &[], |r| r.get_opt_str(0)).unwrap().flatten()
     }
 
     #[test]
     fn commit_writes_one_event_and_bumps_version() {
-        let c = rusqlite::Connection::open_in_memory().unwrap();
-        init(&c).unwrap();
-        seed_lead(&c, "L1", "researching");
-        let seq = commit(&c, &Event {
+        let (_tmp, mut db) = seeded_db();
+        seed_lead(&mut db, "L1", "researching");
+        let seq = commit(&mut db, &Event {
             kind: "lead.stage".into(), entity_id: "L1".into(),
             before: serde_json::json!({"stage":"researching"}),
             after: serde_json::json!({"stage":"contacted"}),
             verb: "moveLead".into(), actor: "local".into(),
         }).unwrap();
-        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
-        let ver: i64 = c.query_row("select version from leads where id='L1'", [], |r| r.get(0)).unwrap();
-        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        let stage = q_str(&mut db, "select stage from leads where id='L1'");
+        let ver = q_i64(&mut db, "select version from leads where id='L1'");
+        let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(stage, "contacted");
         assert_eq!(ver, 2);
         assert_eq!(events, 1);
@@ -1433,176 +1403,175 @@ mod tests {
 
     #[test]
     fn revert_restores_before_state() {
-        let c = rusqlite::Connection::open_in_memory().unwrap();
-        init(&c).unwrap();
-        seed_lead(&c, "L1", "researching");
-        let base = commit(&c, &Event{ kind:"lead.stage".into(), entity_id:"L1".into(),
+        let (_tmp, mut db) = seeded_db();
+        seed_lead(&mut db, "L1", "researching");
+        let base = commit(&mut db, &Event{ kind:"lead.stage".into(), entity_id:"L1".into(),
             before: serde_json::json!({"stage":"researching"}),
             after: serde_json::json!({"stage":"contacted"}),
             verb:"moveLead".into(), actor:"local".into() }).unwrap();
-        commit(&c, &Event{ kind:"lead.stage".into(), entity_id:"L1".into(),
+        commit(&mut db, &Event{ kind:"lead.stage".into(), entity_id:"L1".into(),
             before: serde_json::json!({"stage":"contacted"}),
             after: serde_json::json!({"stage":"warm"}),
             verb:"moveLead".into(), actor:"local".into() }).unwrap();
-        let n = revert(&c, base).unwrap();
-        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let n = revert(&mut db, base).unwrap();
+        let stage = q_str(&mut db, "select stage from leads where id='L1'");
         assert_eq!(n, 1);          // one event (the warm move) reverted
         assert_eq!(stage, "contacted"); // back to the state at `base`
-        let remaining: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        let remaining = q_i64(&mut db, "select count(*) from events");
         assert_eq!(remaining, 1);  // the base event remains
     }
 
     #[test]
     fn move_lead_detects_version_conflict() {
-        let c = conn_seeded_with_lead("L1", "researching");
-        let err = move_lead(&c, "L1", "contacted", 99).unwrap_err();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        let err = move_lead(&mut db, "L1", "contacted", 99).unwrap_err();
         assert!(matches!(err, BoardError::VersionConflict));
         // and no write happened:
-        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let stage = q_str(&mut db, "select stage from leads where id='L1'");
         assert_eq!(stage, "researching");
     }
 
     #[test]
     fn move_lead_succeeds_on_correct_version() {
-        let c = conn_seeded_with_lead("L1", "researching");
-        move_lead(&c, "L1", "contacted", 1).unwrap(); // seed_lead sets version 1
-        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        move_lead(&mut db, "L1", "contacted", 1).unwrap(); // seed_lead sets version 1
+        let stage = q_str(&mut db, "select stage from leads where id='L1'");
         assert_eq!(stage, "contacted");
     }
 
     #[test]
     fn cannot_reuse_existing_stage_id() {
-        let c = { let c = rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let (_tmp, mut db) = seeded_db();
         // "researching" already exists from bootstrap; adding a stage that slugs to it must fail
-        let err = add_stage(&c, "Researching", 9, "local").unwrap_err();
+        let err = add_stage(&mut db, "Researching", 9, "local").unwrap_err();
         assert!(matches!(err, BoardError::RetiredIdReuse));
     }
 
     #[test]
     fn add_stage_creates_new_stage_and_event() {
-        let c = { let c = rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        let id = add_stage(&c, "Follow up", 5, "local").unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let id = add_stage(&mut db, "Follow up", 5, "local").unwrap();
         assert_eq!(id, "follow-up"); // slug::slugify("Follow up") -> "follow-up"
-        let n: i64 = c.query_row("select count(*) from stages where id='follow-up'", [], |r| r.get(0)).unwrap();
+        let n = q_i64(&mut db, "select count(*) from stages where id='follow-up'");
         assert_eq!(n, 1);
-        let ev: i64 = c.query_row("select count(*) from events where type='stage.created'", [], |r| r.get(0)).unwrap();
+        let ev = q_i64(&mut db, "select count(*) from events where type='stage.created'");
         assert_eq!(ev, 1);
     }
 
     #[test]
     fn rename_stage_touches_no_cards() {
-        let c = conn_seeded_with_lead("L1", "researching");
-        rename_stage(&c, "researching", "Prospecting").unwrap();
-        let label: String = c.query_row("select label from stages where id='researching'", [], |r| r.get(0)).unwrap();
-        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        rename_stage(&mut db, "researching", "Prospecting").unwrap();
+        let label = q_str(&mut db, "select label from stages where id='researching'");
+        let stage = q_str(&mut db, "select stage from leads where id='L1'");
         assert_eq!(label, "Prospecting");
         assert_eq!(stage, "researching"); // id unchanged, card untouched
     }
 
     #[test]
     fn retire_stage_blocked_by_enabled_rule() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap();
-            c.execute("insert into rules(id,name,enabled,conditions,action) values('r1','no_intro_path',1,?1,'propose')",
-                [serde_json::json!({"stage":"ready_to_contact"}).to_string()]).unwrap(); c };
-        let err = retire_stage(&c, "ready_to_contact").unwrap_err();
+        let (_tmp, mut db) = seeded_db();
+        db.exec("insert into rules(id,name,enabled,conditions,action) values('r1','no_intro_path',1,?1,'propose')",
+            &[SqlParam::Json(serde_json::json!({"stage":"ready_to_contact"}).to_string())]).unwrap();
+        let err = retire_stage(&mut db, "ready_to_contact").unwrap_err();
         match err { BoardError::RuleBlocked(names) => assert_eq!(names, vec!["no_intro_path".to_string()]), _ => panic!("expected RuleBlocked") }
         // and the stage was NOT retired:
-        let retired: Option<String> = c.query_row("select retired_at from stages where id='ready_to_contact'", [], |r| r.get(0)).unwrap();
+        let retired = q_opt_str(&mut db, "select retired_at from stages where id='ready_to_contact'");
         assert!(retired.is_none());
     }
 
     #[test]
     fn retire_empty_stage_succeeds() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        retire_stage(&c, "warm").unwrap(); // no cards, no rules
-        let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        retire_stage(&mut db, "warm").unwrap(); // no cards, no rules
+        let retired = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(retired.is_some());
     }
 
     #[test]
     fn disabled_rule_does_not_block_retire() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap();
-            c.execute("insert into rules(id,name,enabled,conditions,action) values('r1','off_rule',0,?1,'propose')",
-                [serde_json::json!({"stage":"warm"}).to_string()]).unwrap(); c };
-        retire_stage(&c, "warm").unwrap(); // rule is disabled -> no block
-        let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        db.exec("insert into rules(id,name,enabled,conditions,action) values('r1','off_rule',0,?1,'propose')",
+            &[SqlParam::Json(serde_json::json!({"stage":"warm"}).to_string())]).unwrap();
+        retire_stage(&mut db, "warm").unwrap(); // rule is disabled -> no block
+        let retired = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(retired.is_some());
     }
 
     #[test]
     fn remap_dryrun_counts_without_writing() {
-        let c = conn_seeded_with_lead("L1", "contacted");
-        seed_lead(&c, "L2", "contacted");
-        let r = remap_stage(&c, "contacted", "warm", None, true, false, false).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "contacted");
+        seed_lead(&mut db, "L2", "contacted");
+        let r = remap_stage(&mut db, "contacted", "warm", None, true, false, false).unwrap();
         assert_eq!(r.affected, 2);
-        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 0); // dryRun wrote nothing
-        let still: i64 = c.query_row("select count(*) from leads where stage='contacted'", [], |r| r.get(0)).unwrap();
+        let still = q_i64(&mut db, "select count(*) from leads where stage='contacted'");
         assert_eq!(still, 2); // leads unchanged
     }
 
     #[test]
     fn remap_writes_one_event_per_lead() {
-        let c = conn_seeded_with_lead("L1", "contacted");
-        seed_lead(&c, "L2", "contacted");
-        let r = remap_stage(&c, "contacted", "warm", None, false, false, false).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "contacted");
+        seed_lead(&mut db, "L2", "contacted");
+        let r = remap_stage(&mut db, "contacted", "warm", None, false, false, false).unwrap();
         assert_eq!(r.affected, 2);
-        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 2); // one per lead, never batched
-        let moved: i64 = c.query_row("select count(*) from leads where stage='warm'", [], |r| r.get(0)).unwrap();
+        let moved = q_i64(&mut db, "select count(*) from leads where stage='warm'");
         assert_eq!(moved, 2);
     }
 
     #[test]
     fn remap_over_five_needs_confirm() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        for i in 0..6 { seed_lead(&c, &format!("L{i}"), "contacted"); } // 6 > 5
-        let err = remap_stage(&c, "contacted", "warm", None, false, false, false).unwrap_err();
+        let (_tmp, mut db) = seeded_db();
+        for i in 0..6 { seed_lead(&mut db, &format!("L{i}"), "contacted"); } // 6 > 5
+        let err = remap_stage(&mut db, "contacted", "warm", None, false, false, false).unwrap_err();
         assert!(matches!(err, BoardError::NeedsConfirm(6)));
-        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 0); // blocked, no writes
         // exactly 5 proceeds without confirm (boundary):
-        let c2 = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        for i in 0..5 { seed_lead(&c2, &format!("L{i}"), "contacted"); }
-        let r = remap_stage(&c2, "contacted", "warm", None, false, false, false).unwrap();
+        let (_tmp2, mut db2) = seeded_db();
+        for i in 0..5 { seed_lead(&mut db2, &format!("L{i}"), "contacted"); }
+        let r = remap_stage(&mut db2, "contacted", "warm", None, false, false, false).unwrap();
         assert_eq!(r.affected, 5);
         // and with confirmed=true, 6 proceeds:
-        let c3 = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        for i in 0..6 { seed_lead(&c3, &format!("L{i}"), "contacted"); }
-        let r3 = remap_stage(&c3, "contacted", "warm", None, false, true, true).unwrap();
+        let (_tmp3, mut db3) = seeded_db();
+        for i in 0..6 { seed_lead(&mut db3, &format!("L{i}"), "contacted"); }
+        let r3 = remap_stage(&mut db3, "contacted", "warm", None, false, true, true).unwrap();
         assert_eq!(r3.affected, 6);
     }
 
     #[test]
     fn remap_is_atomic_bad_target_writes_nothing() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        for i in 0..3 { seed_lead(&c, &format!("L{i}"), "contacted"); }
+        let (_tmp, mut db) = seeded_db();
+        for i in 0..3 { seed_lead(&mut db, &format!("L{i}"), "contacted"); }
         // remap to a NON-EXISTENT stage -> must fail cleanly with NO partial writes
-        let err = remap_stage(&c, "contacted", "does_not_exist", None, false, false, false).unwrap_err();
+        let err = remap_stage(&mut db, "contacted", "does_not_exist", None, false, false, false).unwrap_err();
         assert!(matches!(err, BoardError::NotFound));
-        let events: i64 = c.query_row("select count(*) from events", [], |r| r.get(0)).unwrap();
+        let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 0);            // nothing written
-        let still: i64 = c.query_row("select count(*) from leads where stage='contacted'", [], |r| r.get(0)).unwrap();
+        let still = q_i64(&mut db, "select count(*) from leads where stage='contacted'");
         assert_eq!(still, 3);            // all leads still in source
     }
 
     #[test]
     fn remap_retire_source_sets_retired_at_never_deletes() {
-        let c = conn_seeded_with_lead("L1", "contacted");
-        remap_stage(&c, "contacted", "warm", None, false, true, false).unwrap();
-        let retired: Option<String> = c.query_row("select retired_at from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "contacted");
+        remap_stage(&mut db, "contacted", "warm", None, false, true, false).unwrap();
+        let retired = q_opt_str(&mut db, "select retired_at from stages where id='contacted'");
         assert!(retired.is_some()); // retired, not deleted
-        let exists: i64 = c.query_row("select count(*) from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        let exists = q_i64(&mut db, "select count(*) from stages where id='contacted'");
         assert_eq!(exists, 1); // row still there
     }
 
     #[test]
     fn append_context_merges_never_replaces() {
-        let c = conn_seeded_with_lead("L1", "researching"); // seed_lead sets version 1
-        append_context(&c, "L1", serde_json::json!({"fact":"CTO is Ana","source":"paste-1"}), 1).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching"); // seed_lead sets version 1
+        append_context(&mut db, "L1", serde_json::json!({"fact":"CTO is Ana","source":"paste-1"}), 1).unwrap();
         // version bumped to 2 after first append:
-        append_context(&c, "L1", serde_json::json!({"fact":"Series B","source":"paste-2"}), 2).unwrap();
-        let ctx: String = c.query_row("select context from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        append_context(&mut db, "L1", serde_json::json!({"fact":"Series B","source":"paste-2"}), 2).unwrap();
+        let ctx = q_str(&mut db, "select context from leads where id='L1'");
         let v: serde_json::Value = serde_json::from_str(&ctx).unwrap();
         let facts = v["facts"].as_array().unwrap();
         assert_eq!(facts.len(), 2); // BOTH preserved
@@ -1612,28 +1581,28 @@ mod tests {
 
     #[test]
     fn append_context_version_conflict_writes_nothing() {
-        let c = conn_seeded_with_lead("L1", "researching");
-        let err = append_context(&c, "L1", serde_json::json!({"fact":"x"}), 99).unwrap_err();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        let err = append_context(&mut db, "L1", serde_json::json!({"fact":"x"}), 99).unwrap_err();
         assert!(matches!(err, BoardError::VersionConflict));
-        let ctx: String = c.query_row("select context from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let ctx = q_str(&mut db, "select context from leads where id='L1'");
         assert_eq!(ctx, "{}"); // untouched
     }
 
     #[test]
     fn add_lead_creates_row_and_event() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        let id = add_lead(&c, "Ana Costa", Some("Acme"), "researching", "local").unwrap();
-        let n: i64 = c.query_row("select count(*) from leads where id=?1", [&id], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let id = add_lead(&mut db, "Ana Costa", Some("Acme"), "researching", "local").unwrap();
+        let n = q_i64(&mut db, &format!("select count(*) from leads where id='{id}'"));
         assert_eq!(n, 1);
-        let ev: i64 = c.query_row("select count(*) from events where type='lead.created'", [], |r| r.get(0)).unwrap();
+        let ev = q_i64(&mut db, "select count(*) from events where type='lead.created'");
         assert_eq!(ev, 1);
     }
 
     #[test]
     fn attach_transcript_appends() {
-        let c = conn_seeded_with_lead("L1", "researching");
-        attach_transcript(&c, "L1", "raw call text", "they want a demo").unwrap();
-        let t: String = c.query_row("select transcripts from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        attach_transcript(&mut db, "L1", "raw call text", "they want a demo").unwrap();
+        let t = q_str(&mut db, "select transcripts from leads where id='L1'");
         let v: serde_json::Value = serde_json::from_str(&t).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 1);
         assert_eq!(v[0]["summary"], "they want a demo");
@@ -1641,123 +1610,123 @@ mod tests {
 
     #[test]
     fn revert_restores_retired_at() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        let before_seq: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
-        retire_stage(&c, "warm").unwrap();
-        let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let before_seq = q_i64(&mut db, "select coalesce(max(seq),0) from events");
+        retire_stage(&mut db, "warm").unwrap();
+        let retired = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(retired.is_some());
-        revert(&c, before_seq).unwrap();
-        let after: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        revert(&mut db, before_seq).unwrap();
+        let after = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(after.is_none(), "revert must clear retired_at"); // was the bug
     }
     #[test]
     fn revert_merge_with_retire_source_unretires_source() {
         // The exact acceptance-test path: reverting a merge-with-retireSource must un-retire the source.
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        for id in ["A","B","C","D"] { seed_lead(&c, id, "contacted"); }
-        let seq_before: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
-        remap_stage(&c, "contacted", "won", None, false, true, true).unwrap();
-        let retired: Option<String> = c.query_row("select retired_at from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        for id in ["A","B","C","D"] { seed_lead(&mut db, id, "contacted"); }
+        let seq_before = q_i64(&mut db, "select coalesce(max(seq),0) from events");
+        remap_stage(&mut db, "contacted", "won", None, false, true, true).unwrap();
+        let retired = q_opt_str(&mut db, "select retired_at from stages where id='contacted'");
         assert!(retired.is_some());
-        revert(&c, seq_before).unwrap();
+        revert(&mut db, seq_before).unwrap();
         for id in ["A","B","C","D"] {
-            let s: String = c.query_row(&format!("select stage from leads where id='{id}'"), [], |r| r.get(0)).unwrap();
+            let s = q_str(&mut db, &format!("select stage from leads where id='{id}'"));
             assert_eq!(s, "contacted");
         }
-        let after: Option<String> = c.query_row("select retired_at from stages where id='contacted'", [], |r| r.get(0)).unwrap();
+        let after = q_opt_str(&mut db, "select retired_at from stages where id='contacted'");
         assert!(after.is_none(), "reverting the merge must un-retire the source stage");
     }
     #[test]
     fn revert_reorder_restores_positions() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        let before_pos: i64 = c.query_row("select position from stages where id='researching'", [], |r| r.get(0)).unwrap();
-        let seq_before: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
-        reorder_stages(&c, &["won","warm","contacted","ready_to_contact","researching"]).unwrap();
-        let moved: i64 = c.query_row("select position from stages where id='researching'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let before_pos = q_i64(&mut db, "select position from stages where id='researching'");
+        let seq_before = q_i64(&mut db, "select coalesce(max(seq),0) from events");
+        reorder_stages(&mut db, &["won","warm","contacted","ready_to_contact","researching"]).unwrap();
+        let moved = q_i64(&mut db, "select position from stages where id='researching'");
         assert_ne!(moved, before_pos);
-        revert(&c, seq_before).unwrap();
-        let restored: i64 = c.query_row("select position from stages where id='researching'", [], |r| r.get(0)).unwrap();
+        revert(&mut db, seq_before).unwrap();
+        let restored = q_i64(&mut db, "select position from stages where id='researching'");
         assert_eq!(restored, before_pos, "revert must restore original positions");
     }
     #[test]
     fn revert_add_stage_removes_row() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        let seq_before: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
-        let id = add_stage(&c, "Temp", 9, "local").unwrap();
-        assert_eq!(c.query_row::<i64,_,_>("select count(*) from stages where id=?1",[&id],|r|r.get(0)).unwrap(), 1);
-        revert(&c, seq_before).unwrap();
-        assert_eq!(c.query_row::<i64,_,_>("select count(*) from stages where id=?1",[&id],|r|r.get(0)).unwrap(), 0, "revert must remove the created stage");
+        let (_tmp, mut db) = seeded_db();
+        let seq_before = q_i64(&mut db, "select coalesce(max(seq),0) from events");
+        let id = add_stage(&mut db, "Temp", 9, "local").unwrap();
+        assert_eq!(q_i64(&mut db, &format!("select count(*) from stages where id='{id}'")), 1);
+        revert(&mut db, seq_before).unwrap();
+        assert_eq!(q_i64(&mut db, &format!("select count(*) from stages where id='{id}'")), 0, "revert must remove the created stage");
     }
 
     #[test]
     fn revert_add_lead_removes_row() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        let base: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
-        let id = add_lead(&c, "Ada", None, "researching", "local").unwrap();
-        assert_eq!(c.query_row::<i64,_,_>("select count(*) from leads where id=?1",[&id],|r|r.get(0)).unwrap(), 1);
-        revert(&c, base).unwrap();
-        assert_eq!(c.query_row::<i64,_,_>("select count(*) from leads where id=?1",[&id],|r|r.get(0)).unwrap(), 0, "revert must remove the added lead");
+        let (_tmp, mut db) = seeded_db();
+        let base = q_i64(&mut db, "select coalesce(max(seq),0) from events");
+        let id = add_lead(&mut db, "Ada", None, "researching", "local").unwrap();
+        assert_eq!(q_i64(&mut db, &format!("select count(*) from leads where id='{id}'")), 1);
+        revert(&mut db, base).unwrap();
+        assert_eq!(q_i64(&mut db, &format!("select count(*) from leads where id='{id}'")), 0, "revert must remove the added lead");
     }
 
     #[test]
     fn revert_unretire_restores_retired_at() {
-        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
-        retire_stage(&c, "won").unwrap();
-        let retired_before: Option<String> = c.query_row("select retired_at from stages where id='won'", [], |r| r.get(0)).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        retire_stage(&mut db, "won").unwrap();
+        let retired_before = q_opt_str(&mut db, "select retired_at from stages where id='won'");
         assert!(retired_before.is_some(), "won should be retired");
-        let base: i64 = c.query_row("select coalesce(max(seq),0) from events", [], |r| r.get(0)).unwrap();
-        unretire_stage(&c, "won").unwrap();
-        let active: Option<String> = c.query_row("select retired_at from stages where id='won'", [], |r| r.get(0)).unwrap();
+        let base = q_i64(&mut db, "select coalesce(max(seq),0) from events");
+        unretire_stage(&mut db, "won").unwrap();
+        let active = q_opt_str(&mut db, "select retired_at from stages where id='won'");
         assert!(active.is_none(), "unretire clears retired_at");
-        revert(&c, base).unwrap();
-        let restored: Option<String> = c.query_row("select retired_at from stages where id='won'", [], |r| r.get(0)).unwrap();
+        revert(&mut db, base).unwrap();
+        let restored = q_opt_str(&mut db, "select retired_at from stages where id='won'");
         assert!(restored.is_some(), "revert must restore retired_at → stage retired again");
     }
 
     #[test]
     fn acceptance_stage_lifecycle_and_revert() {
-        let c = { let c = rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        let (_tmp, mut db) = seeded_db();
 
         // Create a stage, move four cards into it.
-        let sid = add_stage(&c, "Follow up", 5, "local").unwrap();
+        let sid = add_stage(&mut db, "Follow up", 5, "local").unwrap();
         assert_eq!(sid, "follow-up");
         for id in ["A", "B", "C", "D"] {
-            seed_lead(&c, id, "researching");      // seed_lead sets version 1
-            move_lead(&c, id, &sid, 1).unwrap();   // researching(v1) -> follow-up(v2)
+            seed_lead(&mut db, id, "researching");      // seed_lead sets version 1
+            move_lead(&mut db, id, &sid, 1).unwrap();   // researching(v1) -> follow-up(v2)
         }
 
         // Rename it twice, reorder it.
-        rename_stage(&c, &sid, "Chasing").unwrap();
-        rename_stage(&c, &sid, "Nudging").unwrap();
-        reorder_stages(&c, &["researching", "follow-up", "ready_to_contact", "contacted", "warm", "won"]).unwrap();
+        rename_stage(&mut db, &sid, "Chasing").unwrap();
+        rename_stage(&mut db, &sid, "Nudging").unwrap();
+        reorder_stages(&mut db, &["researching", "follow-up", "ready_to_contact", "contacted", "warm", "won"]).unwrap();
 
         // A rule references it — merge must be BLOCKED until remapped.
-        c.execute(
+        db.exec(
             "insert into rules(id,name,enabled,conditions,action) values('r','chase_rule',1,?1,'propose')",
-            [serde_json::json!({"stage":"follow-up"}).to_string()],
+            &[SqlParam::Json(serde_json::json!({"stage":"follow-up"}).to_string())],
         ).unwrap();
-        let blocked = remap_stage(&c, "follow-up", "won", None, false, true, true);
+        let blocked = remap_stage(&mut db, "follow-up", "won", None, false, true, true);
         assert!(matches!(blocked, Err(BoardError::RuleBlocked(_))));
 
         // Remap the rule's reference away, then the merge succeeds.
-        c.execute(
+        db.exec(
             "update rules set conditions=?1 where id='r'",
-            [serde_json::json!({"stage":"won"}).to_string()],
+            &[SqlParam::Json(serde_json::json!({"stage":"won"}).to_string())],
         ).unwrap();
 
         // Watermark BEFORE the merge, so we can revert exactly the merge.
-        let seq_before_merge: i64 = c.query_row("select max(seq) from events", [], |r| r.get(0)).unwrap();
-        let r = remap_stage(&c, "follow-up", "won", None, false, true, true).unwrap();
+        let seq_before_merge = q_i64(&mut db, "select max(seq) from events");
+        let r = remap_stage(&mut db, "follow-up", "won", None, false, true, true).unwrap();
         assert_eq!(r.affected, 4);
         for id in ["A", "B", "C", "D"] {
-            let s: String = c.query_row(&format!("select stage from leads where id='{id}'"), [], |r| r.get(0)).unwrap();
+            let s = q_str(&mut db, &format!("select stage from leads where id='{id}'"));
             assert_eq!(s, "won");
         }
 
         // revert the merge -> all four back to follow-up.
-        revert(&c, seq_before_merge).unwrap();
+        revert(&mut db, seq_before_merge).unwrap();
         for id in ["A", "B", "C", "D"] {
-            let s: String = c.query_row(&format!("select stage from leads where id='{id}'"), [], |r| r.get(0)).unwrap();
+            let s = q_str(&mut db, &format!("select stage from leads where id='{id}'"));
             assert_eq!(s, "follow-up");
         }
     }

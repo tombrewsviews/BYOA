@@ -9,14 +9,13 @@
 
 use std::io::Read as _;
 
-use outreach_app_lib::board::{self, LeadFilter};
-use rusqlite::Connection;
+use outreach_app_lib::board::{self, Actor, Db, LeadFilter};
 use serde_json::{json, Value};
 
-/// Dispatch one `{verb, args}` request against an already-open connection.
+/// Dispatch one `{verb, args}` request against an already-open board handle.
 /// Kept separate from `main` so it's unit-testable without spawning a
 /// process or touching stdio.
-pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, String> {
+pub fn dispatch(db: &mut Db, verb: &str, args: &Value) -> Result<Value, String> {
     let get_str = |name: &str| -> Result<String, String> {
         args.get(name)
             .and_then(Value::as_str)
@@ -38,26 +37,26 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
     };
 
     match verb {
-        "listStages" => Ok(match board::list_stages_json(c) {
+        "listStages" => Ok(match board::list_stages_json(db) {
             Ok(data) => json!({"ok": true, "data": data}),
             Err(e) => json!({"ok": false, "error": e}),
         }),
-        "listLeads" => Ok(match board::list_leads_json(c) {
+        "listLeads" => Ok(match board::list_leads_json(db) {
             Ok(data) => json!({"ok": true, "data": data}),
             Err(e) => json!({"ok": false, "error": e}),
         }),
         "getLead" => {
             let id = get_str("id")?;
-            Ok(match board::get_lead_json(c, &id) {
+            Ok(match board::get_lead_json(db, &id) {
                 Ok(data) => json!({"ok": true, "data": data}),
                 Err(e) => json!({"ok": false, "error": e}),
             })
         }
-        "listRules" => Ok(match board::list_rules_json(c) {
+        "listRules" => Ok(match board::list_rules_json(db) {
             Ok(data) => json!({"ok": true, "data": data}),
             Err(e) => json!({"ok": false, "error": e}),
         }),
-        "getConfig" => Ok(match board::get_config_json(c) {
+        "getConfig" => Ok(match board::get_config_json(db) {
             Ok(data) => json!({"ok": true, "data": data}),
             Err(e) => json!({"ok": false, "error": e}),
         }),
@@ -65,7 +64,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
             let name = get_str("name")?;
             let org = get_opt_str("org");
             let stage = get_str("stage")?;
-            match board::add_lead(c, &name, org.as_deref(), &stage, "local") {
+            match board::add_lead(db, &name, org.as_deref(), &stage, "local") {
                 Ok(id) => Ok(json!({"ok": true, "data": {"id": id}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -74,7 +73,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
             let id = get_str("id")?;
             let to_stage = get_str("toStage")?;
             let expected_version = get_i64("expectedVersion")?;
-            match board::move_lead(c, &id, &to_stage, expected_version) {
+            match board::move_lead(db, &id, &to_stage, expected_version) {
                 Ok(version) => Ok(json!({"ok": true, "data": {"version": version}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -86,7 +85,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
                 .cloned()
                 .ok_or_else(|| "config: missing arg research".to_string())?;
             let expected_version = get_i64("expectedVersion")?;
-            match board::append_context(c, &id, research, expected_version) {
+            match board::append_context(db, &id, research, expected_version) {
                 Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -97,7 +96,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
                 .get("msg")
                 .cloned()
                 .ok_or_else(|| "config: missing arg msg".to_string())?;
-            match board::draft_message(c, &id, msg) {
+            match board::draft_message(db, &id, msg) {
                 Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -106,7 +105,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
             let id = get_str("id")?;
             let raw = get_str("raw")?;
             let summary = get_str("summary")?;
-            match board::attach_transcript(c, &id, &raw, &summary) {
+            match board::attach_transcript(db, &id, &raw, &summary) {
                 Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -114,7 +113,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
         "renameStage" => {
             let id = get_str("id")?;
             let label = get_str("label")?;
-            match board::rename_stage(c, &id, &label) {
+            match board::rename_stage(db, &id, &label) {
                 Ok(version) => Ok(json!({"ok": true, "data": {"version": version}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -127,7 +126,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
                 .iter()
                 .map(|v| v.as_str().ok_or_else(|| "config: ids must be strings".to_string()))
                 .collect::<Result<Vec<_>, _>>()?;
-            match board::reorder_stages(c, &ids) {
+            match board::reorder_stages(db, &ids) {
                 Ok(()) => Ok(json!({"ok": true, "data": {"ok": true}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -135,21 +134,21 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
         "addStage" => {
             let label = get_str("label")?;
             let position = get_i64("position")?;
-            match board::add_stage(c, &label, position, "local") {
+            match board::add_stage(db, &label, position, "local") {
                 Ok(id) => Ok(json!({"ok": true, "data": {"id": id}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
         }
         "retireStage" => {
             let id = get_str("id")?;
-            match board::retire_stage(c, &id) {
+            match board::retire_stage(db, &id) {
                 Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
         }
         "unretireStage" => {
             let id = get_str("id")?;
-            match board::unretire_stage(c, &id) {
+            match board::unretire_stage(db, &id) {
                 Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
@@ -162,7 +161,7 @@ pub fn dispatch(c: &Connection, verb: &str, args: &Value) -> Result<Value, Strin
             let retire_source = get_bool("retireSource")?;
             let confirmed = get_bool("confirmed")?;
             let filter = org_filter.map(|org| LeadFilter { org: Some(org) });
-            match board::remap_stage(c, &from, &to, filter, dry_run, retire_source, confirmed) {
+            match board::remap_stage(db, &from, &to, filter, dry_run, retire_source, confirmed) {
                 Ok(result) => Ok(json!({"ok": true, "data": {
                     "affected": result.affected,
                     "leadIds": result.lead_ids,
@@ -181,9 +180,13 @@ fn main() {
             print_and_exit_err("config: OUTREACH_PROJECT not set or board.db unopenable: OUTREACH_PROJECT is unset");
         }
     };
-    let db_path = std::path::PathBuf::from(&project).join("board.db");
-    let c = match board::open(&db_path) {
-        Ok(c) => c,
+    let project_dir = std::path::PathBuf::from(&project);
+    let mut db = match board::open_board(
+        &project_dir,
+        None,
+        &Actor { id: "local".into(), label: "You".into() },
+    ) {
+        Ok(db) => db,
         Err(e) => {
             print_and_exit_err(&format!(
                 "config: OUTREACH_PROJECT not set or board.db unopenable: {e}"
@@ -211,7 +214,7 @@ fn main() {
     };
     let args = request.get("args").cloned().unwrap_or(json!({}));
 
-    match dispatch(&c, verb, &args) {
+    match dispatch(&mut db, verb, &args) {
         Ok(response) => {
             println!("{response}");
         }
@@ -234,28 +237,33 @@ fn print_and_exit_err(msg: &str) -> ! {
 mod tests {
     use super::*;
 
-    fn seeded_conn() -> Connection {
-        let c = Connection::open_in_memory().unwrap();
-        board::init(&c).unwrap();
-        c
+    fn seeded_db() -> (tempfile::TempDir, Db) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = board::open_board(
+            tmp.path(),
+            None,
+            &Actor { id: "local".into(), label: "You".into() },
+        )
+        .unwrap();
+        (tmp, db)
     }
 
     #[test]
     fn list_stages_returns_five_bootstrap_stages() {
-        let c = seeded_conn();
-        let resp = dispatch(&c, "listStages", &json!({})).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let resp = dispatch(&mut db, "listStages", &json!({})).unwrap();
         assert_eq!(resp["ok"], true);
         assert_eq!(resp["data"].as_array().unwrap().len(), 5);
     }
 
     #[test]
     fn add_lead_then_list_leads_shows_the_lead() {
-        let c = seeded_conn();
-        let add = dispatch(&c, "addLead", &json!({"name": "Ana Costa", "org": "Acme", "stage": "researching"})).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let add = dispatch(&mut db, "addLead", &json!({"name": "Ana Costa", "org": "Acme", "stage": "researching"})).unwrap();
         assert_eq!(add["ok"], true);
         let id = add["data"]["id"].as_str().unwrap().to_string();
 
-        let list = dispatch(&c, "listLeads", &json!({})).unwrap();
+        let list = dispatch(&mut db, "listLeads", &json!({})).unwrap();
         assert_eq!(list["ok"], true);
         let leads = list["data"].as_array().unwrap();
         assert!(leads.iter().any(|l| l["id"] == id));
@@ -263,11 +271,11 @@ mod tests {
 
     #[test]
     fn remap_stage_dry_run_reports_affected_and_writes_nothing() {
-        let c = seeded_conn();
+        let (_tmp, mut db) = seeded_db();
         for _ in 0..2 {
-            dispatch(&c, "addLead", &json!({"name": "X", "stage": "researching"})).unwrap();
+            dispatch(&mut db, "addLead", &json!({"name": "X", "stage": "researching"})).unwrap();
         }
-        let resp = dispatch(&c, "remapStage", &json!({
+        let resp = dispatch(&mut db, "remapStage", &json!({
             "from": "researching", "to": "warm", "dryRun": true,
             "retireSource": false, "confirmed": false,
         })).unwrap();
@@ -275,7 +283,7 @@ mod tests {
         assert!(resp["data"]["affected"].as_i64().unwrap() > 0);
 
         // no write occurred: re-list, counts unchanged.
-        let list = dispatch(&c, "listLeads", &json!({})).unwrap();
+        let list = dispatch(&mut db, "listLeads", &json!({})).unwrap();
         let still_researching = list["data"]
             .as_array()
             .unwrap()
@@ -287,11 +295,11 @@ mod tests {
 
     #[test]
     fn remap_stage_over_five_without_confirm_needs_confirm() {
-        let c = seeded_conn();
+        let (_tmp, mut db) = seeded_db();
         for _ in 0..6 {
-            dispatch(&c, "addLead", &json!({"name": "X", "stage": "researching"})).unwrap();
+            dispatch(&mut db, "addLead", &json!({"name": "X", "stage": "researching"})).unwrap();
         }
-        let resp = dispatch(&c, "remapStage", &json!({
+        let resp = dispatch(&mut db, "remapStage", &json!({
             "from": "researching", "to": "warm", "dryRun": false,
             "retireSource": false, "confirmed": false,
         })).unwrap();
@@ -301,8 +309,8 @@ mod tests {
 
     #[test]
     fn get_lead_on_nonexistent_id_returns_ok_false_not_err() {
-        let c = seeded_conn();
-        let resp = dispatch(&c, "getLead", &json!({"id": "nope"})).unwrap();
+        let (_tmp, mut db) = seeded_db();
+        let resp = dispatch(&mut db, "getLead", &json!({"id": "nope"})).unwrap();
         assert_eq!(resp["ok"], false);
         assert!(resp["error"].as_str().unwrap().starts_with("not-found:"));
     }

@@ -119,6 +119,9 @@ pub enum DbError {
     /// failure mode; native_tls::Error isn't a postgres::Error, so it can't
     /// fold into `Pg`).
     Tls(native_tls::Error),
+    /// A stored JSON blob (event `before`, lead context/messages/transcripts)
+    /// failed to parse — a corrupt DB-layer value, distinct from a query error.
+    Json(String),
 }
 
 impl From<rusqlite::Error> for DbError {
@@ -145,6 +148,7 @@ impl std::fmt::Display for DbError {
             DbError::Sqlite(e) => write!(f, "sqlite error: {e}"),
             DbError::Pg(e) => write!(f, "postgres error: {e}"),
             DbError::Tls(e) => write!(f, "tls error: {e}"),
+            DbError::Json(e) => write!(f, "json error: {e}"),
         }
     }
 }
