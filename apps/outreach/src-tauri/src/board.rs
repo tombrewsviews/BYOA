@@ -341,6 +341,162 @@ pub fn add_stage(
     Ok(id)
 }
 
+/// Count leads currently sitting in `stage_id`.
+pub fn count_leads_in(c: &Connection, stage_id: &str) -> Result<usize, BoardError> {
+    let n: i64 = c.query_row(
+        "select count(*) from leads where stage = ?1",
+        [stage_id],
+        |r| r.get(0),
+    )?;
+    Ok(n as usize)
+}
+
+/// Names of all ENABLED rules whose `conditions` JSON references `stage_id`
+/// (i.e. `conditions["stage"] == stage_id`).
+pub fn rules_referencing(c: &Connection, stage_id: &str) -> Result<Vec<String>, BoardError> {
+    let mut stmt = c.prepare("select name, conditions from rules where enabled = 1")?;
+    let rows = stmt
+        .query_map([], |r| {
+            let name: String = r.get(0)?;
+            let conditions: String = r.get(1)?;
+            Ok((name, conditions))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let mut names = Vec::new();
+    for (name, conditions) in rows {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&conditions) {
+            if parsed["stage"].as_str() == Some(stage_id) {
+                names.push(name);
+            }
+        }
+    }
+    Ok(names)
+}
+
+/// Rename a stage's label. No card impact (the stage id is unchanged), so
+/// no rule check is needed.
+pub fn rename_stage(c: &Connection, id: &str, label: &str) -> Result<i64, BoardError> {
+    let current_label: Option<String> = c
+        .query_row("select label from stages where id = ?1", [id], |r| r.get(0))
+        .optional()?;
+    let current_label = current_label.ok_or(BoardError::NotFound)?;
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "stage.renamed".into(),
+            entity_id: id.into(),
+            before: serde_json::json!({"label": current_label}),
+            after: serde_json::json!({"label": label}),
+            verb: "renameStage".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Set each stage's `position` to its index in `ids`, atomically. Records a
+/// single `stage.reordered` event (event-only — apply_state has no arm for it).
+pub fn reorder_stages(c: &Connection, ids: &[&str]) -> Result<(), BoardError> {
+    c.execute_batch("begin;")?;
+    let result = (|| -> Result<(), BoardError> {
+        for (i, id) in ids.iter().enumerate() {
+            c.execute(
+                "update stages set position = ?1 where id = ?2",
+                rusqlite::params![i as i64, id],
+            )?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => c.execute_batch("commit;")?,
+        Err(e) => {
+            c.execute_batch("rollback;")?;
+            return Err(e);
+        }
+    }
+
+    commit(
+        c,
+        &Event {
+            kind: "stage.reordered".into(),
+            entity_id: "board".into(),
+            before: serde_json::Value::Null,
+            after: serde_json::json!({"ids": ids}),
+            verb: "reorderStages".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(())
+}
+
+/// Retire a stage: blocked if an enabled rule references it, or if more
+/// than 5 leads still sit in it (large retires must route through
+/// `remap_stage`, added in a later task). Otherwise sets `retired_at`.
+pub fn retire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
+    let exists: i64 = c.query_row("select count(*) from stages where id = ?1", [id], |r| r.get(0))?;
+    if exists == 0 {
+        return Err(BoardError::NotFound);
+    }
+
+    let blocking = rules_referencing(c, id)?;
+    if !blocking.is_empty() {
+        return Err(BoardError::RuleBlocked(blocking));
+    }
+
+    let n = count_leads_in(c, id)?;
+    if n > 5 {
+        return Err(BoardError::NeedsConfirm(n));
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    c.execute(
+        "update stages set retired_at = ?1, version = version + 1 where id = ?2",
+        rusqlite::params![&now, id],
+    )?;
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "stage.retired".into(),
+            entity_id: id.into(),
+            before: serde_json::json!({"retired_at": null}),
+            after: serde_json::json!({"retired_at": now}),
+            verb: "retireStage".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Unretire a stage: clears `retired_at`. No gates.
+pub fn unretire_stage(c: &Connection, id: &str) -> Result<i64, BoardError> {
+    let exists: i64 = c.query_row("select count(*) from stages where id = ?1", [id], |r| r.get(0))?;
+    if exists == 0 {
+        return Err(BoardError::NotFound);
+    }
+
+    c.execute(
+        "update stages set retired_at = null, version = version + 1 where id = ?1",
+        [id],
+    )?;
+
+    let seq = commit(
+        c,
+        &Event {
+            kind: "stage.unretired".into(),
+            entity_id: id.into(),
+            before: serde_json::Value::Null,
+            after: serde_json::Value::Null,
+            verb: "unretireStage".into(),
+            actor: "local".into(),
+        },
+    )?;
+    Ok(seq)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,5 +618,45 @@ mod tests {
         assert_eq!(n, 1);
         let ev: i64 = c.query_row("select count(*) from events where type='stage.created'", [], |r| r.get(0)).unwrap();
         assert_eq!(ev, 1);
+    }
+
+    #[test]
+    fn rename_stage_touches_no_cards() {
+        let c = conn_seeded_with_lead("L1", "researching");
+        rename_stage(&c, "researching", "Prospecting").unwrap();
+        let label: String = c.query_row("select label from stages where id='researching'", [], |r| r.get(0)).unwrap();
+        let stage: String = c.query_row("select stage from leads where id='L1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(label, "Prospecting");
+        assert_eq!(stage, "researching"); // id unchanged, card untouched
+    }
+
+    #[test]
+    fn retire_stage_blocked_by_enabled_rule() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap();
+            c.execute("insert into rules(id,name,enabled,conditions,action) values('r1','no_intro_path',1,?1,'propose')",
+                [serde_json::json!({"stage":"ready_to_contact"}).to_string()]).unwrap(); c };
+        let err = retire_stage(&c, "ready_to_contact").unwrap_err();
+        match err { BoardError::RuleBlocked(names) => assert_eq!(names, vec!["no_intro_path".to_string()]), _ => panic!("expected RuleBlocked") }
+        // and the stage was NOT retired:
+        let retired: Option<String> = c.query_row("select retired_at from stages where id='ready_to_contact'", [], |r| r.get(0)).unwrap();
+        assert!(retired.is_none());
+    }
+
+    #[test]
+    fn retire_empty_stage_succeeds() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+        retire_stage(&c, "warm").unwrap(); // no cards, no rules
+        let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        assert!(retired.is_some());
+    }
+
+    #[test]
+    fn disabled_rule_does_not_block_retire() {
+        let c = { let c=rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap();
+            c.execute("insert into rules(id,name,enabled,conditions,action) values('r1','off_rule',0,?1,'propose')",
+                [serde_json::json!({"stage":"warm"}).to_string()]).unwrap(); c };
+        retire_stage(&c, "warm").unwrap(); // rule is disabled -> no block
+        let retired: Option<String> = c.query_row("select retired_at from stages where id='warm'", [], |r| r.get(0)).unwrap();
+        assert!(retired.is_some());
     }
 }
