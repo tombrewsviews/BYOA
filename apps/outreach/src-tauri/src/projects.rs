@@ -12,7 +12,6 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::skill;
 use crate::watch;
 use crate::AppState;
 
@@ -118,12 +117,8 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
     }
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir project: {}", e))?;
     fs::write(dir.join(DOC_FILENAME), SEED_BOARD).map_err(|e| format!("write doc: {}", e))?;
-    skill::write(&dir, &skill::BRAINSTORM_BUNDLE).map_err(|e| format!("write skill: {}", e))?;
     crate::prompt_mode::ensure_seeded(&dir);
-    // Projects ship with the Excalidraw MCP enabled by default. Seed
-    // `.mcp.json` pointing at the preferred canvas port; the canvas server
-    // rewrites it with the resolved port on start if 3939 was taken.
-    let _ = crate::brainstorm_canvas::write_mcp_config(&dir, "http://127.0.0.1:3939");
+    // board module added in Phase 1
 
     let display_name = if name.trim().is_empty() { "Untitled".into() } else { name.to_string() };
     Ok(ProjectMeta {
@@ -153,7 +148,6 @@ pub fn project_open(
     fs::read_to_string(&doc).map_err(|e| format!("read doc: {}", e))?;
 
     let watcher = watch::spawn(doc.clone(), app.clone()).map_err(|e| format!("watcher: {}", e))?;
-    skill::write(&path_buf, &skill::BRAINSTORM_BUNDLE).map_err(|e| format!("write skill: {}", e))?;
     crate::prompt_mode::ensure_seeded(&path_buf);
 
     *state.active_project.lock().unwrap() =

@@ -3,5 +3,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    brainstorm_app_lib::run()
+    outreach_app_lib::run()
 }

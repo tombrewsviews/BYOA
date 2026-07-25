@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BrainstormApp } from "./brainstorm/BrainstormApp";
+import { OutreachApp } from "./OutreachApp";
 import { isTauri } from "./runtime";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid } from "lucide-react";
@@ -42,22 +42,20 @@ const TitleBar: React.FC = () => {
       </Button>
       {/* App name, centered and non-interactive so it never blocks the drag. */}
       <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 font-semibold text-foreground">
-        Brainstorm Canvas
+        Outreach
       </span>
     </div>
   );
 };
 
-// Standalone: Brainstorm is the whole app. There's no shell to exit back to,
-// so onExit is a no-op (the app is closed by closing its window). The title
-// bar lives only on this window (the agent panel); the tiled board window is
-// the external Excalidraw URL and needs no bar.
+// Standalone: Outreach is the whole app. There's no shell to exit back to
+// (the app is closed by closing its window).
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <div className="flex h-screen w-screen flex-col bg-background text-foreground">
       <TitleBar />
       <div className="min-h-0 flex-1">
-        <BrainstormApp onExit={() => {}} />
+        <OutreachApp />
       </div>
     </div>
   </React.StrictMode>,
