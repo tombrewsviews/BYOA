@@ -1084,4 +1084,52 @@ mod tests {
         assert_eq!(v.as_array().unwrap().len(), 1);
         assert_eq!(v[0]["summary"], "they want a demo");
     }
+
+    #[test]
+    fn acceptance_stage_lifecycle_and_revert() {
+        let c = { let c = rusqlite::Connection::open_in_memory().unwrap(); init(&c).unwrap(); c };
+
+        // Create a stage, move four cards into it.
+        let sid = add_stage(&c, "Follow up", 5, "local").unwrap();
+        assert_eq!(sid, "follow-up");
+        for id in ["A", "B", "C", "D"] {
+            seed_lead(&c, id, "researching");      // seed_lead sets version 1
+            move_lead(&c, id, &sid, 1).unwrap();   // researching(v1) -> follow-up(v2)
+        }
+
+        // Rename it twice, reorder it.
+        rename_stage(&c, &sid, "Chasing").unwrap();
+        rename_stage(&c, &sid, "Nudging").unwrap();
+        reorder_stages(&c, &["researching", "follow-up", "ready_to_contact", "contacted", "warm", "won"]).unwrap();
+
+        // A rule references it — merge must be BLOCKED until remapped.
+        c.execute(
+            "insert into rules(id,name,enabled,conditions,action) values('r','chase_rule',1,?1,'propose')",
+            [serde_json::json!({"stage":"follow-up"}).to_string()],
+        ).unwrap();
+        let blocked = remap_stage(&c, "follow-up", "won", None, false, true, true);
+        assert!(matches!(blocked, Err(BoardError::RuleBlocked(_))));
+
+        // Remap the rule's reference away, then the merge succeeds.
+        c.execute(
+            "update rules set conditions=?1 where id='r'",
+            [serde_json::json!({"stage":"won"}).to_string()],
+        ).unwrap();
+
+        // Watermark BEFORE the merge, so we can revert exactly the merge.
+        let seq_before_merge: i64 = c.query_row("select max(seq) from events", [], |r| r.get(0)).unwrap();
+        let r = remap_stage(&c, "follow-up", "won", None, false, true, true).unwrap();
+        assert_eq!(r.affected, 4);
+        for id in ["A", "B", "C", "D"] {
+            let s: String = c.query_row(&format!("select stage from leads where id='{id}'"), [], |r| r.get(0)).unwrap();
+            assert_eq!(s, "won");
+        }
+
+        // revert the merge -> all four back to follow-up.
+        revert(&c, seq_before_merge).unwrap();
+        for id in ["A", "B", "C", "D"] {
+            let s: String = c.query_row(&format!("select stage from leads where id='{id}'"), [], |r| r.get(0)).unwrap();
+            assert_eq!(s, "follow-up");
+        }
+    }
 }
