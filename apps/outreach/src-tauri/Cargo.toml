@@ -5,6 +5,7 @@ description = "Outreach — standalone app"
 authors = ["Altramanera"]
 edition = "2021"
 rust-version = "1.77.2"
+default-run = "outreach-app"
 
 [lib]
 name = "outreach_app_lib"
