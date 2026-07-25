@@ -11,6 +11,7 @@ mod prompt_mode;
 mod pty;
 mod selection;
 mod settings;
+mod skill;
 mod watch;
 
 use std::sync::Mutex;
