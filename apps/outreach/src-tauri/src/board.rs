@@ -3,8 +3,6 @@
 //! Schema + default-stage bootstrap live here (Task 1.1). Later tasks add
 //! commit(), revert(), and the board verbs to this same file.
 
-use rusqlite::Connection;
-
 use crate::db::{DbError, SqlParam};
 // Re-export the `Db` seam (via a `pub use`) so binaries (board-cli) can name
 // it as `outreach_app_lib::board::Db` without the `db` module being public.
@@ -72,59 +70,25 @@ const DEFAULT_STAGES: [(&str, &str); 5] = [
     ("won", "Won"),
 ];
 
-/// Run the schema (idempotent) and seed defaults if `stages` is empty
-/// (also idempotent — safe to call more than once).
-pub fn init(c: &Connection) -> rusqlite::Result<()> {
-    c.execute_batch(SCHEMA)?;
-
-    let stage_count: i64 = c.query_row("select count(*) from stages", [], |r| r.get(0))?;
-    if stage_count == 0 {
-        let now = chrono::Utc::now().to_rfc3339();
-        c.execute_batch("begin;")?;
-        let result = (|| -> rusqlite::Result<()> {
-            c.execute(
-                "insert into actors (id, label, created_at) values ('local', 'You', ?1)",
-                [&now],
-            )?;
-            for (i, (id, label)) in DEFAULT_STAGES.iter().enumerate() {
-                c.execute(
-                    "insert into stages (id, label, position, color, created_at, created_by, version)
-                     values (?1, ?2, ?3, null, ?4, 'local', 1)",
-                    rusqlite::params![id, label, i as i64, &now],
-                )?;
-            }
-            c.execute(
-                "insert into board_config (id, name, created_by, version)
-                 values (1, 'Outreach board', 'local', 1)",
-                [],
-            )?;
-            Ok(())
-        })();
-        match result {
-            Ok(()) => c.execute_batch("commit;")?,
-            Err(e) => {
-                c.execute_batch("rollback;")?;
-                return Err(e);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Open the board.db file at `path`, enable foreign keys, run schema + bootstrap.
-pub fn open(path: &std::path::Path) -> rusqlite::Result<Connection> {
-    let c = Connection::open(path)?;
-    c.execute_batch("PRAGMA foreign_keys = ON;")?;
-    init(&c)?;
-    Ok(c)
-}
-
 /// The signed-in user driving a board session (used to seed/attribute rows
 /// created via `open_board`).
 pub struct Actor {
     pub id: String,
     pub label: String,
+}
+
+/// Build an Actor from an optional configured display name.
+/// `Some("Ada Lovelace")` → id "ada-lovelace" (slug, HYPHENS), label "Ada Lovelace".
+/// `None` (or empty/whitespace) → the local default ("local", "You") — today's
+/// single-user identity.
+pub fn actor_from(name: Option<&str>) -> Actor {
+    match name {
+        Some(n) if !n.trim().is_empty() => Actor {
+            id: slug::slugify(n),
+            label: n.trim().to_string(),
+        },
+        _ => Actor { id: "local".into(), label: "You".into() },
+    }
 }
 
 /// Postgres dialect of `SCHEMA`, one `create table if not exists` statement
@@ -522,6 +486,7 @@ pub fn move_lead(
     id: &str,
     to_stage: &str,
     expected_version: i64,
+    actor: &str,
 ) -> Result<i64, BoardError> {
     let current: Option<(String, i64)> = db.query_opt(
         "select stage, version from leads where id = ?1",
@@ -542,7 +507,7 @@ pub fn move_lead(
             before: serde_json::json!({"stage": current_stage}),
             after: serde_json::json!({"stage": to_stage}),
             verb: "moveLead".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
@@ -629,7 +594,7 @@ pub fn rules_referencing(db: &mut Db, stage_id: &str) -> Result<Vec<String>, Boa
 
 /// Rename a stage's label. No card impact (the stage id is unchanged), so
 /// no rule check is needed.
-pub fn rename_stage(db: &mut Db, id: &str, label: &str) -> Result<i64, BoardError> {
+pub fn rename_stage(db: &mut Db, id: &str, label: &str, actor: &str) -> Result<i64, BoardError> {
     let current_label: Option<String> = db.query_opt(
         "select label from stages where id = ?1",
         &[SqlParam::Text(id)],
@@ -645,7 +610,7 @@ pub fn rename_stage(db: &mut Db, id: &str, label: &str) -> Result<i64, BoardErro
             before: serde_json::json!({"label": current_label}),
             after: serde_json::json!({"label": label}),
             verb: "renameStage".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
@@ -654,7 +619,7 @@ pub fn rename_stage(db: &mut Db, id: &str, label: &str) -> Result<i64, BoardErro
 /// Set each stage's `position` to its index in `ids`, atomically. Records a
 /// `stage.reordered` event whose `before`/`after` carry the old/new position
 /// maps, so `apply_state`'s `stage.reordered` arm can restore either side.
-pub fn reorder_stages(db: &mut Db, ids: &[&str]) -> Result<(), BoardError> {
+pub fn reorder_stages(db: &mut Db, ids: &[&str], actor: &str) -> Result<(), BoardError> {
     let before_positions: Vec<(String, i64)> = db.query_all(
         "select id, position from stages",
         &[],
@@ -679,7 +644,7 @@ pub fn reorder_stages(db: &mut Db, ids: &[&str]) -> Result<(), BoardError> {
             before: serde_json::json!({"positions": before_map}),
             after: serde_json::json!({"positions": after_map, "ids": ids}),
             verb: "reorderStages".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(())
@@ -688,7 +653,7 @@ pub fn reorder_stages(db: &mut Db, ids: &[&str]) -> Result<(), BoardError> {
 /// Retire a stage: blocked if an enabled rule references it, or if more
 /// than 5 leads still sit in it (large retires must route through
 /// `remap_stage`, added in a later task). Otherwise sets `retired_at`.
-pub fn retire_stage(db: &mut Db, id: &str) -> Result<i64, BoardError> {
+pub fn retire_stage(db: &mut Db, id: &str, actor: &str) -> Result<i64, BoardError> {
     let exists: i64 = db
         .query_opt("select count(*) from stages where id = ?1", &[SqlParam::Text(id)], |r| {
             r.get_i64(0)
@@ -718,14 +683,14 @@ pub fn retire_stage(db: &mut Db, id: &str) -> Result<i64, BoardError> {
             before: serde_json::json!({"retired_at": null}),
             after: serde_json::json!({"retired_at": now}),
             verb: "retireStage".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
 }
 
 /// Unretire a stage: clears `retired_at`. No gates.
-pub fn unretire_stage(db: &mut Db, id: &str) -> Result<i64, BoardError> {
+pub fn unretire_stage(db: &mut Db, id: &str, actor: &str) -> Result<i64, BoardError> {
     // Read current retired_at so revert can restore it.
     let prev: Option<String> = db
         .query_opt(
@@ -743,7 +708,7 @@ pub fn unretire_stage(db: &mut Db, id: &str) -> Result<i64, BoardError> {
             before: serde_json::json!({ "retired_at": prev }),
             after: serde_json::json!({ "retired_at": null }),
             verb: "unretireStage".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
@@ -778,6 +743,7 @@ pub fn remap_stage(
     dry_run: bool,
     retire_source: bool,
     confirmed: bool,
+    actor: &str,
 ) -> Result<RemapResult, BoardError> {
     let blocking = rules_referencing(db, from)?;
     if !blocking.is_empty() {
@@ -829,7 +795,7 @@ pub fn remap_stage(
                     before: serde_json::json!({"stage": from}),
                     after: serde_json::json!({"stage": to}),
                     verb: "remapStage".into(),
-                    actor: "local".into(),
+                    actor: actor.into(),
                 },
             )?;
         }
@@ -844,7 +810,7 @@ pub fn remap_stage(
                     before: serde_json::json!({"retired_at": null}),
                     after: serde_json::json!({"retired_at": now}),
                     verb: "remapStage".into(),
-                    actor: "local".into(),
+                    actor: actor.into(),
                 },
             )?;
         }
@@ -906,6 +872,7 @@ pub fn append_context(
     id: &str,
     research: serde_json::Value,
     expected_version: i64,
+    actor: &str,
 ) -> Result<i64, BoardError> {
     let current: Option<(String, i64)> = db.query_opt(
         "select context, version from leads where id = ?1",
@@ -932,14 +899,14 @@ pub fn append_context(
             before,
             after,
             verb: "appendContext".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
 }
 
 /// Draft a message onto a lead's `messages` array — appended, never sent.
-pub fn draft_message(db: &mut Db, id: &str, msg: serde_json::Value) -> Result<i64, BoardError> {
+pub fn draft_message(db: &mut Db, id: &str, msg: serde_json::Value, actor: &str) -> Result<i64, BoardError> {
     let messages_text: Option<String> = db.query_opt(
         "select messages from leads where id = ?1",
         &[SqlParam::Text(id)],
@@ -962,14 +929,14 @@ pub fn draft_message(db: &mut Db, id: &str, msg: serde_json::Value) -> Result<i6
             before,
             after,
             verb: "draftMessage".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
 }
 
 /// Attach a call/meeting transcript to a lead's `transcripts` array.
-pub fn attach_transcript(db: &mut Db, id: &str, raw: &str, summary: &str) -> Result<i64, BoardError> {
+pub fn attach_transcript(db: &mut Db, id: &str, raw: &str, summary: &str, actor: &str) -> Result<i64, BoardError> {
     let transcripts_text: Option<String> = db.query_opt(
         "select transcripts from leads where id = ?1",
         &[SqlParam::Text(id)],
@@ -992,7 +959,7 @@ pub fn attach_transcript(db: &mut Db, id: &str, raw: &str, summary: &str) -> Res
             before,
             after,
             verb: "attachTranscript".into(),
-            actor: "local".into(),
+            actor: actor.into(),
         },
     )?;
     Ok(seq)
@@ -1002,13 +969,17 @@ pub fn attach_transcript(db: &mut Db, id: &str, raw: &str, summary: &str) -> Res
 // Tauri command layer — exposes the board verbs above to the frontend.
 // ---------------------------------------------------------------------------
 
-/// Open the board under the active project's directory. Routes through
-/// `open_board` (local SQLite, actor "local") — Phase 4.1 swaps the
-/// `None`/`"local"` for the configured `database_url`/actor.
-fn db_for_active(state: &crate::AppState) -> Result<Db, String> {
+/// Open the board under the active project's directory, sourcing the
+/// database URL + actor from the user's configured settings. Returns both
+/// the open `Db` and the resolved `Actor` so callers can attribute writes
+/// without loading settings twice.
+fn db_for_active(state: &crate::AppState) -> Result<(Db, Actor), String> {
     let dir = crate::projects::active_path(state)?;
-    open_board(&dir, None, &Actor { id: "local".into(), label: "You".into() })
-        .map_err(|e| format!("open board.db: {e}"))
+    let s = crate::settings::load();
+    let actor = actor_from(s.actor_name.as_deref());
+    let db = open_board(&dir, s.database_url.as_deref(), &actor)
+        .map_err(|e| format!("open board: {e}"))?;
+    Ok((db, actor))
 }
 
 /// Map a `BoardError` to a frontend-facing string. Stable prefixes
@@ -1052,7 +1023,7 @@ pub fn list_stages_json(db: &mut Db) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active(&state)?;
     list_stages_json(&mut db)
 }
 
@@ -1070,7 +1041,7 @@ pub fn get_config_json(db: &mut Db) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active(&state)?;
     get_config_json(&mut db)
 }
 
@@ -1091,7 +1062,7 @@ pub fn list_leads_json(db: &mut Db) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active(&state)?;
     list_leads_json(&mut db)
 }
 
@@ -1140,7 +1111,7 @@ pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String>
 
 #[tauri::command]
 pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active(&state)?;
     get_lead_json(&mut db, &id)
 }
 
@@ -1151,8 +1122,8 @@ pub fn board_add_lead(
     org: Option<String>,
     stage: String,
 ) -> Result<String, String> {
-    let mut db = db_for_active(&state)?;
-    add_lead(&mut db, &name, org.as_deref(), &stage, "local").map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    add_lead(&mut db, &name, org.as_deref(), &stage, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1162,8 +1133,8 @@ pub fn board_move_lead(
     to_stage: String,
     expected_version: i64,
 ) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    move_lead(&mut db, &id, &to_stage, expected_version).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    move_lead(&mut db, &id, &to_stage, expected_version, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1173,8 +1144,8 @@ pub fn board_append_context(
     research: serde_json::Value,
     expected_version: i64,
 ) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    append_context(&mut db, &id, research, expected_version).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    append_context(&mut db, &id, research, expected_version, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1183,8 +1154,8 @@ pub fn board_draft_message(
     id: String,
     msg: serde_json::Value,
 ) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    draft_message(&mut db, &id, msg).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    draft_message(&mut db, &id, msg, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1194,8 +1165,8 @@ pub fn board_attach_transcript(
     raw: String,
     summary: String,
 ) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    attach_transcript(&mut db, &id, &raw, &summary).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    attach_transcript(&mut db, &id, &raw, &summary, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1204,15 +1175,15 @@ pub fn board_rename_stage(
     id: String,
     label: String,
 ) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    rename_stage(&mut db, &id, &label).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    rename_stage(&mut db, &id, &label, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_reorder_stages(state: tauri::State<'_, crate::AppState>, ids: Vec<String>) -> Result<(), String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active(&state)?;
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    reorder_stages(&mut db, &refs).map_err(board_err)
+    reorder_stages(&mut db, &refs, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1221,20 +1192,20 @@ pub fn board_add_stage(
     label: String,
     position: i64,
 ) -> Result<String, String> {
-    let mut db = db_for_active(&state)?;
-    add_stage(&mut db, &label, position, "local").map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    add_stage(&mut db, &label, position, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_retire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    retire_stage(&mut db, &id).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    retire_stage(&mut db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_unretire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
-    let mut db = db_for_active(&state)?;
-    unretire_stage(&mut db, &id).map_err(board_err)
+    let (mut db, actor) = db_for_active(&state)?;
+    unretire_stage(&mut db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1247,9 +1218,9 @@ pub fn board_remap_stage(
     retire_source: bool,
     confirmed: bool,
 ) -> Result<serde_json::Value, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active(&state)?;
     let filter = org_filter.map(|org| LeadFilter { org: Some(org) });
-    let result = remap_stage(&mut db, &from, &to, filter, dry_run, retire_source, confirmed).map_err(board_err)?;
+    let result = remap_stage(&mut db, &from, &to, filter, dry_run, retire_source, confirmed, &actor.id).map_err(board_err)?;
     Ok(serde_json::json!({
         "affected": result.affected,
         "lead_ids": result.lead_ids,
@@ -1273,13 +1244,13 @@ pub fn list_rules_json(db: &mut Db) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active(&state)?;
     list_rules_json(&mut db)
 }
 
 #[tauri::command]
 pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Result<usize, String> {
-    let mut db = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active(&state)?;
     revert(&mut db, seq).map_err(|e| format!("db error: {e}"))
 }
 
@@ -1303,6 +1274,18 @@ mod tests {
     }
 
     #[test]
+    fn actor_from_slugifies_name_or_defaults_local() {
+        let a = actor_from(Some("Ada Lovelace"));
+        assert_eq!(a.id, "ada-lovelace");
+        assert_eq!(a.label, "Ada Lovelace");
+        let d = actor_from(None);
+        assert_eq!(d.id, "local");
+        assert_eq!(d.label, "You");
+        // empty / whitespace name → default, not an empty slug
+        assert_eq!(actor_from(Some("   ")).id, "local");
+    }
+
+    #[test]
     fn board_err_prefixes_are_stable_and_distinguishable() {
         assert!(board_err(BoardError::VersionConflict).starts_with("conflict:"));
         assert!(board_err(BoardError::RetiredIdReuse).starts_with("retired-id-reuse:"));
@@ -1314,36 +1297,34 @@ mod tests {
 
     #[test]
     fn board_config_seeds_created_by_local() {
-        let c = Connection::open_in_memory().unwrap();
-        init(&c).unwrap();
-        let created_by: String = c
-            .query_row("select created_by from board_config where id = 1", [], |r| r.get(0))
-            .unwrap();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut db = open_board(tmp.path(), None, &Actor { id: "local".into(), label: "You".into() }).unwrap();
+        let created_by = q_str(&mut db, "select created_by from board_config where id = 1");
         assert_eq!(created_by, "local");
     }
 
     #[test]
     fn bootstrap_seeds_default_stages_and_actor() {
-        let c = rusqlite::Connection::open_in_memory().unwrap();
-        init(&c).unwrap();
-        let n: i64 = c.query_row("select count(*) from stages", [], |r| r.get(0)).unwrap();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut db = open_board(tmp.path(), None, &Actor { id: "local".into(), label: "You".into() }).unwrap();
+        let n = q_i64(&mut db, "select count(*) from stages");
         assert_eq!(n, 5);
-        let first: String = c
-            .query_row("select id from stages order by position limit 1", [], |r| r.get(0))
-            .unwrap();
+        let first = q_str(&mut db, "select id from stages order by position limit 1");
         assert_eq!(first, "researching");
-        let actors: i64 = c.query_row("select count(*) from actors", [], |r| r.get(0)).unwrap();
+        let actors = q_i64(&mut db, "select count(*) from actors");
         assert_eq!(actors, 1);
     }
 
     #[test]
     fn bootstrap_is_idempotent() {
-        let c = rusqlite::Connection::open_in_memory().unwrap();
-        init(&c).unwrap();
-        init(&c).unwrap();
-        let n: i64 = c.query_row("select count(*) from stages", [], |r| r.get(0)).unwrap();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let actor = Actor { id: "local".into(), label: "You".into() };
+        let db = open_board(tmp.path(), None, &actor).unwrap();
+        drop(db);
+        let mut db2 = open_board(tmp.path(), None, &actor).unwrap();
+        let n = q_i64(&mut db2, "select count(*) from stages");
         assert_eq!(n, 5);
-        let actors: i64 = c.query_row("select count(*) from actors", [], |r| r.get(0)).unwrap();
+        let actors = q_i64(&mut db2, "select count(*) from actors");
         assert_eq!(actors, 1);
     }
 
@@ -1424,7 +1405,7 @@ mod tests {
     #[test]
     fn move_lead_detects_version_conflict() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
-        let err = move_lead(&mut db, "L1", "contacted", 99).unwrap_err();
+        let err = move_lead(&mut db, "L1", "contacted", 99, "local").unwrap_err();
         assert!(matches!(err, BoardError::VersionConflict));
         // and no write happened:
         let stage = q_str(&mut db, "select stage from leads where id='L1'");
@@ -1434,7 +1415,7 @@ mod tests {
     #[test]
     fn move_lead_succeeds_on_correct_version() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
-        move_lead(&mut db, "L1", "contacted", 1).unwrap(); // seed_lead sets version 1
+        move_lead(&mut db, "L1", "contacted", 1, "local").unwrap(); // seed_lead sets version 1
         let stage = q_str(&mut db, "select stage from leads where id='L1'");
         assert_eq!(stage, "contacted");
     }
@@ -1461,7 +1442,7 @@ mod tests {
     #[test]
     fn rename_stage_touches_no_cards() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
-        rename_stage(&mut db, "researching", "Prospecting").unwrap();
+        rename_stage(&mut db, "researching", "Prospecting", "local").unwrap();
         let label = q_str(&mut db, "select label from stages where id='researching'");
         let stage = q_str(&mut db, "select stage from leads where id='L1'");
         assert_eq!(label, "Prospecting");
@@ -1473,7 +1454,7 @@ mod tests {
         let (_tmp, mut db) = seeded_db();
         db.exec("insert into rules(id,name,enabled,conditions,action) values('r1','no_intro_path',1,?1,'propose')",
             &[SqlParam::Json(serde_json::json!({"stage":"ready_to_contact"}).to_string())]).unwrap();
-        let err = retire_stage(&mut db, "ready_to_contact").unwrap_err();
+        let err = retire_stage(&mut db, "ready_to_contact", "local").unwrap_err();
         match err { BoardError::RuleBlocked(names) => assert_eq!(names, vec!["no_intro_path".to_string()]), _ => panic!("expected RuleBlocked") }
         // and the stage was NOT retired:
         let retired = q_opt_str(&mut db, "select retired_at from stages where id='ready_to_contact'");
@@ -1483,7 +1464,7 @@ mod tests {
     #[test]
     fn retire_empty_stage_succeeds() {
         let (_tmp, mut db) = seeded_db();
-        retire_stage(&mut db, "warm").unwrap(); // no cards, no rules
+        retire_stage(&mut db, "warm", "local").unwrap(); // no cards, no rules
         let retired = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(retired.is_some());
     }
@@ -1493,7 +1474,7 @@ mod tests {
         let (_tmp, mut db) = seeded_db();
         db.exec("insert into rules(id,name,enabled,conditions,action) values('r1','off_rule',0,?1,'propose')",
             &[SqlParam::Json(serde_json::json!({"stage":"warm"}).to_string())]).unwrap();
-        retire_stage(&mut db, "warm").unwrap(); // rule is disabled -> no block
+        retire_stage(&mut db, "warm", "local").unwrap(); // rule is disabled -> no block
         let retired = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(retired.is_some());
     }
@@ -1502,7 +1483,7 @@ mod tests {
     fn remap_dryrun_counts_without_writing() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "contacted");
         seed_lead(&mut db, "L2", "contacted");
-        let r = remap_stage(&mut db, "contacted", "warm", None, true, false, false).unwrap();
+        let r = remap_stage(&mut db, "contacted", "warm", None, true, false, false, "local").unwrap();
         assert_eq!(r.affected, 2);
         let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 0); // dryRun wrote nothing
@@ -1514,7 +1495,7 @@ mod tests {
     fn remap_writes_one_event_per_lead() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "contacted");
         seed_lead(&mut db, "L2", "contacted");
-        let r = remap_stage(&mut db, "contacted", "warm", None, false, false, false).unwrap();
+        let r = remap_stage(&mut db, "contacted", "warm", None, false, false, false, "local").unwrap();
         assert_eq!(r.affected, 2);
         let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 2); // one per lead, never batched
@@ -1526,19 +1507,19 @@ mod tests {
     fn remap_over_five_needs_confirm() {
         let (_tmp, mut db) = seeded_db();
         for i in 0..6 { seed_lead(&mut db, &format!("L{i}"), "contacted"); } // 6 > 5
-        let err = remap_stage(&mut db, "contacted", "warm", None, false, false, false).unwrap_err();
+        let err = remap_stage(&mut db, "contacted", "warm", None, false, false, false, "local").unwrap_err();
         assert!(matches!(err, BoardError::NeedsConfirm(6)));
         let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 0); // blocked, no writes
         // exactly 5 proceeds without confirm (boundary):
         let (_tmp2, mut db2) = seeded_db();
         for i in 0..5 { seed_lead(&mut db2, &format!("L{i}"), "contacted"); }
-        let r = remap_stage(&mut db2, "contacted", "warm", None, false, false, false).unwrap();
+        let r = remap_stage(&mut db2, "contacted", "warm", None, false, false, false, "local").unwrap();
         assert_eq!(r.affected, 5);
         // and with confirmed=true, 6 proceeds:
         let (_tmp3, mut db3) = seeded_db();
         for i in 0..6 { seed_lead(&mut db3, &format!("L{i}"), "contacted"); }
-        let r3 = remap_stage(&mut db3, "contacted", "warm", None, false, true, true).unwrap();
+        let r3 = remap_stage(&mut db3, "contacted", "warm", None, false, true, true, "local").unwrap();
         assert_eq!(r3.affected, 6);
     }
 
@@ -1547,7 +1528,7 @@ mod tests {
         let (_tmp, mut db) = seeded_db();
         for i in 0..3 { seed_lead(&mut db, &format!("L{i}"), "contacted"); }
         // remap to a NON-EXISTENT stage -> must fail cleanly with NO partial writes
-        let err = remap_stage(&mut db, "contacted", "does_not_exist", None, false, false, false).unwrap_err();
+        let err = remap_stage(&mut db, "contacted", "does_not_exist", None, false, false, false, "local").unwrap_err();
         assert!(matches!(err, BoardError::NotFound));
         let events = q_i64(&mut db, "select count(*) from events");
         assert_eq!(events, 0);            // nothing written
@@ -1558,7 +1539,7 @@ mod tests {
     #[test]
     fn remap_retire_source_sets_retired_at_never_deletes() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "contacted");
-        remap_stage(&mut db, "contacted", "warm", None, false, true, false).unwrap();
+        remap_stage(&mut db, "contacted", "warm", None, false, true, false, "local").unwrap();
         let retired = q_opt_str(&mut db, "select retired_at from stages where id='contacted'");
         assert!(retired.is_some()); // retired, not deleted
         let exists = q_i64(&mut db, "select count(*) from stages where id='contacted'");
@@ -1568,9 +1549,9 @@ mod tests {
     #[test]
     fn append_context_merges_never_replaces() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching"); // seed_lead sets version 1
-        append_context(&mut db, "L1", serde_json::json!({"fact":"CTO is Ana","source":"paste-1"}), 1).unwrap();
+        append_context(&mut db, "L1", serde_json::json!({"fact":"CTO is Ana","source":"paste-1"}), 1, "local").unwrap();
         // version bumped to 2 after first append:
-        append_context(&mut db, "L1", serde_json::json!({"fact":"Series B","source":"paste-2"}), 2).unwrap();
+        append_context(&mut db, "L1", serde_json::json!({"fact":"Series B","source":"paste-2"}), 2, "local").unwrap();
         let ctx = q_str(&mut db, "select context from leads where id='L1'");
         let v: serde_json::Value = serde_json::from_str(&ctx).unwrap();
         let facts = v["facts"].as_array().unwrap();
@@ -1582,7 +1563,7 @@ mod tests {
     #[test]
     fn append_context_version_conflict_writes_nothing() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
-        let err = append_context(&mut db, "L1", serde_json::json!({"fact":"x"}), 99).unwrap_err();
+        let err = append_context(&mut db, "L1", serde_json::json!({"fact":"x"}), 99, "local").unwrap_err();
         assert!(matches!(err, BoardError::VersionConflict));
         let ctx = q_str(&mut db, "select context from leads where id='L1'");
         assert_eq!(ctx, "{}"); // untouched
@@ -1601,7 +1582,7 @@ mod tests {
     #[test]
     fn attach_transcript_appends() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
-        attach_transcript(&mut db, "L1", "raw call text", "they want a demo").unwrap();
+        attach_transcript(&mut db, "L1", "raw call text", "they want a demo", "local").unwrap();
         let t = q_str(&mut db, "select transcripts from leads where id='L1'");
         let v: serde_json::Value = serde_json::from_str(&t).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 1);
@@ -1612,7 +1593,7 @@ mod tests {
     fn revert_restores_retired_at() {
         let (_tmp, mut db) = seeded_db();
         let before_seq = q_i64(&mut db, "select coalesce(max(seq),0) from events");
-        retire_stage(&mut db, "warm").unwrap();
+        retire_stage(&mut db, "warm", "local").unwrap();
         let retired = q_opt_str(&mut db, "select retired_at from stages where id='warm'");
         assert!(retired.is_some());
         revert(&mut db, before_seq).unwrap();
@@ -1625,7 +1606,7 @@ mod tests {
         let (_tmp, mut db) = seeded_db();
         for id in ["A","B","C","D"] { seed_lead(&mut db, id, "contacted"); }
         let seq_before = q_i64(&mut db, "select coalesce(max(seq),0) from events");
-        remap_stage(&mut db, "contacted", "won", None, false, true, true).unwrap();
+        remap_stage(&mut db, "contacted", "won", None, false, true, true, "local").unwrap();
         let retired = q_opt_str(&mut db, "select retired_at from stages where id='contacted'");
         assert!(retired.is_some());
         revert(&mut db, seq_before).unwrap();
@@ -1641,7 +1622,7 @@ mod tests {
         let (_tmp, mut db) = seeded_db();
         let before_pos = q_i64(&mut db, "select position from stages where id='researching'");
         let seq_before = q_i64(&mut db, "select coalesce(max(seq),0) from events");
-        reorder_stages(&mut db, &["won","warm","contacted","ready_to_contact","researching"]).unwrap();
+        reorder_stages(&mut db, &["won","warm","contacted","ready_to_contact","researching"], "local").unwrap();
         let moved = q_i64(&mut db, "select position from stages where id='researching'");
         assert_ne!(moved, before_pos);
         revert(&mut db, seq_before).unwrap();
@@ -1671,11 +1652,11 @@ mod tests {
     #[test]
     fn revert_unretire_restores_retired_at() {
         let (_tmp, mut db) = seeded_db();
-        retire_stage(&mut db, "won").unwrap();
+        retire_stage(&mut db, "won", "local").unwrap();
         let retired_before = q_opt_str(&mut db, "select retired_at from stages where id='won'");
         assert!(retired_before.is_some(), "won should be retired");
         let base = q_i64(&mut db, "select coalesce(max(seq),0) from events");
-        unretire_stage(&mut db, "won").unwrap();
+        unretire_stage(&mut db, "won", "local").unwrap();
         let active = q_opt_str(&mut db, "select retired_at from stages where id='won'");
         assert!(active.is_none(), "unretire clears retired_at");
         revert(&mut db, base).unwrap();
@@ -1692,20 +1673,20 @@ mod tests {
         assert_eq!(sid, "follow-up");
         for id in ["A", "B", "C", "D"] {
             seed_lead(&mut db, id, "researching");      // seed_lead sets version 1
-            move_lead(&mut db, id, &sid, 1).unwrap();   // researching(v1) -> follow-up(v2)
+            move_lead(&mut db, id, &sid, 1, "local").unwrap();   // researching(v1) -> follow-up(v2)
         }
 
         // Rename it twice, reorder it.
-        rename_stage(&mut db, &sid, "Chasing").unwrap();
-        rename_stage(&mut db, &sid, "Nudging").unwrap();
-        reorder_stages(&mut db, &["researching", "follow-up", "ready_to_contact", "contacted", "warm", "won"]).unwrap();
+        rename_stage(&mut db, &sid, "Chasing", "local").unwrap();
+        rename_stage(&mut db, &sid, "Nudging", "local").unwrap();
+        reorder_stages(&mut db, &["researching", "follow-up", "ready_to_contact", "contacted", "warm", "won"], "local").unwrap();
 
         // A rule references it — merge must be BLOCKED until remapped.
         db.exec(
             "insert into rules(id,name,enabled,conditions,action) values('r','chase_rule',1,?1,'propose')",
             &[SqlParam::Json(serde_json::json!({"stage":"follow-up"}).to_string())],
         ).unwrap();
-        let blocked = remap_stage(&mut db, "follow-up", "won", None, false, true, true);
+        let blocked = remap_stage(&mut db, "follow-up", "won", None, false, true, true, "local");
         assert!(matches!(blocked, Err(BoardError::RuleBlocked(_))));
 
         // Remap the rule's reference away, then the merge succeeds.
@@ -1716,7 +1697,7 @@ mod tests {
 
         // Watermark BEFORE the merge, so we can revert exactly the merge.
         let seq_before_merge = q_i64(&mut db, "select max(seq) from events");
-        let r = remap_stage(&mut db, "follow-up", "won", None, false, true, true).unwrap();
+        let r = remap_stage(&mut db, "follow-up", "won", None, false, true, true, "local").unwrap();
         assert_eq!(r.affected, 4);
         for id in ["A", "B", "C", "D"] {
             let s = q_str(&mut db, &format!("select stage from leads where id='{id}'"));

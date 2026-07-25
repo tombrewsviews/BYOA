@@ -119,9 +119,13 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
     fs::write(dir.join(DOC_FILENAME), SEED_BOARD).map_err(|e| format!("write doc: {}", e))?;
     crate::prompt_mode::ensure_seeded(&dir);
     // Create + seed the board (schema + bootstrap stages) so the project has a
-    // ready board.db before any command runs.
+    // ready board before any command runs. If a shared DB is configured, this
+    // confirms/seeds the shared board (idempotent); otherwise it seeds the
+    // local board.db.
     {
-        let _ = crate::board::open(&dir.join("board.db"))
+        let s = crate::settings::load();
+        let actor = crate::board::actor_from(s.actor_name.as_deref());
+        let _ = crate::board::open_board(&dir, s.database_url.as_deref(), &actor)
             .map_err(|e| format!("init board.db: {}", e))?;
     }
     crate::skill::write(&dir, &crate::skill::OUTREACH_BUNDLE)
