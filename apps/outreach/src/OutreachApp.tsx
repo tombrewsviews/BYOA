@@ -89,6 +89,15 @@ const PropertiesPanel: React.FC<{
     };
   }, []);
 
+  // The selected lead's stage/archived state as seen by the 2s board poll. When
+  // it changes (e.g. the card was dragged to another column in the board
+  // window), re-fetch the detail so the Inspector's Stage dropdown and badge
+  // stay in sync — otherwise the detail is stale until the lead is reselected.
+  const selectedSignal = (() => {
+    const l = leads.find((x) => x.id === selectedLeadId);
+    return l ? `${l.stage}|${l.archivedAt ?? ""}` : "";
+  })();
+
   useEffect(() => {
     if (!isTauri() || !selectedLeadId) {
       setSelectedLead(null);
@@ -97,7 +106,7 @@ const PropertiesPanel: React.FC<{
     void getLead(selectedLeadId)
       .then(setSelectedLead)
       .catch(() => setSelectedLead(null));
-  }, [selectedLeadId, reloadKey]);
+  }, [selectedLeadId, reloadKey, selectedSignal]);
 
   const reloadLead = useCallback(() => setReloadKey((k) => k + 1), []);
 

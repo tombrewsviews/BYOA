@@ -29,6 +29,26 @@ const PRESENTATION_KEY = "presentation";
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** Coerce a fact into a plain object when possible: pass objects through, and
+ *  parse strings that are actually JSON objects (the agent often stores an
+ *  enrichment as a `JSON.stringify`'d string rather than a real object — those
+ *  must render as fields, not as a wall of raw JSON). Returns null otherwise. */
+const asObject = (fact: unknown): Record<string, unknown> | null => {
+  if (isObject(fact)) return fact;
+  if (typeof fact === "string") {
+    const t = fact.trim();
+    if (t.startsWith("{") && t.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(t);
+        if (isObject(parsed)) return parsed;
+      } catch {
+        /* not JSON — fall through to plain-text rendering */
+      }
+    }
+  }
+  return null;
+};
+
 const humanize = (key: string): string =>
   key
     .replace(/_/g, " ")
@@ -75,17 +95,18 @@ const Fact: React.FC<{
   fact: unknown;
   onRevealAttachment: (path: string) => void;
 }> = ({ fact, onRevealAttachment }) => {
-  if (isObject(fact)) {
+  const obj = asObject(fact);
+  if (obj) {
     // A note marker: { note: "..." }
-    if (typeof fact[NOTE_KEY] === "string" && Object.keys(fact).length <= 2) {
+    if (typeof obj[NOTE_KEY] === "string" && Object.keys(obj).length <= 2) {
       return (
         <div className="rounded-md border border-border bg-muted/40 p-2 text-sm text-foreground">
-          {String(fact[NOTE_KEY])}
+          {String(obj[NOTE_KEY])}
         </div>
       );
     }
     // A presentation attachment: { presentation: { name, path } }
-    const pres = fact[PRESENTATION_KEY];
+    const pres = obj[PRESENTATION_KEY];
     if (isObject(pres) && typeof pres.path === "string") {
       const name = typeof pres.name === "string" ? pres.name : "Attachment";
       return (
@@ -101,7 +122,7 @@ const Fact: React.FC<{
     // Generic object → field rows.
     return (
       <div className="rounded-md border border-border p-2">
-        {Object.entries(fact).map(([k, v]) => (
+        {Object.entries(obj).map(([k, v]) => (
           <FieldRow key={k} label={humanize(k)} value={typeof v === "string" ? v : JSON.stringify(v)} />
         ))}
       </div>

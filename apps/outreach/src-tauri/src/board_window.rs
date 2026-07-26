@@ -6,7 +6,20 @@
 //! is a first-party React bundle built by our own Vite as `board.html`, so we
 //! load it with `WebviewUrl::App` — no localhost server, no port, no .mcp.json.
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+/// Relay a card selection from the board window to the main (agent) window,
+/// which opens its Inspector on that lead. Going through the backend guarantees
+/// the event reaches the *other* window — a webview-side `emit` does not
+/// reliably cross windows in every Tauri build. Emitted to the "main" window
+/// specifically so only the Inspector reacts.
+#[tauri::command]
+pub fn board_select_lead(app: AppHandle, id: String) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit("board://select-lead", id);
+    }
+    Ok(())
+}
 
 /// Open the kanban board in its own window (label "board"), loading the
 /// first-party `board.html` bundle. Idempotent: focuses the existing window if

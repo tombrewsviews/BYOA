@@ -282,7 +282,7 @@ function AddLead({ onAdd }: { onAdd: (name: string, org: string | null) => void 
     <div className="flex flex-none flex-col gap-1 p-2">
       <input
         autoFocus
-        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-foreground placeholder:text-muted-foreground"
         placeholder="Name"
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -292,7 +292,7 @@ function AddLead({ onAdd }: { onAdd: (name: string, org: string | null) => void 
         }}
       />
       <input
-        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-foreground placeholder:text-muted-foreground"
         placeholder="Company (optional)"
         value={org}
         onChange={(e) => setOrg(e.target.value)}
@@ -347,7 +347,7 @@ function AddColumn({ onAdd }: { onAdd: (label: string) => void }) {
     <div className="flex w-56 shrink-0 flex-col gap-1 rounded-lg border border-border bg-card p-2">
       <input
         autoFocus
-        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-foreground placeholder:text-muted-foreground"
         placeholder="Column name"
         value={label}
         onChange={(e) => setLabel(e.target.value)}

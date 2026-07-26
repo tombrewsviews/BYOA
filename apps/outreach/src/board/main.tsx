@@ -14,12 +14,14 @@ function BoardApp() {
   React.useEffect(() => poll((d) => { setStages(d.stages); setLeads(d.leads); }), []);
 
   // Selecting a card in this (board) window tells the main window to open the
-  // Inspector on that lead — Tauri `emit` broadcasts to every window.
+  // Inspector on that lead. Routed through the backend (`board_select_lead`),
+  // which emits to the main window explicitly — a webview-side `emit` does not
+  // reliably cross windows.
   const onSelect = React.useCallback((id: string) => {
     setSelectedId(id);
     void (async () => {
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit("board://select-lead", id).catch(() => {});
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("board_select_lead", { id }).catch(() => {});
     })();
   }, []);
 

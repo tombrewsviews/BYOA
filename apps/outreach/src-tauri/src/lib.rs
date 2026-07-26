@@ -132,6 +132,7 @@ pub fn run() {
             board::board_revert,
             board_window::board_window_open,
             board_window::board_window_close,
+            board_window::board_select_lead,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

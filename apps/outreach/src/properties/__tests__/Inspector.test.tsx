@@ -44,4 +44,17 @@ describe("Inspector", () => {
     expect(screen.getByText("Discussed pilot in Q3")).toBeInTheDocument();
     expect(screen.queryByText("long raw text")).not.toBeInTheDocument();  // raw NOT shown, only summary
   });
+
+  it("renders a JSON-string fact as formatted field rows, not raw JSON", () => {
+    const jsonStringFact = JSON.stringify({ tier: "Tier 1", role: "Head of Automation" });
+    const withJson: LeadDetail = { ...lead, context: { facts: [jsonStringFact] } };
+    render(<Inspector lead={withJson} {...handlers} />);
+    // The humanized field labels and values appear...
+    expect(screen.getByText("Tier")).toBeInTheDocument();
+    expect(screen.getByText("Tier 1")).toBeInTheDocument();
+    expect(screen.getByText("Role")).toBeInTheDocument();
+    expect(screen.getByText("Head of Automation")).toBeInTheDocument();
+    // ...and the raw JSON braces do not.
+    expect(screen.queryByText(/\{"tier"/)).not.toBeInTheDocument();
+  });
 });

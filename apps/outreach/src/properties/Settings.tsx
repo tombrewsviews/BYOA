@@ -56,9 +56,29 @@ const StageRow: React.FC<{
   onMoveDown?: () => void;
 }> = ({ stage, onRename, onRemove, onMoveUp, onMoveDown }) => {
   const [label, setLabel] = useState(stage.label);
+  // Keep the field in sync when the label changes elsewhere (poll/other window),
+  // but not while the user is actively editing this input.
+  const editing = React.useRef(false);
+  React.useEffect(() => {
+    if (!editing.current) setLabel(stage.label);
+  }, [stage.label]);
 
-  const commit = () => {
-    if (label !== stage.label) onRename(stage.id, label);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commit = (next: string) => {
+    if (next.trim() && next !== stage.label) onRename(stage.id, next);
+  };
+  // Live rename: debounce a rename ~400ms after typing stops so the board
+  // column header updates as you type, without an event per keystroke.
+  const onChange = (next: string) => {
+    setLabel(next);
+    editing.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => commit(next), 400);
+  };
+  const flush = () => {
+    editing.current = false;
+    if (timer.current) clearTimeout(timer.current);
+    commit(label);
   };
 
   return (
@@ -66,10 +86,10 @@ const StageRow: React.FC<{
       <div className="flex items-center gap-1">
         <Input
           value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          onBlur={commit}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={flush}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
+            if (e.key === "Enter") flush();
           }}
         />
         <Button
