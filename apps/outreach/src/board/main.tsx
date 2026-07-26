@@ -22,8 +22,26 @@ function BoardApp() {
   const [showArchived, setShowArchived] = React.useState(false);
   const [status, setStatus] = React.useState<PollStatus>("loading");
 
+  // Ignore a poll result that's identical to what we already show, so the 5s
+  // shared-board poll doesn't replace the arrays (new object identities) and
+  // force every memoized card to re-render — that re-render was the scroll
+  // stutter. Only genuinely-changed data updates state.
+  const lastStagesJson = React.useRef("");
+  const lastLeadsJson = React.useRef("");
   React.useEffect(
-    () => poll((d) => { setStages(d.stages); setLeads(d.leads); }, 1500, setStatus),
+    () =>
+      poll((d) => {
+        const sj = JSON.stringify(d.stages);
+        if (sj !== lastStagesJson.current) {
+          lastStagesJson.current = sj;
+          setStages(d.stages);
+        }
+        const lj = JSON.stringify(d.leads);
+        if (lj !== lastLeadsJson.current) {
+          lastLeadsJson.current = lj;
+          setLeads(d.leads);
+        }
+      }, 1500, setStatus),
     [],
   );
 
@@ -49,6 +67,17 @@ function BoardApp() {
   }, []);
 
   const onMove = React.useCallback((id: string, to: string, version: number) => {
+    // Optimistic: move the card in the UI immediately so the drag feels instant,
+    // instead of waiting for the remote write + next poll (up to seconds on a
+    // shared board). The write goes out in the background; the next poll
+    // reconciles (and snaps back if it was rejected, e.g. a version conflict).
+    setLeads((prev) => {
+      const next = prev.map((l) =>
+        l.id === id ? { ...l, stage: to, version: l.version + 1 } : l,
+      );
+      lastLeadsJson.current = JSON.stringify(next);
+      return next;
+    });
     void moveLead(id, to, version).catch(() => {/* conflict → next poll reconciles */});
   }, []);
 
@@ -65,12 +94,26 @@ function BoardApp() {
   }, []);
 
   const onArchive = React.useCallback((id: string, archived: boolean) => {
+    // Optimistic (same rationale as onMove): reflect archive/restore instantly.
+    setLeads((prev) => {
+      const next = prev.map((l) =>
+        l.id === id ? { ...l, archivedAt: archived ? new Date().toISOString() : null } : l,
+      );
+      lastLeadsJson.current = JSON.stringify(next);
+      return next;
+    });
     void setLeadArchived(id, archived).catch(() => {});
   }, []);
 
   const onDelete = React.useCallback((id: string, name: string) => {
     // Native confirm — one guard against an accidental permanent delete.
     if (!window.confirm(`Delete "${name}"? This removes the card from the board.`)) return;
+    // Optimistic: drop the card from the UI immediately.
+    setLeads((prev) => {
+      const next = prev.filter((l) => l.id !== id);
+      lastLeadsJson.current = JSON.stringify(next);
+      return next;
+    });
     void deleteLead(id).catch(() => {});
     setSelectedId((cur) => (cur === id ? null : cur));
   }, []);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Archive, ArchiveRestore, MoreHorizontal, Trash2 } from "../icons";
 import type { Stage, Lead } from "./types";
@@ -95,7 +95,7 @@ export function Kanban({
   );
 }
 
-function Column({
+const Column = memo(function Column({
   label,
   leads,
   selectedId,
@@ -139,9 +139,9 @@ function Column({
       {onAddLead ? <AddLead onAdd={onAddLead} /> : null}
     </div>
   );
-}
+});
 
-function LeadCard({
+const LeadCard = memo(function LeadCard({
   lead,
   selected,
   onSelect,
@@ -205,7 +205,7 @@ function LeadCard({
       )}
     </div>
   );
-}
+});
 
 /** The small popover shown by a card's ⋯ button: Archive/Restore + Delete. */
 function CardMenu({
