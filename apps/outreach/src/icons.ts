@@ -27,6 +27,8 @@ export {
   Eye,
   MessageSquare,
   PanelRight,
+  Bell,
+  CheckCheck,
   Trash2,
   Copy,
   Paperclip,

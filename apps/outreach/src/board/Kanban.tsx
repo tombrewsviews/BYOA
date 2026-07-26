@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Archive, ArchiveRestore, MoreHorizontal, Trash2 } from "../icons";
+import { NotificationBell } from "./NotificationBell";
 import type { Stage, Lead } from "./types";
 
 interface KanbanProps {
@@ -72,6 +73,7 @@ export function Kanban({
         >
           {showArchived ? "Hide archived" : `Show archived${archivedCount ? ` (${archivedCount})` : ""}`}
         </button>
+        <NotificationBell />
       </div>
       <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto p-3">
         {columns.map((stage) => (

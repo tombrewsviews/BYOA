@@ -60,6 +60,20 @@ create table if not exists rules (
   conditions text not null,
   action     text not null
 );
+create table if not exists notifications (
+  seq        integer primary key autoincrement,
+  recipient  text not null,
+  kind       text not null,
+  lead_id    text,
+  actor      text not null,
+  body       text not null,
+  created_at text not null
+);
+create table if not exists notification_reads (
+  actor      text primary key,
+  up_to_seq  int  not null default 0
+);
+create index if not exists idx_notifications_recipient on notifications(recipient, seq);
 ";
 
 /// The five default stages, in order: (id, label).
@@ -98,8 +112,9 @@ pub fn actor_from(name: Option<&str>) -> Actor {
 /// every integer column is `bigint`; `events.seq` is
 /// `bigint generated always as identity primary key`; `board_config.id` is
 /// `bigint primary key check (id = 1)`. The `events` column stays named
-/// `type`. Everything else ports verbatim.
-const PG_SCHEMA_STMTS: [&str; 6] = [
+/// `type`. Everything else ports verbatim. `notifications.seq` uses the same
+/// `bigint generated always as identity` identity as `events.seq`.
+const PG_SCHEMA_STMTS: [&str; 9] = [
     "create table if not exists actors (
       id         text primary key,
       label      text not null,
@@ -151,6 +166,20 @@ const PG_SCHEMA_STMTS: [&str; 6] = [
       conditions text not null,
       action     text not null
     )",
+    "create table if not exists notifications (
+      seq        bigint generated always as identity primary key,
+      recipient  text not null,
+      kind       text not null,
+      lead_id    text,
+      actor      text not null,
+      body       text not null,
+      created_at text not null
+    )",
+    "create table if not exists notification_reads (
+      actor      text primary key,
+      up_to_seq  bigint not null default 0
+    )",
+    "create index if not exists idx_notifications_recipient on notifications(recipient, seq)",
 ];
 
 /// Run the SQLite schema (idempotent) over a `Db::Sqlite` handle via
@@ -690,6 +719,119 @@ impl From<DbError> for BoardError {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Notifications: rows in `notifications` that tell a user something happened.
+// Generated inside the same transaction as the triggering write, so a
+// notification never exists without its cause (and a rolled-back write leaves
+// no orphan notification). Recipients are always OTHER actors than the causer
+// ("others only" — you never notify yourself). A `lead_id` is stored so the
+// bell can open the lead when the notification is clicked.
+// ---------------------------------------------------------------------------
+
+/// The board's kinds of notification. `as_str` is what's stored in the `kind`
+/// column and what the frontend switches on.
+#[derive(Clone, Copy)]
+enum NotifKind {
+    Mention,
+    Stage,
+    Note,
+    LeadAdded,
+}
+
+impl NotifKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            NotifKind::Mention => "mention",
+            NotifKind::Stage => "stage",
+            NotifKind::Note => "note",
+            NotifKind::LeadAdded => "lead_added",
+        }
+    }
+}
+
+/// Insert one notification row for `recipient`. Called inside the caller's
+/// transaction. `created_at` is stamped here (now).
+fn insert_notification(
+    db: &mut Db,
+    recipient: &str,
+    kind: NotifKind,
+    lead_id: Option<&str>,
+    actor: &str,
+    body: &str,
+) -> Result<(), DbError> {
+    let now = chrono::Utc::now().to_rfc3339();
+    db.exec(
+        "insert into notifications (recipient, kind, lead_id, actor, body, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6)",
+        &[
+            SqlParam::Text(recipient),
+            SqlParam::Text(kind.as_str()),
+            SqlParam::OptText(lead_id),
+            SqlParam::Text(actor),
+            SqlParam::Text(body),
+            SqlParam::Text(&now),
+        ],
+    )?;
+    Ok(())
+}
+
+/// Every actor id EXCEPT `except` — the recipient set for "notify everyone else"
+/// events (stage changes, new leads). On a solo board this is empty, so no
+/// notification rows are created.
+fn other_actors(db: &mut Db, except: &str) -> Result<Vec<String>, DbError> {
+    db.query_all(
+        "select id from actors where id <> ?1",
+        &[SqlParam::Text(except)],
+        |r| r.get_str(0),
+    )
+}
+
+/// The label of a lead (its display name), for a notification body. Falls back
+/// to the id if the lead is somehow gone.
+fn lead_label(db: &mut Db, lead_id: &str) -> Result<String, DbError> {
+    Ok(db
+        .query_opt("select name from leads where id = ?1", &[SqlParam::Text(lead_id)], |r| r.get_str(0))?
+        .unwrap_or_else(|| lead_id.to_string()))
+}
+
+/// Resolve `@name` mentions in a note to actor ids. Matches greedily against
+/// every actor's label: an actor is mentioned if `@<label>` appears in the note
+/// (case-insensitive). Matching the full label (not a single token) is what lets
+/// "@Ada Lovelace" resolve to one actor even though the label has a space.
+/// Returns distinct actor ids, excluding `except` (you don't @-notify yourself).
+fn parse_mentions(db: &mut Db, note: &str, except: &str) -> Result<Vec<String>, DbError> {
+    let actors: Vec<(String, String)> = db.query_all(
+        "select id, label from actors",
+        &[],
+        |r| Ok((r.get_str(0)?, r.get_str(1)?)),
+    )?;
+    let haystack = note.to_lowercase();
+    let mut ids = Vec::new();
+    for (id, label) in actors {
+        if id == except {
+            continue;
+        }
+        let needle = format!("@{}", label.to_lowercase());
+        if haystack.contains(&needle) && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
+/// Actor ids previously @-mentioned on `lead_id` (distinct recipients of past
+/// `mention` notifications for that lead) — the recipient set for "a new note
+/// was added to a lead you were mentioned in". Excludes `except` (the note's
+/// author).
+fn mentioned_actors_on_lead(db: &mut Db, lead_id: &str, except: &str) -> Result<Vec<String>, DbError> {
+    db.query_all(
+        "select distinct recipient from notifications
+         where lead_id = ?1 and kind = 'mention' and recipient <> ?2",
+        &[SqlParam::Text(lead_id), SqlParam::Text(except)],
+        |r| r.get_str(0),
+    )
+}
+
 /// Move a lead to a new stage, enforcing optimistic concurrency: the caller
 /// must supply the version they last read, or the write is rejected.
 pub fn move_lead(
@@ -710,18 +852,43 @@ pub fn move_lead(
         return Err(BoardError::VersionConflict);
     }
 
-    let seq = commit(
-        db,
-        &Event {
-            kind: "lead.stage".into(),
-            entity_id: id.into(),
-            before: serde_json::json!({"stage": current_stage}),
-            after: serde_json::json!({"stage": to_stage}),
-            verb: "moveLead".into(),
-            actor: actor.into(),
-        },
-    )?;
+    // The move and its stage notifications share one transaction (the inner
+    // `commit` nests its savepoint inside this one), so a notification never
+    // outlives a rolled-back move.
+    let seq = with_tx(db, |db| {
+        let seq = commit(
+            db,
+            &Event {
+                kind: "lead.stage".into(),
+                entity_id: id.into(),
+                before: serde_json::json!({"stage": current_stage}),
+                after: serde_json::json!({"stage": to_stage}),
+                verb: "moveLead".into(),
+                actor: actor.into(),
+            },
+        )?;
+        notify_stage_change(db, id, to_stage, actor)?;
+        Ok(seq)
+    })?;
     Ok(seq)
+}
+
+/// Notify every OTHER actor that `actor` moved `lead_id` to `to_stage`.
+/// Body reads "{lead} → {stage label}". No-op on a solo board.
+fn notify_stage_change(db: &mut Db, lead_id: &str, to_stage: &str, actor: &str) -> Result<(), DbError> {
+    let recipients = other_actors(db, actor)?;
+    if recipients.is_empty() {
+        return Ok(());
+    }
+    let lead = lead_label(db, lead_id)?;
+    let stage_label = db
+        .query_opt("select label from stages where id = ?1", &[SqlParam::Text(to_stage)], |r| r.get_str(0))?
+        .unwrap_or_else(|| to_stage.to_string());
+    let body = format!("{lead} → {stage_label}");
+    for r in &recipients {
+        insert_notification(db, r, NotifKind::Stage, Some(lead_id), actor, &body)?;
+    }
+    Ok(())
 }
 
 /// Archive or restore a lead. `archived = true` sets `archived_at` to now (the
@@ -1085,6 +1252,7 @@ pub fn remap_stage(
                     actor: actor.into(),
                 },
             )?;
+            notify_stage_change(db, id, to, actor)?;
         }
 
         if retire_source {
@@ -1143,6 +1311,12 @@ pub fn add_lead(
                 actor: actor.into(),
             },
         )?;
+        // Notify every other actor that a new lead was added to the board.
+        let recipients = other_actors(db, actor)?;
+        let body = format!("New lead: {name}");
+        for r in &recipients {
+            insert_notification(db, r, NotifKind::LeadAdded, Some(&id), actor, &body)?;
+        }
         Ok(())
     })?;
 
@@ -1174,22 +1348,64 @@ pub fn append_context(
     let before: serde_json::Value = serde_json::from_str(&context_text)
         .map_err(|e: serde_json::Error| BoardError::Db(DbError::Json(e.to_string())))?;
 
+    // A `{ note: "..." }` fact is a user note — it can @-mention people and
+    // notifies anyone previously mentioned on this lead. Other fact kinds (agent
+    // enrichment, attachments) carry no note text, so they generate no
+    // notifications. Capture the note text before `research` is moved into `facts`.
+    let note_text = research.get("note").and_then(|v| v.as_str()).map(str::to_string);
+
     let mut facts = before["facts"].as_array().cloned().unwrap_or_default();
     facts.push(research);
     let after = serde_json::json!({"facts": facts});
 
-    let seq = commit(
-        db,
-        &Event {
-            kind: "lead.context".into(),
-            entity_id: id.into(),
-            before,
-            after,
-            verb: "appendContext".into(),
-            actor: actor.into(),
-        },
-    )?;
+    // The context write and its notifications share one transaction.
+    let seq = with_tx(db, |db| {
+        let seq = commit(
+            db,
+            &Event {
+                kind: "lead.context".into(),
+                entity_id: id.into(),
+                before,
+                after,
+                verb: "appendContext".into(),
+                actor: actor.into(),
+            },
+        )?;
+        if let Some(note) = note_text.as_deref() {
+            notify_note(db, id, note, actor)?;
+        }
+        Ok(seq)
+    })?;
     Ok(seq)
+}
+
+/// Notifications for a new note on `lead_id`:
+/// - a `mention` for each actor `@`-tagged in the note text (excluding the
+///   author), and
+/// - a `note` for each actor previously mentioned on this lead who ISN'T tagged
+///   in this note (so a thread they're part of notifies them, without a
+///   duplicate when they're also freshly tagged).
+/// Both carry the lead id so clicking the notification opens the lead.
+fn notify_note(db: &mut Db, lead_id: &str, note: &str, actor: &str) -> Result<(), DbError> {
+    let mentioned = parse_mentions(db, note, actor)?;
+    let lead = lead_label(db, lead_id)?;
+
+    for r in &mentioned {
+        let body = format!("{actor} mentioned you on {lead}");
+        insert_notification(db, r, NotifKind::Mention, Some(lead_id), actor, &body)?;
+    }
+
+    // Followers = previously-mentioned actors on this lead, minus anyone tagged
+    // in THIS note (they already got a `mention` above) and minus the author.
+    let followers = mentioned_actors_on_lead(db, lead_id, actor)?;
+    for r in &followers {
+        if mentioned.contains(r) {
+            continue;
+        }
+        let body = format!("New note on {lead}");
+        insert_notification(db, r, NotifKind::Note, Some(lead_id), actor, &body)?;
+    }
+    Ok(())
 }
 
 /// Draft a message onto a lead's `messages` array — appended, never sent.
@@ -1876,6 +2092,107 @@ pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serd
     list_rules_json(&mut *db)
 }
 
+/// All actors (users who have opened this board), for the @-mention picker.
+/// Excludes `me` so you can't tag yourself. Returns `[{ id, label }]`.
+pub fn list_actors_json(db: &mut Db, me: &str) -> Result<serde_json::Value, String> {
+    let rows = db
+        .query_all(
+            "select id, label from actors where id <> ?1 order by label",
+            &[SqlParam::Text(me)],
+            |r| Ok(serde_json::json!({ "id": r.get_str(0)?, "label": r.get_str(1)? })),
+        )
+        .map_err(|e| format!("db error: {e}"))?;
+    Ok(serde_json::Value::Array(rows))
+}
+
+#[tauri::command]
+pub fn board_list_actors(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let (mut db, actor) = db_for_active(&state)?;
+    let me = actor.id.clone();
+    list_actors_json(&mut *db, &me)
+}
+
+/// The signed-in user's notifications (newest first, capped) plus how many are
+/// unread. Unread = a notification for me whose `seq` is past my read highwater
+/// in `notification_reads`. Returns `{ items: [...], unread: n }`. `items` are
+/// `{ seq, kind, leadId, actor, body, createdAt, read }`.
+pub fn notifications_json(db: &mut Db, me: &str) -> Result<serde_json::Value, String> {
+    let up_to = db
+        .query_opt(
+            "select up_to_seq from notification_reads where actor = ?1",
+            &[SqlParam::Text(me)],
+            |r| r.get_i64(0),
+        )
+        .map_err(|e| format!("db error: {e}"))?
+        .unwrap_or(0);
+
+    let items = db
+        .query_all(
+            "select seq, kind, lead_id, actor, body, created_at from notifications
+             where recipient = ?1 order by seq desc limit 100",
+            &[SqlParam::Text(me)],
+            |r| {
+                let seq = r.get_i64(0)?;
+                Ok(serde_json::json!({
+                    "seq": seq,
+                    "kind": r.get_str(1)?,
+                    "leadId": r.get_opt_str(2)?,
+                    "actor": r.get_str(3)?,
+                    "body": r.get_str(4)?,
+                    "createdAt": r.get_str(5)?,
+                    "read": seq <= up_to,
+                }))
+            },
+        )
+        .map_err(|e| format!("db error: {e}"))?;
+
+    let unread = db
+        .query_opt(
+            "select count(*) from notifications where recipient = ?1 and seq > ?2",
+            &[SqlParam::Text(me), SqlParam::Int(up_to)],
+            |r| r.get_i64(0),
+        )
+        .map_err(|e| format!("db error: {e}"))?
+        .unwrap_or(0);
+
+    Ok(serde_json::json!({ "items": serde_json::Value::Array(items), "unread": unread }))
+}
+
+#[tauri::command]
+pub fn board_notifications(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let (mut db, actor) = db_for_active(&state)?;
+    let me = actor.id.clone();
+    notifications_json(&mut *db, &me)
+}
+
+/// Mark all of the signed-in user's notifications read: set their read highwater
+/// to the max notification seq addressed to them. Idempotent. Returns the new
+/// highwater. Uses the WRITE connection (it mutates).
+pub fn mark_notifications_read(db: &mut Db, me: &str) -> Result<i64, String> {
+    let max_seq = db
+        .query_opt(
+            "select coalesce(max(seq), 0) from notifications where recipient = ?1",
+            &[SqlParam::Text(me)],
+            |r| r.get_i64(0),
+        )
+        .map_err(|e| format!("db error: {e}"))?
+        .unwrap_or(0);
+    db.exec(
+        "insert into notification_reads (actor, up_to_seq) values (?1, ?2)
+         on conflict (actor) do update set up_to_seq = ?2",
+        &[SqlParam::Text(me), SqlParam::Int(max_seq)],
+    )
+    .map_err(|e| format!("db error: {e}"))?;
+    Ok(max_seq)
+}
+
+#[tauri::command]
+pub fn board_mark_notifications_read(state: tauri::State<'_, crate::AppState>) -> Result<i64, String> {
+    let (mut db, actor) = db_for_active_write(&state)?;
+    let me = actor.id.clone();
+    mark_notifications_read(&mut *db, &me)
+}
+
 #[tauri::command]
 pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Result<usize, String> {
     let (mut db, _actor) = db_for_active_write(&state)?;
@@ -2347,6 +2664,109 @@ mod tests {
         revert(&mut db, base).unwrap();
         let restored = q_opt_str(&mut db, "select retired_at from stages where id='won'");
         assert!(restored.is_some(), "revert must restore retired_at → stage retired again");
+    }
+
+    /// Register a second actor so "notify others" has a recipient.
+    fn add_actor(db: &mut Db, id: &str, label: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        db.exec(
+            "insert into actors (id, label, created_at) values (?1, ?2, ?3) on conflict (id) do nothing",
+            &[SqlParam::Text(id), SqlParam::Text(label), SqlParam::Text(&now)],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn stage_change_notifies_others_not_self() {
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        add_actor(&mut db, "son", "Son");
+        move_lead(&mut db, "L1", "contacted", 1, "local").unwrap();
+        // one notification, to "son", not to "local" (the mover)
+        let n = q_i64(&mut db, "select count(*) from notifications");
+        assert_eq!(n, 1);
+        let recipient = q_str(&mut db, "select recipient from notifications");
+        assert_eq!(recipient, "son");
+        let kind = q_str(&mut db, "select kind from notifications");
+        assert_eq!(kind, "stage");
+    }
+
+    #[test]
+    fn solo_board_generates_no_notifications() {
+        // Only the "local" actor exists → no "other" recipients → no rows.
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        move_lead(&mut db, "L1", "contacted", 1, "local").unwrap();
+        add_lead(&mut db, "New Co", None, "researching", "local").unwrap();
+        assert_eq!(q_i64(&mut db, "select count(*) from notifications"), 0);
+    }
+
+    #[test]
+    fn add_lead_notifies_others() {
+        let (_tmp, mut db) = seeded_db();
+        add_actor(&mut db, "son", "Son");
+        add_lead(&mut db, "Acme", Some("Acme Inc"), "researching", "local").unwrap();
+        let n = q_i64(&mut db, "select count(*) from notifications where kind='lead_added' and recipient='son'");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn note_mention_notifies_tagged_actor() {
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching"); // version 1
+        add_actor(&mut db, "son", "Son");
+        // "local" adds a note mentioning "@Son"
+        append_context(&mut db, "L1", serde_json::json!({"note": "hey @Son take a look"}), 1, "local").unwrap();
+        let n = q_i64(&mut db, "select count(*) from notifications where kind='mention' and recipient='son'");
+        assert_eq!(n, 1);
+        // self-mention doesn't fire: "@You" (local's label) wouldn't notify local
+        assert_eq!(q_i64(&mut db, "select count(*) from notifications where recipient='local'"), 0);
+    }
+
+    #[test]
+    fn note_without_mention_notifies_prior_mentioned_followers() {
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        add_actor(&mut db, "son", "Son");
+        // First note tags Son (version 1 → 2 after this append).
+        append_context(&mut db, "L1", serde_json::json!({"note": "@Son first"}), 1, "local").unwrap();
+        // A follow-up note with NO tag should still notify Son (a follower).
+        append_context(&mut db, "L1", serde_json::json!({"note": "second, no tag"}), 2, "local").unwrap();
+        let mentions = q_i64(&mut db, "select count(*) from notifications where kind='mention' and recipient='son'");
+        let notes = q_i64(&mut db, "select count(*) from notifications where kind='note' and recipient='son'");
+        assert_eq!(mentions, 1, "one mention from the first note");
+        assert_eq!(notes, 1, "one follow-up note notification from the second note");
+    }
+
+    #[test]
+    fn non_note_context_generates_no_notification() {
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        add_actor(&mut db, "son", "Son");
+        // An agent enrichment fact (no "note" key) must not notify anyone.
+        append_context(&mut db, "L1", serde_json::json!({"fact": "CTO is Ana"}), 1, "local").unwrap();
+        assert_eq!(q_i64(&mut db, "select count(*) from notifications"), 0);
+    }
+
+    #[test]
+    fn mark_read_clears_unread() {
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        add_actor(&mut db, "son", "Son");
+        move_lead(&mut db, "L1", "contacted", 1, "local").unwrap();
+        // Son has 1 unread before marking read.
+        let before = notifications_json(&mut db, "son").unwrap();
+        assert_eq!(before["unread"], 1);
+        mark_notifications_read(&mut db, "son").unwrap();
+        let after = notifications_json(&mut db, "son").unwrap();
+        assert_eq!(after["unread"], 0);
+        // the item is still listed, now flagged read
+        assert_eq!(after["items"].as_array().unwrap().len(), 1);
+        assert_eq!(after["items"][0]["read"], true);
+    }
+
+    #[test]
+    fn notification_body_and_lead_id_present() {
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        add_actor(&mut db, "son", "Son");
+        move_lead(&mut db, "L1", "contacted", 1, "local").unwrap();
+        let j = notifications_json(&mut db, "son").unwrap();
+        assert_eq!(j["items"][0]["leadId"], "L1");
+        assert!(j["items"][0]["body"].as_str().unwrap().contains("Contacted"));
     }
 
     #[test]

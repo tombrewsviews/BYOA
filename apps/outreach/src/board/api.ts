@@ -82,6 +82,33 @@ export interface Snapshot {
 export const snapshot = () => call<Snapshot>("board_snapshot");
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 export const openResearchFolder = () => call<void>("research_folder_open");
+
+/** A user who has opened this board — a candidate to @-mention. */
+export interface Actor {
+  id: string;
+  label: string;
+}
+/** Everyone who has opened the board except me (the @-mention roster). */
+export const listActors = () => call<Actor[]>("board_list_actors");
+
+/** One notification addressed to the signed-in user. */
+export interface Notification {
+  seq: number;
+  kind: "mention" | "stage" | "note" | "lead_added";
+  leadId: string | null;
+  actor: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+}
+export interface Notifications {
+  items: Notification[];
+  unread: number;
+}
+/** The signed-in user's notifications (newest first) + unread count. */
+export const notifications = () => call<Notifications>("board_notifications");
+/** Mark all my notifications read (clears the bell's red dot). */
+export const markNotificationsRead = () => call<number>("board_mark_notifications_read");
 export const attachFile = (leadId: string, srcPath: string) =>
   call<string>("attach_file", { leadId, srcPath });
 export const revealFile = (path: string) => call<void>("reveal_file", { path });

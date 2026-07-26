@@ -22,6 +22,7 @@ const lead: LeadDetail = {
 const noop = () => {};
 const handlers = {
   stages,
+  actors: [],
   onChangeStage: noop,
   onAddNote: noop,
   onAttach: noop,

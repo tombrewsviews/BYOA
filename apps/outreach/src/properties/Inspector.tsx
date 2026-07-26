@@ -1,11 +1,13 @@
 import React, { useState } from "react";
-import type { LeadDetail } from "../board/api";
+import type { LeadDetail, Actor } from "../board/api";
 import type { Stage } from "../board/types";
 import { Copy, Check, Paperclip, Archive, ArchiveRestore, Trash2 } from "../icons";
+import { MentionField } from "./MentionField";
 
 interface InspectorProps {
   lead: LeadDetail | null;
   stages: Stage[];
+  actors: Actor[];
   onChangeStage: (toStage: string) => void;
   onAddNote: (note: string) => void;
   onAttach: () => void;
@@ -157,7 +159,10 @@ const StageSelect: React.FC<{
   );
 };
 
-const NoteComposer: React.FC<{ onAdd: (note: string) => void }> = ({ onAdd }) => {
+const NoteComposer: React.FC<{ onAdd: (note: string) => void; actors: Actor[] }> = ({
+  onAdd,
+  actors,
+}) => {
   const [text, setText] = useState("");
   const submit = () => {
     const t = text.trim();
@@ -167,14 +172,12 @@ const NoteComposer: React.FC<{ onAdd: (note: string) => void }> = ({ onAdd }) =>
   };
   return (
     <div className="flex flex-col gap-1">
-      <textarea
-        className="min-h-[52px] rounded-md border border-input bg-transparent p-2 text-sm"
-        placeholder="Add a note…"
+      <MentionField
         value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
-        }}
+        onChange={setText}
+        actors={actors}
+        placeholder="Add a note… (type @ to mention someone)"
+        onSubmit={submit}
       />
       <div className="flex justify-end">
         <button
@@ -192,6 +195,7 @@ const NoteComposer: React.FC<{ onAdd: (note: string) => void }> = ({ onAdd }) =>
 export const Inspector: React.FC<InspectorProps> = ({
   lead,
   stages,
+  actors,
   onChangeStage,
   onAddNote,
   onAttach,
@@ -238,7 +242,7 @@ export const Inspector: React.FC<InspectorProps> = ({
 
       <div className="flex flex-col gap-2">
         <SectionLabel>Notes</SectionLabel>
-        <NoteComposer onAdd={onAddNote} />
+        <NoteComposer onAdd={onAddNote} actors={actors} />
       </div>
 
       <div className="flex flex-col gap-2">

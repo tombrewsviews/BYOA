@@ -25,9 +25,10 @@ import {
   getSettings,
   setActorName,
   saveSharedUrl,
+  listActors,
 } from "./board/api";
 import type { Stage, Lead } from "./board/types";
-import type { LeadDetail, BoardConfig } from "./board/api";
+import type { LeadDetail, BoardConfig, Actor } from "./board/api";
 
 type ProjectMeta = { name: string; path: string; lastOpened?: string };
 type ViewMode = "terminal" | "chat" | "inspector" | "settings";
@@ -50,6 +51,7 @@ const PropertiesPanel: React.FC<{
   const [stages, setStages] = useState<Stage[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [config, setConfig] = useState<BoardConfig | null>(null);
+  const [actors, setActors] = useState<Actor[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
   const [actorName, setActorNameState] = useState<string | undefined>(undefined);
   const [databaseUrl, setDatabaseUrlState] = useState<string | undefined>(undefined);
@@ -57,6 +59,11 @@ const PropertiesPanel: React.FC<{
   // Latest leads without making the select effect re-run every poll tick.
   const leadsRef = React.useRef<Lead[]>([]);
   leadsRef.current = leads;
+  // Full-detail cache, keyed by lead id. Selecting a lead we've opened before
+  // paints its detail INSTANTLY from this map (0ms, no network) — the ~600ms
+  // getLead round-trip on the shared board is what made re-selection feel slow.
+  // getLead still runs in the background to refresh the entry.
+  const detailCache = React.useRef<Map<string, LeadDetail>>(new Map());
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -67,6 +74,16 @@ const PropertiesPanel: React.FC<{
       })
       .catch(() => {});
   }, []);
+
+  // The @-mention roster (everyone who has opened the board, minus me). Changes
+  // rarely, so fetch on mount and only when the Inspector tab is shown (see the
+  // `tab` dependency) — a new collaborator appears the next time the panel opens.
+  useEffect(() => {
+    if (!isTauri() || tab !== "inspector") return;
+    void listActors()
+      .then(setActors)
+      .catch(() => {});
+  }, [tab]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -113,34 +130,45 @@ const PropertiesPanel: React.FC<{
       setSelectedLead(null);
       return;
     }
-    // Paint the Inspector INSTANTLY from the local `leads` row (name/org/stage/
-    // archived are already in hand — no network), so a card click responds in
-    // <100ms instead of waiting on the remote getLead round-trip. Then fill in
-    // the rich detail (context/messages/transcripts) when getLead resolves.
-    const local = leadsRef.current.find((l) => l.id === selectedLeadId);
-    if (local) {
-      setSelectedLead((prev) =>
-        prev && prev.id === selectedLeadId
-          ? prev // keep the already-loaded full detail; getLead below refreshes it
-          : {
-              id: local.id,
-              stage: local.stage,
-              name: local.name,
-              org: local.org,
-              context: {},
-              messages: [],
-              transcripts: [],
-              archivedAt: local.archivedAt,
-              createdAt: "",
-              updatedAt: "",
-              version: local.version,
-            },
-      );
+    // Paint the Inspector INSTANTLY (<50ms, no network). Prefer a cached full
+    // detail from a previous open of this lead; otherwise fall back to a stub
+    // built from the local `leads` row (name/org/stage/archived are already in
+    // hand). The rich detail (context/messages/transcripts) fills in when the
+    // background getLead resolves.
+    const cached = detailCache.current.get(selectedLeadId);
+    if (cached) {
+      setSelectedLead(cached);
+    } else {
+      const local = leadsRef.current.find((l) => l.id === selectedLeadId);
+      if (local) {
+        setSelectedLead((prev) =>
+          prev && prev.id === selectedLeadId
+            ? prev // keep the already-loaded full detail; getLead below refreshes it
+            : {
+                id: local.id,
+                stage: local.stage,
+                name: local.name,
+                org: local.org,
+                context: {},
+                messages: [],
+                transcripts: [],
+                archivedAt: local.archivedAt,
+                createdAt: "",
+                updatedAt: "",
+                version: local.version,
+              },
+        );
+      }
     }
     void getLead(selectedLeadId)
-      .then(setSelectedLead)
+      .then((detail) => {
+        detailCache.current.set(detail.id, detail);
+        // Only apply if this lead is still the selected one (guards a fast
+        // re-select landing an older lead's response on the newer selection).
+        setSelectedLead((prev) => (prev && prev.id !== detail.id ? prev : detail));
+      })
       .catch(() => {
-        /* keep the local stub on failure rather than blanking the panel */
+        /* keep the cached detail / local stub on failure rather than blanking */
       });
   }, [selectedLeadId, reloadKey, selectedSignal]);
 
@@ -277,6 +305,7 @@ const PropertiesPanel: React.FC<{
         <Inspector
           lead={selectedLead}
           stages={stages}
+          actors={actors}
           onChangeStage={handleChangeStage}
           onAddNote={handleAddNote}
           onAttach={handleAttach}
