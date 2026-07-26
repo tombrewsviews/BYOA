@@ -53,6 +53,9 @@ const PropertiesPanel: React.FC<{
   const [actorName, setActorNameState] = useState<string | undefined>(undefined);
   const [databaseUrl, setDatabaseUrlState] = useState<string | undefined>(undefined);
   const [reloadKey, setReloadKey] = useState(0);
+  // Latest leads without making the select effect re-run every poll tick.
+  const leadsRef = React.useRef<Lead[]>([]);
+  leadsRef.current = leads;
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -109,9 +112,35 @@ const PropertiesPanel: React.FC<{
       setSelectedLead(null);
       return;
     }
+    // Paint the Inspector INSTANTLY from the local `leads` row (name/org/stage/
+    // archived are already in hand — no network), so a card click responds in
+    // <100ms instead of waiting on the remote getLead round-trip. Then fill in
+    // the rich detail (context/messages/transcripts) when getLead resolves.
+    const local = leadsRef.current.find((l) => l.id === selectedLeadId);
+    if (local) {
+      setSelectedLead((prev) =>
+        prev && prev.id === selectedLeadId
+          ? prev // keep the already-loaded full detail; getLead below refreshes it
+          : {
+              id: local.id,
+              stage: local.stage,
+              name: local.name,
+              org: local.org,
+              context: {},
+              messages: [],
+              transcripts: [],
+              archivedAt: local.archivedAt,
+              createdAt: "",
+              updatedAt: "",
+              version: local.version,
+            },
+      );
+    }
     void getLead(selectedLeadId)
       .then(setSelectedLead)
-      .catch(() => setSelectedLead(null));
+      .catch(() => {
+        /* keep the local stub on failure rather than blanking the panel */
+      });
   }, [selectedLeadId, reloadKey, selectedSignal]);
 
   const reloadLead = useCallback(() => setReloadKey((k) => k + 1), []);
