@@ -81,23 +81,29 @@ export async function saveBoard(canvasUrl: string, isTauriEnv: boolean): Promise
 }
 
 /**
- * Restore a board's saved scene into the (empty) canvas server. Reads
- * board.json from disk, pushes files first (so element image refs resolve),
- * then syncs elements. No-op if there's nothing to restore.
+ * Restore a board's saved scene into the canvas server. Reads board.json from
+ * disk, pushes files first (so element image refs resolve), then syncs
+ * elements.
+ *
+ * Always syncs, even for an empty board. The canvas server is shared across
+ * boards for the life of the app, so switching to an empty board must actively
+ * clear the previous board's scene (`/api/elements/sync` clears before writing)
+ * — otherwise the old drawing stays on screen and autosave writes it into the
+ * empty board's board.json.
  */
 export async function restoreBoard(canvasUrl: string, isTauriEnv: boolean): Promise<void> {
   if (!isTauriEnv) return;
-  let scene: BoardScene;
+  let scene: BoardScene | null = null;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const raw = await invoke<string>("load_doc");
     scene = JSON.parse(raw) as BoardScene;
   } catch {
-    return; // no saved board (or unreadable) — leave the empty canvas
+    scene = null; // no saved board (or unreadable) — restore as empty
   }
-  const elements = Array.isArray(scene.elements) ? scene.elements : [];
-  const files = scene.files && typeof scene.files === "object" ? scene.files : {};
-  if (elements.length === 0 && Object.keys(files).length === 0) return;
+  const elements = Array.isArray(scene?.elements) ? scene!.elements : [];
+  const files =
+    scene?.files && typeof scene.files === "object" ? scene.files : {};
 
   try {
     const fileList = Object.values(files);

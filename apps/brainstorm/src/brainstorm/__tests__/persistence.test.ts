@@ -71,21 +71,48 @@ describe("brainstorm persistence — restoreBoard", () => {
     expect(calls).toEqual([`${URL}/api/files`, `${URL}/api/elements/sync`]);
   });
 
-  it("no-ops when the saved board is empty", async () => {
+  // The canvas server is shared across boards for the life of the app, so an
+  // empty board must still SYNC (clearing the previous board's scene) rather
+  // than no-op. Otherwise switching boards leaves the old drawing on screen and
+  // autosave writes it into the empty board's board.json.
+  it("syncs an empty scene so a previous board's elements are cleared", async () => {
     invoke.mockResolvedValue(
       JSON.stringify({ type: "excalidraw", version: 2, elements: [], files: {} }),
     );
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        if (url.endsWith("/api/elements/sync"))
+          bodies.push(JSON.parse(init?.body ?? "{}"));
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+
     await restoreBoard(URL, true);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].elements).toEqual([]);
   });
 
-  it("no-ops when there's no saved board file", async () => {
+  it("syncs an empty scene when there's no saved board file", async () => {
     invoke.mockRejectedValue(new Error("no doc"));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+    await restoreBoard(URL, true);
+    // No files to push, but the element sync still runs to clear the canvas.
+    expect(calls).toEqual([`${URL}/api/elements/sync`]);
+  });
+
+  it("is a no-op outside Tauri", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    await restoreBoard(URL, true);
+    await restoreBoard(URL, false);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -28,6 +28,8 @@ Short version:
   `NOTHING_TO_ADD` if you have nothing useful to say).
 - `board.json` is only a seed marker — the live scene lives in the canvas
   server, not this file. Don't treat it as the document.
+- `board-name.txt` holds this board's display name (one line), shown in the app's
+  boards list. The user renames it from that list; leave it alone unless asked.
 "#;
 
 /// What Brainstorm ships as its agent skill bundle.

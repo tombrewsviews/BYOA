@@ -90,6 +90,7 @@ pub fn run() {
             projects::projects_create,
             projects::project_open,
             projects::project_close,
+            projects::project_rename,
             projects::project_delete,
             projects::active_project_path,
             doc::load_doc,

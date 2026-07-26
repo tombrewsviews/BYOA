@@ -5,6 +5,7 @@
  */
 export {
   ChevronDown,
+  ChevronLeft,
   ChevronUp,
   ChevronsUpDown,
   Check,
@@ -27,5 +28,7 @@ export {
   Eye,
   MessageSquare,
   PanelRight,
+  MoreHorizontal,
+  Pencil,
   Trash2,
 } from "lucide-react";

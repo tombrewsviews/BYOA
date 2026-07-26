@@ -18,6 +18,14 @@ use crate::AppState;
 
 /// The one document filename for a Brainstorm project.
 pub const DOC_FILENAME: &str = "board.json";
+/// The board's user-facing display name, one line of UTF-8.
+///
+/// Deliberately a sibling file rather than a field in `board.json`: autosave
+/// rewrites board.json wholesale (`saveBoard` rebuilds the scene from scratch
+/// roughly once a second during activity), so a name stored there would be
+/// erased by the next save after a rename. The folder is never renamed either —
+/// its path is the board's identity for recents, the watcher and `.mcp.json`.
+const NAME_FILENAME: &str = "board-name.txt";
 /// Seed written into a brand-new project's board.json.
 const SEED_BOARD: &[u8] = include_bytes!("../templates/seed-board.json");
 
@@ -54,6 +62,32 @@ fn write_recents(map: &std::collections::HashMap<String, String>) {
     }
 }
 
+/// The name stored in `board-name.txt`, if a usable one is there.
+fn read_display_name(dir: &std::path::Path) -> Option<String> {
+    let raw = fs::read_to_string(dir.join(NAME_FILENAME)).ok()?;
+    let name = raw.lines().next().unwrap_or("").trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// A board's display name: the stored one, else the folder name (so boards
+/// created before naming existed keep showing exactly what they show today).
+fn display_name(dir: &std::path::Path) -> String {
+    read_display_name(dir).unwrap_or_else(|| {
+        dir.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Unknown")
+            .to_string()
+    })
+}
+
+fn write_display_name(dir: &std::path::Path, name: &str) -> Result<(), String> {
+    fs::write(dir.join(NAME_FILENAME), name).map_err(|e| format!("write name: {}", e))
+}
+
 pub fn active_path(state: &AppState) -> Result<PathBuf, String> {
     state
         .active_project
@@ -85,11 +119,7 @@ pub fn projects_list(canvas: Option<String>) -> Result<Vec<ProjectMeta>, String>
         if !path.join(DOC_FILENAME).exists() {
             continue;
         }
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
+        let name = display_name(&path);
         let path_str = path.to_string_lossy().to_string();
         let last_opened = recents.get(&path_str).cloned().unwrap_or_else(|| {
             fs::metadata(&path)
@@ -126,9 +156,13 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
     // with the resolved port every time a board opens. Seeding a guess here
     // only risks leaving a stale/wrong config in place.
 
-    let display_name = if name.trim().is_empty() { "Untitled".into() } else { name.to_string() };
+    // Persist the name as typed — the folder is a slug, which loses
+    // capitalization and spacing.
+    let display = if name.trim().is_empty() { "Untitled" } else { name.trim() };
+    write_display_name(&dir, display)?;
+
     Ok(ProjectMeta {
-        name: display_name,
+        name: display.to_string(),
         path: dir.to_string_lossy().to_string(),
         last_opened: Utc::now().to_rfc3339(),
     })
@@ -166,12 +200,7 @@ pub fn project_open(
     recents.insert(path_str.clone(), now.clone());
     write_recents(&recents);
 
-    let name = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Unknown")
-        .to_string();
-    let meta = ProjectMeta { name, path: path_str, last_opened: now };
+    let meta = ProjectMeta { name: display_name(&path_buf), path: path_str, last_opened: now };
     let _ = app.emit::<ProjectMeta>("project://opened", meta.clone());
     Ok(meta)
 }
@@ -181,6 +210,31 @@ pub fn project_close(state: State<'_, AppState>, app: AppHandle) -> Result<(), S
     *state.active_project.lock().unwrap() = None;
     let _ = app.emit::<()>("project://closed", ());
     Ok(())
+}
+
+/// Set a board's display name. Only touches `board-name.txt` — the folder is
+/// not moved, so renaming can never invalidate an open board's path.
+fn rename_project(path: &std::path::Path, name: &str) -> Result<ProjectMeta, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("name cannot be empty".into());
+    }
+    if !path.join(DOC_FILENAME).exists() {
+        return Err(format!("no {} in folder", DOC_FILENAME));
+    }
+    write_display_name(path, name)?;
+
+    let path_str = path.to_string_lossy().to_string();
+    let last_opened = read_recents()
+        .get(&path_str)
+        .cloned()
+        .unwrap_or_else(|| Utc::now().to_rfc3339());
+    Ok(ProjectMeta { name: name.to_string(), path: path_str, last_opened })
+}
+
+#[tauri::command]
+pub fn project_rename(path: String, name: String) -> Result<ProjectMeta, String> {
+    rename_project(&PathBuf::from(&path), &name)
 }
 
 #[tauri::command]
@@ -216,6 +270,66 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(SEED_BOARD).unwrap();
         assert_eq!(v["type"], "excalidraw", "seed is an excalidraw doc");
         assert!(v.get("elements").is_some(), "seed has an elements array");
+    }
+
+    #[test]
+    fn display_name_falls_back_to_folder_name() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "brainstorm-session-6");
+        assert_eq!(read_display_name(&dir), None);
+        assert_eq!(display_name(&dir), "brainstorm-session-6");
+    }
+
+    #[test]
+    fn stored_display_name_wins_over_folder_name() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "brainstorm-session-6");
+        write_display_name(&dir, "Payments architecture").unwrap();
+        assert_eq!(display_name(&dir), "Payments architecture");
+    }
+
+    #[test]
+    fn blank_name_file_falls_back_to_folder_name() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "my-board");
+        fs::write(dir.join(NAME_FILENAME), "   \n").unwrap();
+        assert_eq!(display_name(&dir), "my-board");
+    }
+
+    #[test]
+    fn display_name_reads_only_the_first_line_trimmed() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "my-board");
+        fs::write(dir.join(NAME_FILENAME), "  Sprint plan  \nignored\n").unwrap();
+        assert_eq!(display_name(&dir), "Sprint plan");
+    }
+
+    #[test]
+    fn rename_writes_the_name_and_keeps_the_folder_put() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "brainstorm-session-6");
+        let meta = rename_project(&dir, "  Payments architecture  ").unwrap();
+        assert_eq!(meta.name, "Payments architecture", "trimmed");
+        assert_eq!(meta.path, dir.to_string_lossy(), "path unchanged");
+        assert!(dir.exists(), "folder was not moved");
+        assert_eq!(display_name(&dir), "Payments architecture");
+    }
+
+    #[test]
+    fn rename_rejects_a_blank_name() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "my-board");
+        assert!(rename_project(&dir, "   ").is_err());
+        assert!(!dir.join(NAME_FILENAME).exists(), "nothing written");
+    }
+
+    #[test]
+    fn rename_rejects_a_folder_that_is_not_a_board() {
+        let home = TempDir::new().unwrap();
+        let dir = home.path().join("not-a-board");
+        fs::create_dir_all(&dir).unwrap();
+        assert!(rename_project(&dir, "Whatever").is_err());
+        assert!(!dir.join(NAME_FILENAME).exists(), "no stray name file");
     }
 
     #[test]
