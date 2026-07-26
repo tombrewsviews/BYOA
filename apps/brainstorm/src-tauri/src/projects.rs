@@ -120,10 +120,11 @@ fn create_project_dir(name: &str) -> Result<ProjectMeta, String> {
     fs::write(dir.join(DOC_FILENAME), SEED_BOARD).map_err(|e| format!("write doc: {}", e))?;
     skill::write(&dir, &skill::BRAINSTORM_BUNDLE).map_err(|e| format!("write skill: {}", e))?;
     crate::prompt_mode::ensure_seeded(&dir);
-    // Projects ship with the Excalidraw MCP enabled by default. Seed
-    // `.mcp.json` pointing at the preferred canvas port; the canvas server
-    // rewrites it with the resolved port on start if 3939 was taken.
-    let _ = crate::brainstorm_canvas::write_mcp_config(&dir, "http://127.0.0.1:3939");
+    // NOTE: `.mcp.json` is deliberately NOT seeded here. It must point at the
+    // MCP entry bundled in this .app (resolved via the Tauri AppHandle, which
+    // we don't have at create time), and `brainstorm_canvas_start` writes it
+    // with the resolved port every time a board opens. Seeding a guess here
+    // only risks leaving a stale/wrong config in place.
 
     let display_name = if name.trim().is_empty() { "Untitled".into() } else { name.to_string() };
     Ok(ProjectMeta {

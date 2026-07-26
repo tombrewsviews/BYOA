@@ -58,6 +58,11 @@ fn pick_port() -> u16 {
 /// Bundle-relative path of the canvas-server entrypoint (see `server_entry`).
 const SERVER_REL: &str = "resources/canvas-server/dist/server.js";
 
+/// Bundle-relative path of the *MCP* entrypoint (see `mcp_entry`). Same
+/// package as `SERVER_REL`, different entry: `server.js` is the canvas
+/// (Express + WS), `index.js` is the stdio MCP server the agent talks to.
+const MCP_REL: &str = "resources/canvas-server/dist/index.js";
+
 /// Absolute path to the bundled canvas-server entrypoint. In the standalone
 /// app the server ships inside the .app under
 /// `resources/canvas-server/dist/server.js` (staged by scripts/stage-server.sh
@@ -67,6 +72,13 @@ fn server_entry(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
         .resolve(SERVER_REL, tauri::path::BaseDirectory::Resource)
         .map_err(|e| format!("resolve canvas server resource: {}", e))
+}
+
+/// Absolute path to the bundled MCP entrypoint, resolved like `server_entry`.
+fn mcp_entry(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .resolve(MCP_REL, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("resolve canvas MCP resource: {}", e))
 }
 
 /// Absolute path to the user's `node` binary. A GUI-launched .app inherits
@@ -112,14 +124,65 @@ fn find_node() -> Result<std::path::PathBuf, String> {
     Err("node not found — the canvas server needs Node.js installed".into())
 }
 
+/// True for node paths that only exist for the lifetime of one shell session.
+/// fnm's `fnm_multishells/<pid>_<ts>/bin/node` is the common case: perfect for
+/// spawning a process right now, useless once written into a config file that
+/// outlives the shell.
+fn is_ephemeral_node_path(p: &Path) -> bool {
+    p.to_string_lossy().contains("fnm_multishells")
+}
+
+/// Like `find_node`, but for a path we PERSIST into `.mcp.json`. Prefers a
+/// durable location so the config keeps working after the shell that launched
+/// the app is gone. Falls back to whatever `find_node` produced rather than
+/// failing — a possibly-stale path still beats no MCP at all.
+fn find_node_for_config() -> Result<std::path::PathBuf, String> {
+    let mut durable: Vec<std::path::PathBuf> = vec![
+        "/opt/homebrew/bin/node".into(),
+        "/usr/local/bin/node".into(),
+    ];
+    // fnm/nvm "default" aliases are stable symlinks, unlike the per-shell dirs.
+    if let Some(home) = dirs::home_dir() {
+        durable.push(home.join(".local/share/fnm/aliases/default/bin/node"));
+        durable.push(home.join(".nvm/alias/default/bin/node"));
+        durable.push(home.join(".volta/bin/node"));
+    }
+
+    let resolved = find_node()?;
+    if !is_ephemeral_node_path(&resolved) {
+        return Ok(resolved);
+    }
+    for cand in durable {
+        if cand.is_file() {
+            return Ok(cand);
+        }
+    }
+    Ok(resolved)
+}
+
 /// Write (or overwrite) the project's `.mcp.json` so the `excalidraw` MCP is
 /// enabled by default and points at the running canvas server. Idempotent.
-pub fn write_mcp_config(project_dir: &Path, canvas_url: &str) -> std::io::Result<()> {
+///
+/// This MUST run the MCP entrypoint **we bundle**, not `npx -y
+/// mcp-excalidraw-server`: the bundled copy carries our selection patches
+/// (`get_selected_elements`, and a `get_resource("scene")` that reports the
+/// real selection), which the published npm package does not have. Pointing
+/// at npm also silently pinned the agent to a different version than the
+/// canvas server it talks to — that mismatch showed up as "something is
+/// answering on 3939 but does not identify as this canvas server". Using the
+/// bundled path additionally means the agent works offline and doesn't pay an
+/// npx resolve on every turn.
+pub fn write_mcp_config(
+    project_dir: &Path,
+    canvas_url: &str,
+    node_bin: &Path,
+    mcp_js: &Path,
+) -> std::io::Result<()> {
     let config = json!({
         "mcpServers": {
             "excalidraw": {
-                "command": "npx",
-                "args": ["-y", "mcp-excalidraw-server"],
+                "command": node_bin.to_string_lossy(),
+                "args": [mcp_js.to_string_lossy()],
                 "env": {
                     "EXPRESS_SERVER_URL": canvas_url,
                     "ENABLE_CANVAS_SYNC": "true"
@@ -143,7 +206,9 @@ pub fn brainstorm_canvas_start(app: AppHandle, state: State<'_, AppState>) -> Re
         let guard = state.canvas_server.inner.lock().map_err(|e| e.to_string())?;
         if let Some(running) = guard.as_ref() {
             if let Some(dir) = active_project_dir(&state) {
-                let _ = write_mcp_config(&dir, &running.url);
+                if let (Ok(node), Ok(mcp_js)) = (find_node_for_config(), mcp_entry(&app)) {
+                    let _ = write_mcp_config(&dir, &running.url, &node, &mcp_js);
+                }
             }
             return Ok(running.url.clone());
         }
@@ -175,9 +240,13 @@ pub fn brainstorm_canvas_start(app: AppHandle, state: State<'_, AppState>) -> Re
         .spawn()
         .map_err(|e| format!("spawn canvas server: {}", e))?;
 
-    // Point the active project's MCP config at the resolved port.
+    // Point the active project's MCP config at the resolved port, running the
+    // MCP entry we bundle (see write_mcp_config).
     if let Some(dir) = active_project_dir(&state) {
-        write_mcp_config(&dir, &url).map_err(|e| format!("write .mcp.json: {}", e))?;
+        let mcp_js = mcp_entry(&app)?;
+        let cfg_node = find_node_for_config().unwrap_or_else(|_| node.clone());
+        write_mcp_config(&dir, &url, &cfg_node, &mcp_js)
+            .map_err(|e| format!("write .mcp.json: {}", e))?;
     }
 
     // Wait until the server is actually accepting connections before returning,
@@ -302,11 +371,77 @@ mod tests {
     #[test]
     fn write_mcp_config_points_excalidraw_at_url() {
         let dir = TempDir::new().unwrap();
-        write_mcp_config(dir.path(), "http://127.0.0.1:3939").unwrap();
+        write_mcp_config(
+            dir.path(),
+            "http://127.0.0.1:3939",
+            Path::new("/usr/local/bin/node"),
+            Path::new("/Apps/Brainstorm.app/Contents/Resources/resources/canvas-server/dist/index.js"),
+        )
+        .unwrap();
         let txt = std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
         assert!(txt.contains("excalidraw"));
         assert!(txt.contains("http://127.0.0.1:3939"));
         assert!(txt.contains("EXPRESS_SERVER_URL"));
+    }
+
+    /// The MCP must run the entry we BUNDLE (which carries the selection
+    /// patches), never `npx mcp-excalidraw-server` — that pulls the unpatched
+    /// package from npm, so the agent loses `get_selected_elements` and can
+    /// version-mismatch the canvas server it's talking to.
+    #[test]
+    fn write_mcp_config_uses_the_bundled_entry_not_npx() {
+        let dir = TempDir::new().unwrap();
+        write_mcp_config(
+            dir.path(),
+            "http://127.0.0.1:3939",
+            Path::new("/usr/local/bin/node"),
+            Path::new("/Apps/Brainstorm.app/Contents/Resources/resources/canvas-server/dist/index.js"),
+        )
+        .unwrap();
+        let txt = std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
+        assert!(!txt.contains("npx"), "must not shell out to npx: {}", txt);
+        assert!(txt.contains("/usr/local/bin/node"));
+        assert!(txt.contains("canvas-server/dist/index.js"));
+    }
+
+    #[test]
+    fn mcp_rel_is_the_bundled_dist_entrypoint() {
+        assert_eq!(MCP_REL, "resources/canvas-server/dist/index.js");
+    }
+
+    /// A per-shell fnm path works for spawning but must not be persisted into
+    /// `.mcp.json` — it disappears with the shell that created it.
+    #[test]
+    fn ephemeral_node_paths_are_detected() {
+        assert!(is_ephemeral_node_path(Path::new(
+            "/Users/x/.local/state/fnm_multishells/84152_1785064031253/bin/node"
+        )));
+        assert!(!is_ephemeral_node_path(Path::new("/opt/homebrew/bin/node")));
+        assert!(!is_ephemeral_node_path(Path::new(
+            "/Users/x/.local/share/fnm/aliases/default/bin/node"
+        )));
+    }
+
+    #[test]
+    fn find_node_for_config_avoids_ephemeral_paths_when_possible() {
+        // Whatever we resolve on this machine, it must not be a per-shell path
+        // unless there is genuinely no durable node installed.
+        let p = find_node_for_config().expect("node should resolve in CI/dev");
+        let durable_exists = ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+            .iter()
+            .any(|c| Path::new(c).is_file())
+            || dirs::home_dir().is_some_and(|h| {
+                h.join(".local/share/fnm/aliases/default/bin/node").is_file()
+                    || h.join(".nvm/alias/default/bin/node").is_file()
+                    || h.join(".volta/bin/node").is_file()
+            });
+        if durable_exists {
+            assert!(
+                !is_ephemeral_node_path(&p),
+                "picked an ephemeral node path despite a durable one existing: {}",
+                p.display()
+            );
+        }
     }
 
     #[test]
