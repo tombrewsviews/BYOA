@@ -126,6 +126,7 @@ pub fn run() {
             board::board_list_stages,
             board::board_get_config,
             board::board_list_leads,
+            board::board_snapshot,
             board::board_get_lead,
             board::board_add_lead,
             board::board_move_lead,

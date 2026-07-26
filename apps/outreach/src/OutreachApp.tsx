@@ -9,9 +9,8 @@ import { Inspector } from "./properties/Inspector";
 import { Settings } from "./properties/Settings";
 import {
   listStages,
-  listLeads,
   getLead,
-  getConfig,
+  snapshot,
   renameStage,
   reorderStages,
   addStage,
@@ -68,24 +67,31 @@ const PropertiesPanel: React.FC<{
   useEffect(() => {
     if (!isTauri()) return;
     let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // One `board_snapshot` round-trip per tick (not 3 separate commands), and
+    // poll a remote board rarely (5s) vs a local one often (2s) — hammering a
+    // transatlantic DB is what made the app laggy.
     const tick = async () => {
       if (stopped) return;
+      let nextMs = 2000;
       try {
-        const [s, l, c] = await Promise.all([listStages(), listLeads(), getConfig()]);
+        const snap = await snapshot();
         if (!stopped) {
-          setStages(s);
-          setLeads(l);
-          setConfig(c);
+          setStages(snap.stages);
+          setLeads(snap.leads);
+          setConfig(snap.config);
+          nextMs = snap.mode === "shared" ? 5000 : 2000;
         }
       } catch {
         /* transient — try again next tick */
+      } finally {
+        if (!stopped) timer = setTimeout(tick, nextMs);
       }
     };
     void tick();
-    const h = setInterval(tick, 2000);
     return () => {
       stopped = true;
-      clearInterval(h);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 

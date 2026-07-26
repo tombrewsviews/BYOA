@@ -70,6 +70,16 @@ export interface ConnectionStatus {
   connected: boolean;
 }
 export const connectionStatus = () => call<ConnectionStatus>("board_connection_status");
+
+/** One round-trip board read (stages + leads + config + mode). Collapses a poll
+ *  tick to a single command so a remote board isn't hit 2–3× per tick. */
+export interface Snapshot {
+  stages: Stage[];
+  leads: Lead[];
+  config: BoardConfig;
+  mode: "local" | "shared";
+}
+export const snapshot = () => call<Snapshot>("board_snapshot");
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 export const openResearchFolder = () => call<void>("research_folder_open");
 export const attachFile = (leadId: string, srcPath: string) =>
@@ -81,29 +91,40 @@ export const revealFile = (path: string) => call<void>("reveal_file", { path });
 export type PollStatus = "loading" | "ok" | "error";
 
 /**
- * Re-fetch stages+leads every `intervalMs` and hand them to `onChange`.
- * `onStatus` (optional) reports the fetch state: "loading" while the first
- * fetch (or a retry after failure) is in flight, "ok" once data arrives,
- * "error" if the fetch failed. Returns a stop fn. Fetches once immediately.
+ * Re-fetch the board (one `board_snapshot` round-trip) and hand it to
+ * `onChange`. The poll interval ADAPTS to the board mode reported by the
+ * snapshot: `localIntervalMs` for a local SQLite board (cheap, poll often) and
+ * the slower `sharedIntervalMs` for a remote Postgres board (each call is a
+ * transatlantic round-trip, so polling it twice a second is what made the app
+ * laggy — poll it rarely instead; your own writes apply immediately and the
+ * next poll reconciles).
+ *
+ * `onStatus` (optional) reports "loading" until the first success, then "ok";
+ * "error" only for a real failure (a `connecting:` error stays "loading" while
+ * the shared board warms up). Returns a stop fn. Fetches once immediately.
  */
 export function poll(
-  onChange: (data: { stages: Stage[]; leads: Lead[] }) => void,
-  intervalMs = 1500,
+  onChange: (data: { stages: Stage[]; leads: Lead[]; config: BoardConfig }) => void,
+  localIntervalMs = 1500,
   onStatus?: (s: PollStatus) => void,
+  sharedIntervalMs = 5000,
 ): () => void {
   let stopped = false;
   let everOk = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const tick = async () => {
     if (stopped) return;
     // Only signal "loading" before the first success, so a slow initial connect
     // shows progress but steady-state polling doesn't flicker a banner.
     if (!everOk) onStatus?.("loading");
+    let nextMs = localIntervalMs;
     try {
-      const [stages, leads] = await Promise.all([listStages(), listLeads()]);
+      const snap = await snapshot();
       if (!stopped) {
         everOk = true;
         onStatus?.("ok");
-        onChange({ stages, leads });
+        onChange({ stages: snap.stages, leads: snap.leads, config: snap.config });
+        nextMs = snap.mode === "shared" ? sharedIntervalMs : localIntervalMs;
       }
     } catch (e) {
       // A `connecting:` error means the shared board is still warming up in the
@@ -112,12 +133,13 @@ export function poll(
       const connecting = String((e as Error)?.message ?? e).includes("connecting:");
       if (!stopped && !everOk) onStatus?.(connecting ? "loading" : "error");
       /* transient (e.g. no active project yet, or slow connect) — retry next tick */
+    } finally {
+      if (!stopped) timer = setTimeout(tick, nextMs);
     }
   };
   void tick();
-  const h = setInterval(tick, intervalMs);
   return () => {
     stopped = true;
-    clearInterval(h);
+    if (timer) clearTimeout(timer);
   };
 }

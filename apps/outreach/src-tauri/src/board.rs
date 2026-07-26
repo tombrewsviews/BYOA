@@ -1312,7 +1312,6 @@ pub const CONNECTING_PREFIX: &str = "connecting:";
 /// project open and by `board_ensure_connected`), which fills the cache. This
 /// is what stops a set shared-DB URL from freezing the whole app on open.
 fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), String> {
-    let t0 = std::time::Instant::now();
     let dir = crate::projects::active_path(state)?;
     let s = crate::settings::load();
     let actor = actor_from(s.actor_name.as_deref());
@@ -1322,14 +1321,6 @@ fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), Str
         .board_cache
         .lock()
         .map_err(|e| format!("board cache lock: {e}"))?;
-    let waited = t0.elapsed();
-    if waited.as_millis() > 50 {
-        eprintln!(
-            "[outreach] db_for_active waited {}ms for cache lock (thread {:?})",
-            waited.as_millis(),
-            std::thread::current().id()
-        );
-    }
 
     // Cache hit = same (project, url, actor) and the connection is still live.
     let hit = cache.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead());
@@ -1338,7 +1329,6 @@ fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), Str
         // defer it to the background warm-up and tell the caller we're still
         // connecting. Local SQLite is instant, so connect it inline.
         if s.database_url.as_deref().map(str::trim).is_some_and(|u| !u.is_empty()) {
-            eprintln!("[outreach] db_for_active: shared miss -> connecting: (no UI-thread connect)");
             return Err(format!("{CONNECTING_PREFIX} connecting to the shared board…"));
         }
         let db = open_board(&dir, None, &actor).map_err(|e| format!("open board: {e}"))?;
@@ -1391,13 +1381,7 @@ fn warm_board_connection(
 
     // The connect itself runs while holding ONLY the warm lock (not the cache
     // lock), so board commands can still read the cache meanwhile.
-    let t0 = std::time::Instant::now();
-    eprintln!(
-        "[outreach] warm_board_connection: connecting (thread {:?})…",
-        std::thread::current().id()
-    );
     let db = open_board(dir, url.as_deref(), actor).map_err(|e| format!("open board: {e}"))?;
-    eprintln!("[outreach] warm_board_connection: connected in {}ms", t0.elapsed().as_millis());
     let mut guard = cache.lock().map_err(|e| format!("board cache lock: {e}"))?;
     // Re-check the key under the lock in case settings changed mid-connect.
     if guard.as_ref().is_none_or(|c| c.key != key) {
@@ -1644,6 +1628,31 @@ pub fn list_leads_json(db: &mut Db) -> Result<serde_json::Value, String> {
 pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let (mut db, _actor) = db_for_active(&state)?;
     list_leads_json(&mut *db)
+}
+
+/// One-shot board read: stages + leads + config in a SINGLE command, so the
+/// poll makes one connection acquisition instead of 2–3 separate commands each
+/// re-acquiring the (shared, remote) connection. On a transatlantic Postgres
+/// board every command is a ~600ms round-trip, and two windows polling three
+/// commands each made the app feel laggy — this collapses a poll tick to one
+/// call. `mode` ("local"/"shared") lets the frontend pick its poll interval
+/// (fast for local SQLite, slow for a remote board).
+#[tauri::command]
+pub fn board_snapshot(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
+    let is_shared = {
+        let s = crate::settings::load();
+        s.database_url.as_deref().map(str::trim).is_some_and(|u| !u.is_empty())
+    };
+    let (mut db, _actor) = db_for_active(&state)?;
+    let stages = list_stages_json(&mut *db)?;
+    let leads = list_leads_json(&mut *db)?;
+    let config = get_config_json(&mut *db)?;
+    Ok(serde_json::json!({
+        "stages": stages,
+        "leads": leads,
+        "config": config,
+        "mode": if is_shared { "shared" } else { "local" },
+    }))
 }
 
 pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String> {
