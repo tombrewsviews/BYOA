@@ -198,6 +198,7 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
             onReady={(h) => {
               chatHandleRef.current = h;
             }}
+            canvasUrl={canvasUrl ?? undefined}
           />
         </div>
       </div>

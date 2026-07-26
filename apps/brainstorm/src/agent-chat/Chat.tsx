@@ -20,6 +20,11 @@ import { SessionToolbar } from "./SessionToolbar";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { Button } from "@/components/ui/button";
 import { Eye } from "../icons";
+import {
+  fetchSelectedElements,
+  formatSelectionBlock,
+  summarizeSelectionForChip,
+} from "../brainstorm/selection";
 
 /** Sentinel an agent returns in continuous/watch mode when it has nothing
  *  worth interrupting for. A watch turn whose entire text is this is dropped
@@ -47,12 +52,23 @@ interface Props {
   /** Called once with an imperative handle so a parent watch controller can
    *  drive watch turns. Optional — only the Brainstorm app uses it. */
   onReady?: (handle: ChatHandle) => void;
+  /** The running canvas server's URL, if any (Brainstorm only). When set,
+   *  each user-origin send attaches the board's current selection (if
+   *  non-empty) as context — see `../brainstorm/selection.ts`. */
+  canvasUrl?: string;
 }
 
-/** Inline @path references into the prompt — claude reads files itself. */
-const composePrompt = (text: string, attachments: string[]): string => {
+/** Inline @path references and any selected-on-board context into the
+ *  prompt — claude reads files itself; the selection block is plain text
+ *  the model reads directly. */
+const composePrompt = (
+  text: string,
+  attachments: string[],
+  selectionBlock?: string,
+): string => {
   const refs = attachments.map((p) => `@${p}`).join(" ");
-  return refs ? `${refs}\n\n${text}` : text;
+  const parts = [refs, selectionBlock, text].filter(Boolean);
+  return parts.join("\n\n");
 };
 
 const newSessionId = (): string => {
@@ -70,6 +86,7 @@ export const Chat: React.FC<Props> = ({
   cwd,
   onSwitchToTerminal,
   onReady,
+  canvasUrl,
 }) => {
   const adapter: AgentAdapter | null = useMemo(
     () => getAdapter(agentId),
@@ -102,6 +119,51 @@ export const Chat: React.FC<Props> = ({
   const permissionModeRef = useRef<PermissionMode>(permissionMode);
   permissionModeRef.current = permissionMode;
 
+  // Live summary of the board's current selection, shown as a chip above the
+  // composer. Refreshed on connect and on every `selection_changed`
+  // broadcast from the canvas server (same WS the watch loop listens to).
+  // Presentational only — the actual attach-to-prompt fetch in `send` reads
+  // fresh state independently, so this chip lagging by a WS round-trip never
+  // causes a stale prompt.
+  const [selectionSummary, setSelectionSummary] = useState("");
+  useEffect(() => {
+    if (!canvasUrl) {
+      setSelectionSummary("");
+      return;
+    }
+    let socket: WebSocket | null = null;
+    let stopped = false;
+
+    const refresh = async () => {
+      const elements = await fetchSelectedElements(canvasUrl);
+      if (!stopped) setSelectionSummary(summarizeSelectionForChip(elements));
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      socket = new WebSocket(canvasUrl.replace(/^http/, "ws"));
+      socket.onopen = () => void refresh();
+      socket.onmessage = (ev) => {
+        try {
+          const type = (JSON.parse(ev.data as string) as { type?: string }).type;
+          if (type === "selection_changed") void refresh();
+        } catch {
+          /* ignore malformed frames */
+        }
+      };
+      socket.onclose = () => {
+        if (!stopped) setTimeout(connect, 1000);
+      };
+      socket.onerror = () => socket?.close();
+    };
+    connect();
+
+    return () => {
+      stopped = true;
+      socket?.close();
+    };
+  }, [canvasUrl]);
+
   const state = useSyncExternalStore(
     store.subscribe,
     () => store.getState(),
@@ -126,17 +188,6 @@ export const Chat: React.FC<Props> = ({
       bubbleText?: string,
     ) => {
       if (!adapter || activeTurnIdRef.current) return;
-      const spawn = adapter.turnSpawnArgs({
-        cwd,
-        // Watch turns are observe-only; force read-only "plan" posture so the
-        // agent can inspect the board (describe_scene/screenshot) but the
-        // suggest-first rule isn't the only thing stopping a stray edit.
-        permissionMode: origin === "watch" ? "plan" : permissionModeRef.current,
-        prompt: composePrompt(text, attachments),
-        sessionId: sessionIdRef.current,
-        isFirstTurn: isFirstTurnRef.current,
-      });
-      if (!spawn) return;
 
       // The index this turn will occupy in state.turns (turns grow for BOTH
       // user and watch sends, so we key off the live turn count, not the
@@ -149,6 +200,27 @@ export const Chat: React.FC<Props> = ({
       }
 
       void (async () => {
+        // Attach the board's current selection (if any) to user-origin
+        // turns only — watch prompts are fixed observation text, unrelated
+        // to an active selection. Best-effort: fetchSelectedElements never
+        // throws, so a canvas server hiccup just means no block is added.
+        const selectionBlock =
+          origin === "user" && canvasUrl
+            ? formatSelectionBlock(await fetchSelectedElements(canvasUrl))
+            : "";
+
+        const spawn = adapter.turnSpawnArgs({
+          cwd,
+          // Watch turns are observe-only; force read-only "plan" posture so the
+          // agent can inspect the board (describe_scene/screenshot) but the
+          // suggest-first rule isn't the only thing stopping a stray edit.
+          permissionMode: origin === "watch" ? "plan" : permissionModeRef.current,
+          prompt: composePrompt(text, attachments, selectionBlock),
+          sessionId: sessionIdRef.current,
+          isFirstTurn: isFirstTurnRef.current,
+        });
+        if (!spawn) return;
+
         let unlistenData: UnlistenFn | null = null;
         let unlistenStderr: UnlistenFn | null = null;
         let unlistenClosed: UnlistenFn | null = null;
@@ -201,7 +273,7 @@ export const Chat: React.FC<Props> = ({
         }
       })();
     },
-    [adapter, cwd, store],
+    [adapter, cwd, store, canvasUrl],
   );
 
   const stop = useCallback(() => {
@@ -348,6 +420,7 @@ export const Chat: React.FC<Props> = ({
         running={running}
         permissionMode={permissionMode}
         onPermissionModeChange={setPermissionMode}
+        selectionSummary={selectionSummary}
       />
     </div>
   );

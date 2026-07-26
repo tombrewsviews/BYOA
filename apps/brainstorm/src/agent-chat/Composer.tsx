@@ -64,6 +64,11 @@ interface Props {
   running: boolean;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
+  /** Short summary of the board's current selection (e.g. `3 selected:
+   *  "Login flow", rectangle, arrow`), or empty when nothing is selected.
+   *  Purely presentational — confirms to the user what will be attached to
+   *  their next send. Brainstorm only; omitted elsewhere. */
+  selectionSummary?: string;
 }
 
 export const Composer: React.FC<Props> = ({
@@ -73,6 +78,7 @@ export const Composer: React.FC<Props> = ({
   running,
   permissionMode,
   onPermissionModeChange,
+  selectionSummary,
 }) => {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -196,6 +202,11 @@ export const Composer: React.FC<Props> = ({
       onDrop={onDrop}
       className={`border-t border-border p-2.5 ${dropActive ? "bg-accent" : "bg-transparent"}`}
     >
+      {selectionSummary ? (
+        <div className="mb-1.5 inline-flex items-center gap-1 rounded-sm bg-secondary px-1.5 py-0.5 text-ui-sm text-muted-foreground">
+          {selectionSummary}
+        </div>
+      ) : null}
       {attachments.length > 0 ? (
         <div className="mb-1.5 flex flex-wrap gap-1.5">
           {attachments.map((p, i) => (

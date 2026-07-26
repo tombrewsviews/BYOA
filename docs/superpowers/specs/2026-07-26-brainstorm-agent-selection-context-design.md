@@ -1,7 +1,11 @@
 # Brainstorm Canvas — agent reads the selected elements
 
 **Date:** 2026-07-26
-**Status:** Implemented (`apps/brainstorm/src-tauri/skills/brainstorm/SKILL.md`)
+**Status:** Superseded — see
+[the live-selection design](2026-07-26-brainstorm-live-selection-design.md),
+which implements the real thing. This document is kept only for the
+investigation record of why the first attempt was scoped down, and the
+reasoning that turned out to be wrong.
 
 ## Problem
 

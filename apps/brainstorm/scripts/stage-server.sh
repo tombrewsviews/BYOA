@@ -21,4 +21,8 @@ mkdir -p "$dest"
 cp -R "$src_pkg/dist" "$dest/dist"
 cp "$src_pkg/package.json" "$dest/package.json"
 (cd "$dest" && npm install --omit=dev --no-package-lock --silent)
+# Upstream has no notion of the user's current selection, which the embedded
+# agent needs. Re-apply our selection patches to the freshly-copied dist —
+# this MUST run after every stage or the feature silently disappears.
+node "$app_root/scripts/patch-canvas-server.mjs" "$dest"
 echo "staged canvas-server -> $dest"

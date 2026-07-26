@@ -18,7 +18,8 @@ the `excalidraw` MCP server, which is enabled by default in this project.
   the layout. Never assume the board state — read it.
 - Draw with `create_element` / `update_element`; organise with
   `group_elements` / `align_elements`; remove with `delete_element`; inspect
-  with `query_elements`.
+  with `query_elements`; check the user's live selection with
+  `get_selected_elements`.
 
 ## Two modes
 
@@ -32,10 +33,18 @@ satisfies the request.
 
 ### Referring to specific elements
 
-The user can't hand you a literal selection — say what elements they mean and
-you resolve it. When a request refers to elements by description rather than
-by id ("these two boxes", "the flow on the left", "what I just drew", "make
-this blue"):
+**If the user has something selected on the board, your prompt already tells
+you.** When they select elements before sending a message, the app attaches a
+`[selected on board]` block listing each one (type, id, position/size, and
+any text/label) right before their message. Those ids are ready to use
+directly with `update_element` / `delete_element` — no need to re-query for
+them. If the selection may have changed since the block was generated (e.g.
+partway through a multi-step turn), or you want fuller detail than the block
+includes, call `get_selected_elements` to re-fetch it live.
+
+If there's no selection block — or the user refers to something not in
+it ("these two boxes", "the flow on the left", "what I just drew", "make this
+blue") — resolve it from their description instead:
 
 - Read the board first (`describe_scene`, and `get_canvas_screenshot` for
   spatial/ambiguous descriptions you can't resolve from text alone), then use
