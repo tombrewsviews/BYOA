@@ -134,12 +134,7 @@ export type PollStatus = "loading" | "ok" | "error";
  * the shared board warms up). Returns a stop fn. Fetches once immediately.
  */
 export function poll(
-  onChange: (data: {
-    stages: Stage[];
-    leads: Lead[];
-    config: BoardConfig;
-    notifications: Notifications;
-  }) => void,
+  onChange: (snap: Snapshot) => void,
   localIntervalMs = 1500,
   onStatus?: (s: PollStatus) => void,
   sharedIntervalMs = 5000,
@@ -158,12 +153,7 @@ export function poll(
       if (!stopped) {
         everOk = true;
         onStatus?.("ok");
-        onChange({
-          stages: snap.stages,
-          leads: snap.leads,
-          config: snap.config,
-          notifications: snap.notifications,
-        });
+        onChange(snap);
         nextMs = snap.mode === "shared" ? sharedIntervalMs : localIntervalMs;
       }
     } catch (e) {

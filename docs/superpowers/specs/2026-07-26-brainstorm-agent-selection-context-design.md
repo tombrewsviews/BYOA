@@ -40,16 +40,40 @@ Two different files, two different risk profiles:
   other JS file, just without a `.ts` source of truth to regenerate from.
   These will be hand-patched in place.
 - **`dist/frontend/assets/index-*.js`** is a minified Vite/React bundle with
-  no vendored source and no exposed globals to hook into externally.
-  Upstream's current source (`1.1.0`) is a substantially different rewrite
-  from whatever produced our vendored `1.0.7` build, so pulling it in whole
-  risks silently changing unrelated frontend behavior. Instead we write a
-  small, self-authored patch file for just the one hook this feature needs
-  (extending the existing `onChange` → sync call to also read
-  `appState.selectedElementIds`), and rebuild only the frontend bundle with
-  Vite using the already-vendored `@excalidraw/excalidraw` dependency. This
-  keeps the diff small, fully authored by us, and independent of upstream
-  drift.
+  no vendored source, no exposed globals, and (confirmed by inspecting the
+  bundle) no per-element DOM identity in production builds — Excalidraw only
+  stamps `data-id` on element nodes when built with `MODE === "test"`
+  (`po()` gate in the bundle), so a DOM-scraping bridge that reads selection
+  from outside React was tried and ruled out: there is nothing reliable to
+  scrape. Reading `appState.selectedElementIds` requires either the
+  `<Excalidraw onChange>` callback or the imperative
+  `excalidrawAPI.getAppState()` — both exist only inside the React tree, so
+  *some* rebuild of the frontend bundle is unavoidable for live push-on-select.
+
+  Adopting upstream's current source (`1.1.0`) wholesale is still rejected —
+  it's a substantially different rewrite from whatever produced our vendored
+  `1.0.7` build, and risks silently changing unrelated frontend behavior
+  (font loading, export, sync-on-change). Instead: write a small,
+  **self-authored** replacement `App.tsx`/`main.tsx`/`vite.config.ts` that
+  mounts `<Excalidraw>` the same way the current bundle does — same
+  `EXCALIDRAW_ASSET_PATH`/font-serving path (`/assets/fonts`, already served
+  by `server.js`), same debounced `onChange` → `/api/elements/sync` behavior
+  (read from the current bundle's call sites, not upstream's) — plus one
+  addition: a second debounced call in `onChange` that reads
+  `appState.selectedElementIds` and posts to the new `/api/selection`
+  endpoint. Built with the already-vendored `@excalidraw/excalidraw`/`vite`
+  dependencies. This is authored and reviewed in full, so its behavior can be
+  verified directly against the current bundle rather than trusted from
+  upstream.
+
+  **Fallback if this proves too lossy to verify safely:** descope to
+  shipping `get_selected_elements`/`/api/selection` without automatic
+  live push, and add a `select_elements(ids)` MCP tool the agent calls after
+  the user names/describes the elements in words — no frontend rebuild at
+  all. This is a strictly smaller version of the same architecture, not a
+  different one, so it can be adopted mid-implementation without redoing
+  earlier tasks (canvas-server endpoint + MCP tool tasks are unaffected
+  either way).
 
 ## Decisions (locked)
 

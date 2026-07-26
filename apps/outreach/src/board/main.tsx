@@ -12,8 +12,9 @@ import {
   deleteLead,
   ensureConnected,
 } from "./api";
-import type { PollStatus, Notification } from "./api";
+import type { PollStatus, Notification, Snapshot } from "./api";
 import type { Stage, Lead } from "./types";
+import { loadSnapshot, saveSnapshot } from "./snapshotCache";
 
 function BoardApp() {
   const [stages, setStages] = React.useState<Stage[]>([]);
@@ -23,6 +24,9 @@ function BoardApp() {
   const [status, setStatus] = React.useState<PollStatus>("loading");
   const [notifItems, setNotifItems] = React.useState<Notification[]>([]);
   const [notifUnread, setNotifUnread] = React.useState(0);
+  // The active project path, needed to key the on-disk snapshot cache. Fetched
+  // once on mount (a fast local command).
+  const projectPath = React.useRef<string | null>(null);
 
   // Ignore a poll result that's identical to what we already show, so the 5s
   // shared-board poll doesn't replace the arrays (new object identities) and
@@ -31,30 +35,58 @@ function BoardApp() {
   const lastStagesJson = React.useRef("");
   const lastLeadsJson = React.useRef("");
   const lastNotifJson = React.useRef("");
+
+  // Apply a snapshot (from the cache on open, or from the poll) to state,
+  // de-duping each slice so nothing re-renders when it hasn't changed.
+  const apply = React.useCallback((d: Snapshot) => {
+    const sj = JSON.stringify(d.stages);
+    if (sj !== lastStagesJson.current) {
+      lastStagesJson.current = sj;
+      setStages(d.stages);
+    }
+    const lj = JSON.stringify(d.leads);
+    if (lj !== lastLeadsJson.current) {
+      lastLeadsJson.current = lj;
+      setLeads(d.leads);
+    }
+    const nj = JSON.stringify(d.notifications.items);
+    if (nj !== lastNotifJson.current) {
+      lastNotifJson.current = nj;
+      setNotifItems(d.notifications.items);
+    }
+    setNotifUnread(d.notifications.unread);
+  }, []);
+
+  // Instant open: hydrate from the last on-disk snapshot BEFORE the first remote
+  // read lands, so the board paints immediately from last-known data (the poll
+  // then refreshes it). Fetch the project path first so the cache is per-board.
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const path = await invoke<string>("active_project_path");
+        if (cancelled) return;
+        projectPath.current = path;
+        const cached = loadSnapshot(path);
+        if (cached) apply(cached);
+      } catch {
+        /* no project yet / not in Tauri — the poll will fill state */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apply]);
+
   React.useEffect(
     () =>
       poll((d) => {
-        const sj = JSON.stringify(d.stages);
-        if (sj !== lastStagesJson.current) {
-          lastStagesJson.current = sj;
-          setStages(d.stages);
-        }
-        const lj = JSON.stringify(d.leads);
-        if (lj !== lastLeadsJson.current) {
-          lastLeadsJson.current = lj;
-          setLeads(d.leads);
-        }
-        // Notifications ride on the same snapshot — feed the bell from here
-        // instead of a second poll. De-dupe the same way to avoid needless
-        // re-renders when nothing changed.
-        const nj = JSON.stringify(d.notifications.items);
-        if (nj !== lastNotifJson.current) {
-          lastNotifJson.current = nj;
-          setNotifItems(d.notifications.items);
-        }
-        setNotifUnread(d.notifications.unread);
+        apply(d);
+        // Persist the fresh snapshot as the read replica for next open.
+        if (projectPath.current) saveSnapshot(projectPath.current, d);
       }, 1500, setStatus),
-    [],
+    [apply],
   );
 
   // Warm the (shared) board connection off the UI thread so the poll's board
