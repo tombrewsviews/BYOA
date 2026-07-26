@@ -19,6 +19,23 @@ use crate::AppState;
 pub const DOC_FILENAME: &str = "board.json";
 /// Seed written into a brand-new project's board.json.
 const SEED_BOARD: &[u8] = include_bytes!("../templates/seed-board.json");
+/// Holds a board's user-facing display name, so renaming a board never touches
+/// the folder path (which anchors board.db, recents keys, and the active-project
+/// path). Absent = fall back to the folder's basename.
+const NAME_FILENAME: &str = ".display-name";
+
+/// A board's display name: the contents of `.display-name` if present and
+/// non-empty, else the folder's basename. Kept in one place so `projects_list`
+/// and `project_open` agree.
+fn display_name_for(dir: &std::path::Path) -> String {
+    fs::read_to_string(dir.join(NAME_FILENAME))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            dir.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown").to_string()
+        })
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -84,11 +101,7 @@ pub fn projects_list(canvas: Option<String>) -> Result<Vec<ProjectMeta>, String>
         if !path.join(DOC_FILENAME).exists() {
             continue;
         }
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
+        let name = display_name_for(&path);
         let path_str = path.to_string_lossy().to_string();
         let last_opened = recents.get(&path_str).cloned().unwrap_or_else(|| {
             fs::metadata(&path)
@@ -117,6 +130,12 @@ fn create_project_dir(name: &str, app: &AppHandle) -> Result<ProjectMeta, String
     }
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir project: {}", e))?;
     fs::write(dir.join(DOC_FILENAME), SEED_BOARD).map_err(|e| format!("write doc: {}", e))?;
+    // Persist the user's original name as the display name (the folder is a
+    // slug, e.g. "Q3 Pipeline" → "q3-pipeline"; without this the list would show
+    // the slug, not what they typed).
+    if !name.trim().is_empty() {
+        let _ = fs::write(dir.join(NAME_FILENAME), name.trim());
+    }
     crate::prompt_mode::ensure_seeded(&dir);
     // Create + seed the board (schema + bootstrap stages) so the project has a
     // ready board before any command runs. If a shared DB is configured, this
@@ -186,11 +205,7 @@ pub fn project_open(
     recents.insert(path_str.clone(), now.clone());
     write_recents(&recents);
 
-    let name = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Unknown")
-        .to_string();
+    let name = display_name_for(&path_buf);
     let meta = ProjectMeta { name, path: path_str, last_opened: now };
     let _ = app.emit::<ProjectMeta>("project://opened", meta.clone());
     Ok(meta)
@@ -212,6 +227,25 @@ pub fn project_close(state: State<'_, AppState>, app: AppHandle) -> Result<(), S
 #[tauri::command]
 pub fn project_delete(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| format!("trash: {}", e))
+}
+
+/// Rename a board by writing its display name to `.display-name` — the folder,
+/// board.db, and every path anchored on it stay put. An empty name clears the
+/// override (reverting to the folder basename). Returns the resolved name.
+#[tauri::command]
+pub fn projects_rename(path: String, name: String) -> Result<String, String> {
+    let dir = PathBuf::from(&path);
+    if !dir.join(DOC_FILENAME).exists() {
+        return Err(format!("no {} in folder", DOC_FILENAME));
+    }
+    let trimmed = name.trim();
+    let name_file = dir.join(NAME_FILENAME);
+    if trimmed.is_empty() {
+        let _ = fs::remove_file(&name_file); // revert to folder name
+    } else {
+        fs::write(&name_file, trimmed).map_err(|e| format!("write name: {}", e))?;
+    }
+    Ok(display_name_for(&dir))
 }
 
 /// The active project's absolute path (used by secondary webviews / the
@@ -242,6 +276,20 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(SEED_BOARD).unwrap();
         assert_eq!(v["type"], "excalidraw", "seed is an excalidraw doc");
         assert!(v.get("elements").is_some(), "seed has an elements array");
+    }
+
+    #[test]
+    fn display_name_falls_back_to_folder_then_uses_override() {
+        let home = TempDir::new().unwrap();
+        let dir = new_project(home.path(), "q3-pipeline");
+        // No override file → folder basename.
+        assert_eq!(display_name_for(&dir), "q3-pipeline");
+        // Override present → its (trimmed) contents win.
+        fs::write(dir.join(NAME_FILENAME), "  Q3 Pipeline  ").unwrap();
+        assert_eq!(display_name_for(&dir), "Q3 Pipeline");
+        // Empty override → back to folder basename (never a blank name).
+        fs::write(dir.join(NAME_FILENAME), "   ").unwrap();
+        assert_eq!(display_name_for(&dir), "q3-pipeline");
     }
 
     #[test]

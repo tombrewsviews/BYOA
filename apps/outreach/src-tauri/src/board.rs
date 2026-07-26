@@ -820,8 +820,10 @@ fn lead_label(db: &mut Db, lead_id: &str) -> Result<String, DbError> {
 /// every actor's label: an actor is mentioned if `@<label>` appears in the note
 /// (case-insensitive). Matching the full label (not a single token) is what lets
 /// "@Ada Lovelace" resolve to one actor even though the label has a space.
-/// Returns distinct actor ids, excluding `except` (you don't @-notify yourself).
-fn parse_mentions(db: &mut Db, note: &str, except: &str) -> Result<Vec<String>, DbError> {
+/// Returns distinct actor ids. Does NOT exclude the author — an explicit
+/// `@yourself` is a deliberate self-reminder and DOES notify you (unlike the
+/// "others only" stage/lead events, which never target the causer).
+fn parse_mentions(db: &mut Db, note: &str) -> Result<Vec<String>, DbError> {
     let actors: Vec<(String, String)> = db.query_all(
         "select id, label from actors",
         &[],
@@ -830,9 +832,6 @@ fn parse_mentions(db: &mut Db, note: &str, except: &str) -> Result<Vec<String>, 
     let haystack = note.to_lowercase();
     let mut ids = Vec::new();
     for (id, label) in actors {
-        if id == except {
-            continue;
-        }
         let needle = format!("@{}", label.to_lowercase());
         if haystack.contains(&needle) && !ids.contains(&id) {
             ids.push(id);
@@ -1402,18 +1401,23 @@ pub fn append_context(
 }
 
 /// Notifications for a new note on `lead_id`:
-/// - a `mention` for each actor `@`-tagged in the note text (excluding the
-///   author), and
+/// - a `mention` for each actor `@`-tagged in the note text (INCLUDING the
+///   author if they tagged themselves — a deliberate self-reminder), and
 /// - a `note` for each actor previously mentioned on this lead who ISN'T tagged
 ///   in this note (so a thread they're part of notifies them, without a
 ///   duplicate when they're also freshly tagged).
 /// Both carry the lead id so clicking the notification opens the lead.
 fn notify_note(db: &mut Db, lead_id: &str, note: &str, actor: &str) -> Result<(), DbError> {
-    let mentioned = parse_mentions(db, note, actor)?;
+    let mentioned = parse_mentions(db, note)?;
     let lead = lead_label(db, lead_id)?;
 
     for r in &mentioned {
-        let body = format!("{actor} mentioned you on {lead}");
+        // A self-mention reads as a reminder to yourself, not "you mentioned you".
+        let body = if r == actor {
+            format!("Reminder on {lead}")
+        } else {
+            format!("{actor} mentioned you on {lead}")
+        };
         insert_notification(db, r, NotifKind::Mention, Some(lead_id), actor, &body)?;
     }
 
@@ -2148,13 +2152,15 @@ pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serd
     list_rules_json(&mut *db)
 }
 
-/// All actors (users who have opened this board), for the @-mention picker.
-/// Excludes `me` so you can't tag yourself. Returns `[{ id, label }]`.
-pub fn list_actors_json(db: &mut Db, me: &str) -> Result<serde_json::Value, String> {
+/// All actors (users who have opened this board), for the @-mention picker —
+/// INCLUDING yourself, so you can @-mention yourself to leave a personal
+/// reminder. As more users open the shared board, more names appear. Returns
+/// `[{ id, label }]` ordered by label.
+pub fn list_actors_json(db: &mut Db) -> Result<serde_json::Value, String> {
     let rows = db
         .query_all(
-            "select id, label from actors where id <> ?1 order by label",
-            &[SqlParam::Text(me)],
+            "select id, label from actors order by label",
+            &[],
             |r| Ok(serde_json::json!({ "id": r.get_str(0)?, "label": r.get_str(1)? })),
         )
         .map_err(|e| format!("db error: {e}"))?;
@@ -2164,9 +2170,8 @@ pub fn list_actors_json(db: &mut Db, me: &str) -> Result<serde_json::Value, Stri
 #[tauri::command]
 pub async fn board_list_actors(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     read_off_thread(app, |state| {
-        let (mut db, actor) = db_for_active(state)?;
-        let me = actor.id.clone();
-        list_actors_json(&mut *db, &me)
+        let (mut db, _actor) = db_for_active(state)?;
+        list_actors_json(&mut *db)
     })
     .await
 }
@@ -2774,12 +2779,34 @@ mod tests {
     fn note_mention_notifies_tagged_actor() {
         let (_tmp, mut db) = db_seeded_with_lead("L1", "researching"); // version 1
         add_actor(&mut db, "son", "Son");
-        // "local" adds a note mentioning "@Son"
+        // "local" adds a note mentioning "@Son" (but not itself)
         append_context(&mut db, "L1", serde_json::json!({"note": "hey @Son take a look"}), 1, "local").unwrap();
         let n = q_i64(&mut db, "select count(*) from notifications where kind='mention' and recipient='son'");
         assert_eq!(n, 1);
-        // self-mention doesn't fire: "@You" (local's label) wouldn't notify local
+        // no self-mention here (didn't tag "@You"), so no notification to local
         assert_eq!(q_i64(&mut db, "select count(*) from notifications where recipient='local'"), 0);
+    }
+
+    #[test]
+    fn self_mention_notifies_yourself() {
+        // Explicitly @-tagging yourself is a deliberate reminder and DOES notify.
+        // The seeded local actor has label "You".
+        let (_tmp, mut db) = db_seeded_with_lead("L1", "researching");
+        append_context(&mut db, "L1", serde_json::json!({"note": "@You follow up Friday"}), 1, "local").unwrap();
+        let n = q_i64(&mut db, "select count(*) from notifications where kind='mention' and recipient='local'");
+        assert_eq!(n, 1, "self-mention fires a notification to yourself");
+    }
+
+    #[test]
+    fn list_actors_includes_self() {
+        // The @-mention roster must include yourself (for self-reminders) — an
+        // empty roster was why the @-popup showed nothing on a solo board.
+        let (_tmp, mut db) = seeded_db(); // seeds the "local" actor
+        add_actor(&mut db, "son", "Son");
+        let roster = list_actors_json(&mut db).unwrap();
+        let ids: Vec<&str> = roster.as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
+        assert!(ids.contains(&"local"), "roster includes yourself");
+        assert!(ids.contains(&"son"), "roster includes other users");
     }
 
     #[test]

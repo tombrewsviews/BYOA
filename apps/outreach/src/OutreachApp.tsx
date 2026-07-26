@@ -4,7 +4,8 @@ import { Chat } from "./agent-chat/Chat";
 import { Terminal } from "./terminal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PanelRight, Plus, Trash2 } from "./icons";
+import { PanelRight, Plus, MoreHorizontal, ArrowLeft } from "./icons";
+import { Modal } from "./components/Modal";
 import { Inspector } from "./properties/Inspector";
 import { LeadCombobox } from "./properties/LeadCombobox";
 import { Settings } from "./properties/Settings";
@@ -75,9 +76,10 @@ const PropertiesPanel: React.FC<{
       .catch(() => {});
   }, []);
 
-  // The @-mention roster (everyone who has opened the board, minus me). Changes
-  // rarely, so fetch on mount and only when the Inspector tab is shown (see the
-  // `tab` dependency) — a new collaborator appears the next time the panel opens.
+  // The @-mention roster (everyone who has opened the board, INCLUDING you so
+  // you can @-mention yourself). Fetch whenever the Inspector is shown so the
+  // roster is ready before you type `@`, and re-fetch on each show so a new
+  // collaborator appears. (An empty roster was why the @-popup showed nothing.)
   useEffect(() => {
     if (!isTauri() || tab !== "inspector") return;
     void listActors()
@@ -338,7 +340,10 @@ const PropertiesPanel: React.FC<{
  * on the left and a Properties panel on the right. The kanban board renders
  * in its own window, opened/refocused via the board_window_open command.
  */
-const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
+const OutreachEditor: React.FC<{ project: ProjectMeta; onBackToBoards: () => void }> = ({
+  project,
+  onBackToBoards,
+}) => {
   const [viewMode, setViewMode] = useState<ViewMode>("terminal");
   const [agentId, setAgentId] = useState<"claude" | "codex" | "gemini">("claude");
   const [selectedLeadId, setSelectedLeadId] = useState<string>("");
@@ -397,6 +402,15 @@ const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {/* Board title row (below the app's system title bar): a Boards back
+          button to the left of the current board's name. */}
+      <div className="flex flex-none items-center gap-2 border-b border-border px-2 py-1.5">
+        <Button size="sm" variant="secondary" onClick={onBackToBoards} title="Back to all boards">
+          <ArrowLeft className="size-4" />
+          Boards
+        </Button>
+        <span className="truncate text-sm font-semibold text-foreground">{project.name}</span>
+      </div>
       <div className="flex flex-none items-center gap-1 border-b border-border px-2 py-1">
         <Button
           size="sm"
@@ -484,6 +498,9 @@ const BoardsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({ onOpen }) 
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Which board a modal is acting on (null = closed).
+  const [renaming, setRenaming] = useState<ProjectMeta | null>(null);
+  const [deleting, setDeleting] = useState<ProjectMeta | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isTauri()) {
@@ -541,9 +558,25 @@ const BoardsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({ onOpen }) 
       const { invoke } = await import("@tauri-apps/api/core");
       try {
         await invoke("project_delete", { path });
+        setDeleting(null);
         await refresh();
       } catch (e) {
         setError(`Delete failed: ${(e as Error).message}`);
+      }
+    },
+    [refresh],
+  );
+
+  const rename = useCallback(
+    async (path: string, name: string) => {
+      if (!isTauri()) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      try {
+        await invoke("projects_rename", { path, name });
+        setRenaming(null);
+        await refresh();
+      } catch (e) {
+        setError(`Rename failed: ${(e as Error).message}`);
       }
     },
     [refresh],
@@ -587,29 +620,157 @@ const BoardsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({ onOpen }) 
               className="group flex items-center justify-between rounded-lg border border-border bg-card p-3 hover:bg-accent"
             >
               <button
-                className="flex-1 text-left"
+                className="min-w-0 flex-1 text-left"
                 onClick={() => void open(b)}
                 title="Open this board"
               >
-                <div className="text-sm font-medium text-foreground">{b.name}</div>
-                <div className="text-xs text-muted-foreground">{b.path}</div>
+                <div className="truncate text-sm font-medium text-foreground">{b.name}</div>
+                <div className="truncate text-xs text-muted-foreground">{b.path}</div>
               </button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => void remove(b.path)}
-                title="Delete board"
-                className="opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 className="size-4" />
-              </Button>
+              <BoardRowMenu
+                onRename={() => setRenaming(b)}
+                onDelete={() => setDeleting(b)}
+              />
             </div>
           ))
         )}
       </div>
+
+      <RenameBoardModal
+        board={renaming}
+        onClose={() => setRenaming(null)}
+        onSubmit={(name) => renaming && void rename(renaming.path, name)}
+      />
+      <DeleteBoardModal
+        board={deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && void remove(deleting.path)}
+      />
     </div>
   );
 };
+
+/** Hover-revealed 3-dot menu on a board row: Rename / Delete. */
+const BoardRowMenu: React.FC<{ onRename: () => void; onDelete: () => void }> = ({
+  onRename,
+  onDelete,
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative flex-none">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => setOpen((v) => !v)}
+        title="Board options"
+        className={open ? "" : "opacity-0 group-hover:opacity-100"}
+      >
+        <MoreHorizontal className="size-4" />
+      </Button>
+      {open ? (
+        <div className="absolute right-0 z-30 mt-1 w-36 overflow-hidden rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md">
+          <button
+            className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent"
+            onClick={() => {
+              setOpen(false);
+              onRename();
+            }}
+          >
+            Rename…
+          </button>
+          <button
+            className="block w-full px-3 py-1.5 text-left text-sm text-destructive hover:bg-accent"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            Delete…
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+/** Rename modal: a text field prefilled with the board's current name. */
+const RenameBoardModal: React.FC<{
+  board: ProjectMeta | null;
+  onClose: () => void;
+  onSubmit: (name: string) => void;
+}> = ({ board, onClose, onSubmit }) => {
+  const [name, setName] = useState("");
+  // Prefill each time a board is chosen for renaming.
+  useEffect(() => {
+    if (board) setName(board.name);
+  }, [board]);
+  const submit = () => {
+    if (name.trim()) onSubmit(name.trim());
+  };
+  return (
+    <Modal
+      open={board !== null}
+      title="Rename board"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!name.trim()}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <Input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Board name…"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+        }}
+      />
+    </Modal>
+  );
+};
+
+/** Delete confirmation modal. */
+const DeleteBoardModal: React.FC<{
+  board: ProjectMeta | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}> = ({ board, onClose, onConfirm }) => (
+  <Modal
+    open={board !== null}
+    title="Delete board"
+    onClose={onClose}
+    footer={
+      <>
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="destructive" onClick={onConfirm}>
+          Delete
+        </Button>
+      </>
+    }
+  >
+    <p className="text-sm text-foreground">
+      Delete <span className="font-medium">{board?.name}</span>? The board is moved to the Trash.
+    </p>
+  </Modal>
+);
 
 export const OutreachApp: React.FC = () => {
   const [project, setProject] = useState<ProjectMeta | null>(null);
@@ -631,6 +792,18 @@ export const OutreachApp: React.FC = () => {
     };
   }, []);
 
+  const backToBoards = useCallback(() => {
+    setProject(null);
+    void (async () => {
+      if (!isTauri()) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      // Close the project (clears the active project + cached board connections)
+      // and the separate board window, so the boards list is a clean slate.
+      await invoke("board_window_close").catch(() => {});
+      await invoke("project_close").catch(() => {});
+    })();
+  }, []);
+
   if (!project) return <BoardsList onOpen={setProject} />;
-  return <OutreachEditor key={project.path} project={project} />;
+  return <OutreachEditor key={project.path} project={project} onBackToBoards={backToBoards} />;
 };
