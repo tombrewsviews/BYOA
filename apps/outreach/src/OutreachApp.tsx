@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PanelRight, Plus, Trash2 } from "./icons";
 import { Inspector } from "./properties/Inspector";
+import { LeadCombobox } from "./properties/LeadCombobox";
 import { Settings } from "./properties/Settings";
 import {
   listStages,
@@ -270,18 +271,7 @@ const PropertiesPanel: React.FC<{
   return tab === "inspector" ? (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-2xl flex-col">
       <div className="flex-none p-2">
-        <select
-          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-          value={selectedLeadId}
-          onChange={(e) => setSelectedLeadId(e.target.value)}
-        >
-          <option value="">Select a lead…</option>
-          {leads.map((lead) => (
-            <option key={lead.id} value={lead.id}>
-              {lead.name}
-            </option>
-          ))}
-        </select>
+        <LeadCombobox leads={leads} value={selectedLeadId} onChange={setSelectedLeadId} />
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <Inspector
