@@ -43,22 +43,38 @@ export const attachFile = (leadId: string, srcPath: string) =>
   call<string>("attach_file", { leadId, srcPath });
 export const revealFile = (path: string) => call<void>("reveal_file", { path });
 
+/** Board connection status, surfaced so the UI can show progress instead of a
+ *  silent freeze while a slow shared-DB (Postgres) connect is in flight. */
+export type PollStatus = "loading" | "ok" | "error";
+
 /**
  * Re-fetch stages+leads every `intervalMs` and hand them to `onChange`.
- * Returns a stop fn. Fetches once immediately, then on the interval.
+ * `onStatus` (optional) reports the fetch state: "loading" while the first
+ * fetch (or a retry after failure) is in flight, "ok" once data arrives,
+ * "error" if the fetch failed. Returns a stop fn. Fetches once immediately.
  */
 export function poll(
   onChange: (data: { stages: Stage[]; leads: Lead[] }) => void,
   intervalMs = 1500,
+  onStatus?: (s: PollStatus) => void,
 ): () => void {
   let stopped = false;
+  let everOk = false;
   const tick = async () => {
     if (stopped) return;
+    // Only signal "loading" before the first success, so a slow initial connect
+    // shows progress but steady-state polling doesn't flicker a banner.
+    if (!everOk) onStatus?.("loading");
     try {
       const [stages, leads] = await Promise.all([listStages(), listLeads()]);
-      if (!stopped) onChange({ stages, leads });
+      if (!stopped) {
+        everOk = true;
+        onStatus?.("ok");
+        onChange({ stages, leads });
+      }
     } catch {
-      /* transient (e.g. no active project yet) — try again next tick */
+      if (!stopped && !everOk) onStatus?.("error");
+      /* transient (e.g. no active project yet, or slow connect) — retry next tick */
     }
   };
   void tick();

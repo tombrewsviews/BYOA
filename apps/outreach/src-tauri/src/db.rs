@@ -191,6 +191,17 @@ impl Db {
         Ok(Db::Pg { client, tx_depth: 0 })
     }
 
+    /// Is this handle known to be unusable? For Postgres, true once the client's
+    /// connection has dropped (non-blocking check — no round-trip). SQLite is a
+    /// local file handle that doesn't drop, so always false. Used to evict a dead
+    /// cached connection so the next command reconnects instead of erroring.
+    pub fn is_dead(&self) -> bool {
+        match self {
+            Db::Sqlite(_) => false,
+            Db::Pg { client, .. } => client.is_closed(),
+        }
+    }
+
     /// Run a statement that doesn't return rows (insert/update/delete/ddl).
     /// Returns the number of rows affected.
     pub fn exec(&mut self, sql: &str, params: &[SqlParam]) -> Result<u64, DbError> {

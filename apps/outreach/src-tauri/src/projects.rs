@@ -171,6 +171,10 @@ pub fn project_open(
 
     *state.active_project.lock().unwrap() =
         Some(ActiveProject { path: path_buf.clone(), _watcher: watcher });
+    // Drop any board connection cached for a previously-open project.
+    if let Ok(mut c) = state.board_cache.lock() {
+        *c = None;
+    }
 
     let path_str = path_buf.to_string_lossy().to_string();
     let mut recents = read_recents();
@@ -191,6 +195,9 @@ pub fn project_open(
 #[tauri::command]
 pub fn project_close(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     *state.active_project.lock().unwrap() = None;
+    if let Ok(mut c) = state.board_cache.lock() {
+        *c = None;
+    }
     let _ = app.emit::<()>("project://closed", ());
     Ok(())
 }

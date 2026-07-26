@@ -1148,17 +1148,69 @@ pub fn attach_transcript(db: &mut Db, id: &str, raw: &str, summary: &str, actor:
 // Tauri command layer — exposes the board verbs above to the frontend.
 // ---------------------------------------------------------------------------
 
-/// Open the board under the active project's directory, sourcing the
-/// database URL + actor from the user's configured settings. Returns both
-/// the open `Db` and the resolved `Actor` so callers can attribute writes
-/// without loading settings twice.
-fn db_for_active(state: &crate::AppState) -> Result<(Db, Actor), String> {
+/// A board connection cached in `AppState`, keyed by what it was opened for.
+/// Reopening on every command was the killer for shared (Postgres) boards: each
+/// `open_board` is a ~2-3s remote connect, and the board window polls twice a
+/// second, so the app spent all its time reconnecting to Neon (looked frozen).
+/// Caching the open `Db` makes every command after the first a local call.
+pub struct CachedBoard {
+    /// Invalidation key: project dir + db url + actor id. Any change reopens.
+    key: String,
+    db: Db,
+}
+
+/// A locked handle to the cached board `Db`. Holds the cache mutex for the
+/// duration of one command (board commands are quick once connected, so
+/// serializing them on one connection is fine and matches the single-writer
+/// event log). Derefs to `Db` so existing call sites use `&mut *guard`.
+pub struct BoardGuard<'a> {
+    cache: std::sync::MutexGuard<'a, Option<CachedBoard>>,
+}
+
+impl std::ops::Deref for BoardGuard<'_> {
+    type Target = Db;
+    fn deref(&self) -> &Db {
+        // Always Some: db_for_active fills the cache before constructing the guard.
+        &self.cache.as_ref().expect("cached board present").db
+    }
+}
+impl std::ops::DerefMut for BoardGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Db {
+        &mut self.cache.as_mut().expect("cached board present").db
+    }
+}
+
+/// Open (or reuse) the board for the active project, sourcing the database URL +
+/// actor from settings. Returns a locked handle to the cached connection plus
+/// the resolved `Actor`. The connection is opened once per (project, url, actor)
+/// and reused on every later call — see `CachedBoard`.
+fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), String> {
     let dir = crate::projects::active_path(state)?;
     let s = crate::settings::load();
     let actor = actor_from(s.actor_name.as_deref());
-    let db = open_board(&dir, s.database_url.as_deref(), &actor)
-        .map_err(|e| format!("open board: {e}"))?;
-    Ok((db, actor))
+    let key = format!(
+        "{}\u{1f}{}\u{1f}{}",
+        dir.to_string_lossy(),
+        s.database_url.as_deref().unwrap_or(""),
+        actor.id,
+    );
+
+    let mut cache = state
+        .board_cache
+        .lock()
+        .map_err(|e| format!("board cache lock: {e}"))?;
+
+    // Reopen on a miss (first use), a key change (settings edit), or a dead
+    // cached connection (Postgres dropped) — so a network blip self-heals on the
+    // next command instead of erroring until restart.
+    let hit = cache.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead());
+    if !hit {
+        let db = open_board(&dir, s.database_url.as_deref(), &actor)
+            .map_err(|e| format!("open board: {e}"))?;
+        *cache = Some(CachedBoard { key, db });
+    }
+
+    Ok((BoardGuard { cache }, actor))
 }
 
 /// Map a `BoardError` to a frontend-facing string. Stable prefixes
@@ -1203,7 +1255,7 @@ pub fn list_stages_json(db: &mut Db) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub fn board_list_stages(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let (mut db, _actor) = db_for_active(&state)?;
-    list_stages_json(&mut db)
+    list_stages_json(&mut *db)
 }
 
 pub fn get_config_json(db: &mut Db) -> Result<serde_json::Value, String> {
@@ -1221,7 +1273,7 @@ pub fn get_config_json(db: &mut Db) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let (mut db, _actor) = db_for_active(&state)?;
-    get_config_json(&mut db)
+    get_config_json(&mut *db)
 }
 
 pub fn list_leads_json(db: &mut Db) -> Result<serde_json::Value, String> {
@@ -1243,7 +1295,7 @@ pub fn list_leads_json(db: &mut Db) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let (mut db, _actor) = db_for_active(&state)?;
-    list_leads_json(&mut db)
+    list_leads_json(&mut *db)
 }
 
 pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String> {
@@ -1294,7 +1346,7 @@ pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String>
 #[tauri::command]
 pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
     let (mut db, _actor) = db_for_active(&state)?;
-    get_lead_json(&mut db, &id)
+    get_lead_json(&mut *db, &id)
 }
 
 #[tauri::command]
@@ -1305,7 +1357,7 @@ pub fn board_add_lead(
     stage: String,
 ) -> Result<String, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    add_lead(&mut db, &name, org.as_deref(), &stage, &actor.id).map_err(board_err)
+    add_lead(&mut *db, &name, org.as_deref(), &stage, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1316,7 +1368,7 @@ pub fn board_move_lead(
     expected_version: i64,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    move_lead(&mut db, &id, &to_stage, expected_version, &actor.id).map_err(board_err)
+    move_lead(&mut *db, &id, &to_stage, expected_version, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1326,7 +1378,7 @@ pub fn board_set_lead_archived(
     archived: bool,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    set_lead_archived(&mut db, &id, archived, &actor.id).map_err(board_err)
+    set_lead_archived(&mut *db, &id, archived, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1335,7 +1387,7 @@ pub fn board_delete_lead(
     id: String,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    delete_lead(&mut db, &id, &actor.id).map_err(board_err)
+    delete_lead(&mut *db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1346,7 +1398,7 @@ pub fn board_append_context(
     expected_version: i64,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    append_context(&mut db, &id, research, expected_version, &actor.id).map_err(board_err)
+    append_context(&mut *db, &id, research, expected_version, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1356,7 +1408,7 @@ pub fn board_draft_message(
     msg: serde_json::Value,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    draft_message(&mut db, &id, msg, &actor.id).map_err(board_err)
+    draft_message(&mut *db, &id, msg, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1367,7 +1419,7 @@ pub fn board_attach_transcript(
     summary: String,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    attach_transcript(&mut db, &id, &raw, &summary, &actor.id).map_err(board_err)
+    attach_transcript(&mut *db, &id, &raw, &summary, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1377,14 +1429,14 @@ pub fn board_rename_stage(
     label: String,
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    rename_stage(&mut db, &id, &label, &actor.id).map_err(board_err)
+    rename_stage(&mut *db, &id, &label, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_reorder_stages(state: tauri::State<'_, crate::AppState>, ids: Vec<String>) -> Result<(), String> {
     let (mut db, actor) = db_for_active(&state)?;
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    reorder_stages(&mut db, &refs, &actor.id).map_err(board_err)
+    reorder_stages(&mut *db, &refs, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1394,19 +1446,19 @@ pub fn board_add_stage(
     position: i64,
 ) -> Result<String, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    add_stage(&mut db, &label, position, &actor.id).map_err(board_err)
+    add_stage(&mut *db, &label, position, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_retire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    retire_stage(&mut db, &id, &actor.id).map_err(board_err)
+    retire_stage(&mut *db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_unretire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
-    unretire_stage(&mut db, &id, &actor.id).map_err(board_err)
+    unretire_stage(&mut *db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1421,7 +1473,7 @@ pub fn board_remap_stage(
 ) -> Result<serde_json::Value, String> {
     let (mut db, actor) = db_for_active(&state)?;
     let filter = org_filter.map(|org| LeadFilter { org: Some(org) });
-    let result = remap_stage(&mut db, &from, &to, filter, dry_run, retire_source, confirmed, &actor.id).map_err(board_err)?;
+    let result = remap_stage(&mut *db, &from, &to, filter, dry_run, retire_source, confirmed, &actor.id).map_err(board_err)?;
     Ok(serde_json::json!({
         "affected": result.affected,
         "lead_ids": result.lead_ids,
@@ -1446,13 +1498,13 @@ pub fn list_rules_json(db: &mut Db) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
     let (mut db, _actor) = db_for_active(&state)?;
-    list_rules_json(&mut db)
+    list_rules_json(&mut *db)
 }
 
 #[tauri::command]
 pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Result<usize, String> {
     let (mut db, _actor) = db_for_active(&state)?;
-    revert(&mut db, seq).map_err(|e| format!("db error: {e}"))
+    revert(&mut *db, seq).map_err(|e| format!("db error: {e}"))
 }
 
 #[cfg(test)]
@@ -1601,6 +1653,15 @@ mod tests {
         assert_eq!(stage, "contacted"); // back to the state at `base`
         let remaining = q_i64(&mut db, "select count(*) from events");
         assert_eq!(remaining, 1);  // the base event remains
+    }
+
+    #[test]
+    fn sqlite_handle_is_never_dead_so_it_stays_cached() {
+        // The cache reopens a connection when `is_dead()` is true. A local SQLite
+        // file handle never drops, so it must always report alive — otherwise the
+        // cache would pointlessly reopen the file every command.
+        let (_tmp, db) = seeded_db();
+        assert!(!db.is_dead());
     }
 
     #[test]

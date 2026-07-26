@@ -53,6 +53,10 @@ pub struct AppState {
     pub active_project: Mutex<Option<projects::ActiveProject>>,
     pub ptys: DashMap<String, pty::PtySession>,
     pub agent_chats: DashMap<String, agent_chat::AgentChatTurn>,
+    /// Cached board DB connection, reused across commands (opening a shared
+    /// Postgres board is a slow remote connect — see `board::CachedBoard`).
+    /// Keyed internally by project+url+actor; reset on project open/close.
+    pub board_cache: Mutex<Option<board::CachedBoard>>,
 }
 
 impl AppState {
@@ -76,6 +80,7 @@ pub fn run() {
         active_project: Mutex::new(None),
         ptys: DashMap::new(),
         agent_chats: DashMap::new(),
+        board_cache: Mutex::new(None),
     };
 
     tauri::Builder::default()
