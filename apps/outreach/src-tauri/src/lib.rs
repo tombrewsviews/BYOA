@@ -57,6 +57,12 @@ pub struct AppState {
     /// Postgres board is a slow remote connect — see `board::CachedBoard`).
     /// Keyed internally by project+url+actor; reset on project open/close.
     pub board_cache: Mutex<Option<board::CachedBoard>>,
+    /// Serializes the shared-board warm-up so many concurrent `board_ensure_
+    /// connected` calls (two windows, poll ticks, the badge poll) don't each
+    /// start their own slow Neon connect — a stampede that thrashed the app.
+    /// The first caller connects; the rest wait on this lock and then no-op
+    /// because the cache is already filled.
+    pub board_warm_lock: Mutex<()>,
 }
 
 impl AppState {
@@ -81,6 +87,7 @@ pub fn run() {
         ptys: DashMap::new(),
         agent_chats: DashMap::new(),
         board_cache: Mutex::new(None),
+        board_warm_lock: Mutex::new(()),
     };
 
     tauri::Builder::default()

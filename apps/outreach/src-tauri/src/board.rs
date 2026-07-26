@@ -1360,19 +1360,37 @@ fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), Str
 /// `State`, which isn't `Send`).
 fn warm_board_connection(
     cache: &std::sync::Mutex<Option<CachedBoard>>,
+    warm_lock: &std::sync::Mutex<()>,
     dir: &std::path::Path,
     url: Option<String>,
     actor: &Actor,
 ) -> Result<(), String> {
     let key = board_key(dir, url.as_deref(), actor);
+
+    // Fast path: already warm, no need to serialize.
     {
         let guard = cache.lock().map_err(|e| format!("board cache lock: {e}"))?;
         if guard.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead()) {
-            return Ok(()); // already warm
+            return Ok(());
         }
     }
-    // Slow connect happens OUTSIDE the lock so a board command needing the cache
-    // (e.g. a local board on a different key) isn't blocked behind this connect.
+
+    // Single-flight: only ONE connect runs at a time. Concurrent warmers (two
+    // windows + poll ticks + the badge poll) block here instead of each opening
+    // their own slow Neon connection — the stampede that thrashed the app.
+    let _warming = warm_lock.lock().map_err(|e| format!("warm lock: {e}"))?;
+
+    // Re-check under the warm lock: the warmer we queued behind may have already
+    // filled the cache, in which case we do nothing (no second connect).
+    {
+        let guard = cache.lock().map_err(|e| format!("board cache lock: {e}"))?;
+        if guard.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead()) {
+            return Ok(());
+        }
+    }
+
+    // The connect itself runs while holding ONLY the warm lock (not the cache
+    // lock), so board commands can still read the cache meanwhile.
     let t0 = std::time::Instant::now();
     eprintln!(
         "[outreach] warm_board_connection: connecting (thread {:?})…",
@@ -1415,8 +1433,8 @@ pub async fn board_ensure_connected(
     let app_cache = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
-        let cache = &app_cache.state::<crate::AppState>().board_cache;
-        warm_board_connection(cache, &dir, url, &actor)
+        let state = app_cache.state::<crate::AppState>();
+        warm_board_connection(&state.board_cache, &state.board_warm_lock, &dir, url, &actor)
     })
     .await
     .map_err(|e| format!("warm task: {e}"))?
