@@ -37,10 +37,23 @@ export const appendContext = (id: string, research: unknown, expectedVersion: nu
   call<number>("board_append_context", { id, research, expectedVersion });
 export const getSettings = () => call<AppSettings>("get_settings");
 export const setDatabaseUrl = (url: string) => call<void>("set_database_url", { url });
-export const sharedPreview = (url: string) =>
-  call<{ localLeadCount: number; sharedLeadCount: number }>("board_shared_preview", { url });
-export const copyLocalToShared = (url: string) =>
-  call<number>("board_copy_local_to_shared", { url });
+
+/** A step in the shared-board sync, emitted on the `board://sync-progress`
+ *  event so the UI can show a live progress bar instead of a frozen app. */
+export interface SyncProgress {
+  phase: "connecting" | "checking" | "copying" | "done" | "error";
+  done: number;
+  total: number;
+  message: string;
+}
+
+/**
+ * Save a shared-board URL. Runs entirely off the UI thread on the Rust side
+ * (the connect+copy used to freeze the whole app), emitting `board://sync-progress`
+ * as it goes. Auto-copies local leads up when the shared board is empty.
+ * Resolves with the number of leads copied.
+ */
+export const saveSharedUrl = (url: string) => call<number>("board_save_shared_url", { url });
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 export const openResearchFolder = () => call<void>("research_folder_open");
 export const attachFile = (leadId: string, srcPath: string) =>

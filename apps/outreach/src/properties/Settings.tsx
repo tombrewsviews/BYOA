@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ArrowUp, ArrowDown, Trash2 } from "../icons";
+import { isTauri } from "../runtime";
 import type { Stage } from "../board/types";
-import { openResearchFolder, type BoardConfig } from "../board/api";
+import { openResearchFolder, type BoardConfig, type SyncProgress } from "../board/api";
 
 interface SettingsProps {
   stages: Stage[];
@@ -24,7 +25,8 @@ const SharingField: React.FC<{
   initialValue: string;
   onSave: (value: string) => void;
   mask?: boolean;
-}> = ({ label, hint, initialValue, onSave, mask }) => {
+  children?: React.ReactNode;
+}> = ({ label, hint, initialValue, onSave, mask, children }) => {
   const [value, setValue] = useState(initialValue);
 
   const commit = () => {
@@ -43,7 +45,40 @@ const SharingField: React.FC<{
           if (e.key === "Enter") commit();
         }}
       />
+      {children}
       <div className="text-xs text-muted-foreground">{hint}</div>
+    </div>
+  );
+};
+
+/**
+ * Live progress for the shared-board sync, below the DB-URL field. Driven by
+ * the `board://sync-progress` events the save command emits. The bar is
+ * determinate during the copy phase (done/total) and indeterminate-ish
+ * (message only) while connecting/checking. Auto-clears a few seconds after
+ * "done"; an error stays until the next save.
+ */
+const SyncBar: React.FC<{ progress: SyncProgress | null }> = ({ progress }) => {
+  if (!progress) return null;
+  const { phase, done, total, message } = progress;
+  const pct = phase === "done" ? 100 : total > 0 ? Math.round((done / total) * 100) : null;
+  const isError = phase === "error";
+  return (
+    <div className="mt-1 flex flex-col gap-1" role="status" aria-live="polite">
+      <div className={`text-xs ${isError ? "text-destructive" : "text-muted-foreground"}`}>
+        {message}
+        {phase === "copying" && total > 0 ? ` (${done}/${total})` : ""}
+      </div>
+      {!isError ? (
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={`h-full rounded-full transition-all ${
+              pct === null ? "w-1/3 animate-pulse bg-primary/60" : "bg-primary"
+            }`}
+            style={pct === null ? undefined : { width: `${pct}%` }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -157,6 +192,31 @@ export const Settings: React.FC<SettingsProps> = ({
   onRemoveStage,
   onSaveDbUrl,
 }) => {
+  const [sync, setSync] = useState<SyncProgress | null>(null);
+
+  // Subscribe to the shared-board sync progress emitted by board_save_shared_url.
+  // Clear the bar a few seconds after it finishes so it doesn't linger.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let off: (() => void) | undefined;
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const un = await listen<SyncProgress>("board://sync-progress", (e) => {
+        setSync(e.payload);
+        if (clearTimer) clearTimeout(clearTimer);
+        if (e.payload.phase === "done") {
+          clearTimer = setTimeout(() => setSync(null), 6000);
+        }
+      });
+      off = () => un();
+    })();
+    return () => {
+      if (clearTimer) clearTimeout(clearTimer);
+      if (off) off();
+    };
+  }, []);
+
   const ordered = [...stages]
     .filter((s) => s.retiredAt === null)
     .sort((a, b) => a.position - b.position);
@@ -185,7 +245,9 @@ export const Settings: React.FC<SettingsProps> = ({
           initialValue={databaseUrl ?? ""}
           onSave={onSaveDbUrl}
           mask
-        />
+        >
+          <SyncBar progress={sync} />
+        </SharingField>
       </div>
       <div className="flex flex-col gap-2">
         <div className="text-sm font-medium text-foreground">Research</div>

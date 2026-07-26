@@ -176,8 +176,15 @@ fn pg_integration() {
         let mut shared = board::open_board(tmp.path(), Some(&url), &local_actor()).unwrap();
         assert_eq!(board::lead_count(&mut shared).unwrap(), 0, "shared starts empty");
 
-        let copied = board::copy_board(&mut local, &mut shared, "local").unwrap();
+        // The progress callback fires once per lead, with a stable total.
+        let mut progress: Vec<(i64, i64)> = Vec::new();
+        let copied =
+            board::copy_board(&mut local, &mut shared, "local", &mut |done, total| {
+                progress.push((done, total));
+            })
+            .unwrap();
         assert_eq!(copied, 2, "both leads copied");
+        assert_eq!(progress, vec![(1, 2), (2, 2)], "progress reported per lead");
         assert_eq!(board::lead_count(&mut shared).unwrap(), 2, "shared now has the leads");
 
         // Full state preserved: the archived lead keeps its context + archived flag.
@@ -188,7 +195,7 @@ fn pg_integration() {
         assert!(facts.iter().any(|f| f["note"] == "keep me"), "context copied");
 
         // Idempotent: a second copy inserts nothing.
-        let again = board::copy_board(&mut local, &mut shared, "local").unwrap();
+        let again = board::copy_board(&mut local, &mut shared, "local", &mut |_, _| {}).unwrap();
         assert_eq!(again, 0, "re-copy is a no-op");
         assert_eq!(board::lead_count(&mut shared).unwrap(), 2);
     }

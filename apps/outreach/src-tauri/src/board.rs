@@ -372,7 +372,16 @@ pub fn lead_count(db: &mut Db) -> Result<i64, DbError> {
 ///   not a merge of two divergent boards.
 ///
 /// Returns the number of leads copied (newly inserted).
-pub fn copy_board(src: &mut Db, dst: &mut Db, actor: &str) -> Result<i64, DbError> {
+///
+/// `on_progress(done, total)` is called after each lead is processed so a
+/// caller can surface a live progress bar; `total` is the number of leads in
+/// `src`. Pass `&mut |_, _| {}` when progress isn't needed.
+pub fn copy_board(
+    src: &mut Db,
+    dst: &mut Db,
+    actor: &str,
+    on_progress: &mut dyn FnMut(i64, i64),
+) -> Result<i64, DbError> {
     // Stages from src (skip nothing — default ids will conflict-noop in dst).
     let stages: Vec<(String, String, i64, Option<String>, Option<String>, String)> = src
         .query_all(
@@ -420,7 +429,9 @@ pub fn copy_board(src: &mut Db, dst: &mut Db, actor: &str) -> Result<i64, DbErro
             )?;
         }
 
+        let total = leads.len() as i64;
         let mut copied = 0i64;
+        let mut done = 0i64;
         for (id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version) in &leads {
             let n = dst.exec(
                 "insert into leads (id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version)
@@ -440,6 +451,8 @@ pub fn copy_board(src: &mut Db, dst: &mut Db, actor: &str) -> Result<i64, DbErro
                 ],
             )?;
             copied += n as i64;
+            done += 1;
+            on_progress(done, total);
         }
         Ok(copied)
     })
@@ -1308,50 +1321,101 @@ fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), Str
     Ok((BoardGuard { cache }, actor))
 }
 
-/// Inspect a candidate shared board before the user commits to it: how many
-/// leads it already holds vs how many are on the local board. The frontend uses
-/// this to warn ("switching to an empty shared board — your N local leads won't
-/// be there") and offer to copy the local board up. Opening the shared board
-/// here is the same slow remote connect as any open; it's a one-off on save.
-#[tauri::command]
-pub fn board_shared_preview(
-    state: tauri::State<'_, crate::AppState>,
-    url: String,
-) -> Result<serde_json::Value, String> {
-    let dir = crate::projects::active_path(&state)?;
-    let s = crate::settings::load();
-    let actor = actor_from(s.actor_name.as_deref());
-
-    let mut local = open_board(&dir, None, &actor).map_err(|e| format!("open local: {e}"))?;
-    let local_count = lead_count(&mut local).map_err(|e| format!("count local: {e}"))?;
-
-    let mut shared = open_board(&dir, Some(url.trim()), &actor)
-        .map_err(|e| format!("open shared: {e}"))?;
-    let shared_count = lead_count(&mut shared).map_err(|e| format!("count shared: {e}"))?;
-
-    Ok(serde_json::json!({
-        "localLeadCount": local_count,
-        "sharedLeadCount": shared_count,
-    }))
+/// Emit one `board://sync-progress` step to the frontend so the Settings panel
+/// can render a live progress bar. `phase` is one of `connecting`, `checking`,
+/// `copying`, `done`, `error`; `done`/`total` are lead counts (0 outside the
+/// copy phase). Best-effort — a failed emit must not fail the sync.
+fn emit_sync(app: &tauri::AppHandle, phase: &str, done: i64, total: i64, message: &str) {
+    use tauri::Emitter;
+    let _ = app.emit(
+        "board://sync-progress",
+        serde_json::json!({ "phase": phase, "done": done, "total": total, "message": message }),
+    );
 }
 
-/// Copy the local board (stages + all leads) up to the shared board at `url`.
-/// Idempotent (already-present leads are skipped). Returns the number of leads
-/// copied. Used when the user enables sharing and chooses to bring their data.
+/// Save a shared (Postgres) board URL WITHOUT freezing the UI.
+///
+/// The freeze this replaces: the old preview+copy commands were synchronous
+/// `#[tauri::command] fn`s, so their slow remote Neon connect (up to the 10s
+/// connect timeout) ran on the main/UI thread and locked the whole app — no
+/// clicks, no window switching — until it returned. This command is `async`
+/// and does every blocking DB step inside `spawn_blocking`, so the UI thread
+/// is free the instant the field blurs. Each step emits `board://sync-progress`
+/// so the user sees real state instead of a silent hang.
+///
+/// Flow (empty URL = go local, nothing to sync):
+///   connecting → checking → (copying, if shared is empty and local has leads)
+///   → persist URL → done.
+///
+/// Auto-copies local → shared when the shared board is empty and local has
+/// leads, so enabling sharing never strands the user's research on a blank
+/// remote board.
 #[tauri::command]
-pub fn board_copy_local_to_shared(
+pub async fn board_save_shared_url(
     state: tauri::State<'_, crate::AppState>,
+    app: tauri::AppHandle,
     url: String,
 ) -> Result<i64, String> {
+    // Pull the project path on the UI thread (instant, and `State` isn't
+    // Send). Everything after this moves owned values into the blocking task.
     let dir = crate::projects::active_path(&state)?;
-    let s = crate::settings::load();
-    let actor = actor_from(s.actor_name.as_deref());
+    let trimmed = url.trim().to_string();
 
-    let mut local = open_board(&dir, None, &actor).map_err(|e| format!("open local: {e}"))?;
-    let mut shared = open_board(&dir, Some(url.trim()), &actor)
-        .map_err(|e| format!("open shared: {e}"))?;
+    // Clearing the URL (back to a local board) — no remote work, just persist.
+    if trimmed.is_empty() {
+        crate::settings::set_database_url(url)?;
+        emit_sync(&app, "done", 0, 0, "Using the local board.");
+        return Ok(0);
+    }
 
-    copy_board(&mut local, &mut shared, &actor.id).map_err(|e| format!("copy board: {e}"))
+    let app_bg = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<i64, String> {
+        let s = crate::settings::load();
+        let actor = actor_from(s.actor_name.as_deref());
+
+        emit_sync(&app_bg, "connecting", 0, 0, "Connecting to the shared board…");
+        let mut shared = open_board(&dir, Some(&trimmed), &actor)
+            .map_err(|e| format!("open shared: {e}"))?;
+
+        emit_sync(&app_bg, "checking", 0, 0, "Checking the shared board…");
+        let shared_count = lead_count(&mut shared).map_err(|e| format!("count shared: {e}"))?;
+
+        let mut local = open_board(&dir, None, &actor).map_err(|e| format!("open local: {e}"))?;
+        let local_count = lead_count(&mut local).map_err(|e| format!("count local: {e}"))?;
+
+        let copied = if shared_count == 0 && local_count > 0 {
+            emit_sync(&app_bg, "copying", 0, local_count, "Copying your leads to the shared board…");
+            let mut on_progress = |done: i64, total: i64| {
+                emit_sync(&app_bg, "copying", done, total, "Copying your leads to the shared board…");
+            };
+            copy_board(&mut local, &mut shared, &actor.id, &mut on_progress)
+                .map_err(|e| format!("copy board: {e}"))?
+        } else {
+            0
+        };
+
+        // Persist only after the copy succeeds, so a failed copy leaves the app
+        // on the local board (no silent switch to an empty remote board).
+        crate::settings::set_database_url(url)?;
+        Ok(copied)
+    })
+    .await
+    .map_err(|e| format!("sync task: {e}"))?;
+
+    match &result {
+        Ok(copied) => emit_sync(
+            &app,
+            "done",
+            *copied,
+            *copied,
+            &format!(
+                "Shared board ready{}. Reopen the board to switch to it.",
+                if *copied > 0 { format!(" — {copied} leads copied up") } else { String::new() }
+            ),
+        ),
+        Err(e) => emit_sync(&app, "error", 0, 0, e),
+    }
+    result
 }
 
 /// Map a `BoardError` to a frontend-facing string. Stable prefixes
