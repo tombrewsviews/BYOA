@@ -25,6 +25,8 @@ import {
   getSettings,
   setActorName,
   setDatabaseUrl,
+  sharedPreview,
+  copyLocalToShared,
 } from "./board/api";
 import type { Stage, Lead } from "./board/types";
 import type { LeadDetail, BoardConfig } from "./board/api";
@@ -192,7 +194,35 @@ const PropertiesPanel: React.FC<{
 
   const handleSaveDbUrl = useCallback((url: string) => {
     setDatabaseUrlState(url);
-    void setDatabaseUrl(url).catch(() => {});
+    const trimmed = url.trim();
+    void (async () => {
+      // Clearing the URL (back to local) — nothing to warn about.
+      if (!trimmed) {
+        await setDatabaseUrl(url).catch(() => {});
+        return;
+      }
+      // Setting a shared URL: check whether it points at an empty board while
+      // the local board has leads. If so, warn (this is the "my research is
+      // gone" trap — the shared board is a different, blank board) and offer to
+      // copy the local leads up so shared mode shows the real data.
+      const preview = await sharedPreview(trimmed).catch(() => null);
+      if (preview && preview.sharedLeadCount === 0 && preview.localLeadCount > 0) {
+        const copy = window.confirm(
+          `This shared board is empty, but your local board has ${preview.localLeadCount} ` +
+            `lead${preview.localLeadCount === 1 ? "" : "s"}. ` +
+            `Copy them to the shared board so everyone sees them?\n\n` +
+            `OK = copy your ${preview.localLeadCount} leads up.\n` +
+            `Cancel = switch anyway (the shared board will start empty; your local data stays put).`,
+        );
+        if (copy) {
+          await copyLocalToShared(trimmed).catch((e) =>
+            window.alert(`Couldn't copy to the shared board:\n${(e as Error).message ?? e}`),
+          );
+        }
+      }
+      await setDatabaseUrl(url).catch(() => {});
+      window.alert("Shared board saved. Reopen the board (or restart the app) to switch to it.");
+    })();
   }, []);
 
   const handleReorder = useCallback((ids: string[]) => {

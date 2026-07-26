@@ -135,6 +135,8 @@ pub fn run() {
             board::board_remap_stage,
             board::board_list_rules,
             board::board_revert,
+            board::board_shared_preview,
+            board::board_copy_local_to_shared,
             board_window::board_window_open,
             board_window::board_window_close,
             board_window::board_select_lead,

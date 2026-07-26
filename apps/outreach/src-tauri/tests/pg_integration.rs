@@ -159,6 +159,40 @@ fn pg_integration() {
         board::get_config_json(&mut db).expect("seed race must leave exactly one board_config row");
     }
 
+    // ---- Phase 4: copy_board seeds an empty shared board from a local one ----
+    reset_public(&url);
+    {
+        // Local SQLite board with a couple of leads (one archived, with context).
+        let local_dir = tempfile::TempDir::new().unwrap();
+        let mut local = board::open_board(local_dir.path(), None, &local_actor()).unwrap();
+        let l1 = board::add_lead(&mut local, "Ada", Some("Analytical"), "researching", "local").unwrap();
+        board::add_lead(&mut local, "Alan", None, "contacted", "local").unwrap();
+        board::append_context(&mut local, &l1, serde_json::json!({"note": "keep me"}), 1, "local").unwrap();
+        board::set_lead_archived(&mut local, &l1, true, "local").unwrap();
+        let local_n = board::lead_count(&mut local).unwrap();
+        assert_eq!(local_n, 2);
+
+        // Fresh shared board (only the 5 seeded stages, no leads).
+        let mut shared = board::open_board(tmp.path(), Some(&url), &local_actor()).unwrap();
+        assert_eq!(board::lead_count(&mut shared).unwrap(), 0, "shared starts empty");
+
+        let copied = board::copy_board(&mut local, &mut shared, "local").unwrap();
+        assert_eq!(copied, 2, "both leads copied");
+        assert_eq!(board::lead_count(&mut shared).unwrap(), 2, "shared now has the leads");
+
+        // Full state preserved: the archived lead keeps its context + archived flag.
+        let detail = board::get_lead_json(&mut shared, &l1).unwrap();
+        assert_eq!(detail["name"], "Ada");
+        assert!(detail["archivedAt"].as_str().is_some(), "archived flag copied");
+        let facts = detail["context"]["facts"].as_array().unwrap();
+        assert!(facts.iter().any(|f| f["note"] == "keep me"), "context copied");
+
+        // Idempotent: a second copy inserts nothing.
+        let again = board::copy_board(&mut local, &mut shared, "local").unwrap();
+        assert_eq!(again, 0, "re-copy is a no-op");
+        assert_eq!(board::lead_count(&mut shared).unwrap(), 2);
+    }
+
     // Best-effort teardown so the shared DB is left clean for the next run.
     reset_public(&url);
 }

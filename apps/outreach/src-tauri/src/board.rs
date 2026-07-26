@@ -350,6 +350,101 @@ pub fn open_board(
     Ok(db)
 }
 
+/// How many leads a board holds — used to decide whether a shared board is
+/// "empty" (safe to seed from a local board) before copying.
+pub fn lead_count(db: &mut Db) -> Result<i64, DbError> {
+    Ok(db.query_opt("select count(*) from leads", &[], |r| r.get_i64(0))?.unwrap_or(0))
+}
+
+/// Copy every stage and lead from `src` into `dst`, preserving each lead's full
+/// state (context, messages, transcripts, archived flag, timestamps). Used to
+/// seed a fresh shared (Postgres) board from the user's existing local board so
+/// enabling sharing doesn't strand their data on a blank remote board.
+///
+/// - Stages: inserted `on conflict do nothing`, so `dst`'s five default seeded
+///   stages are kept and any custom stages from `src` are added. A lead whose
+///   stage id doesn't exist in `dst` would violate the FK, so we insert all of
+///   `src`'s stages first.
+/// - Leads: inserted with their original ids and full column set. `on conflict
+///   do nothing` makes a re-run idempotent (already-copied leads are skipped),
+///   so this is safe to invoke more than once.
+/// - The event log is NOT copied — `dst` keeps its own history; this is a seed,
+///   not a merge of two divergent boards.
+///
+/// Returns the number of leads copied (newly inserted).
+pub fn copy_board(src: &mut Db, dst: &mut Db, actor: &str) -> Result<i64, DbError> {
+    // Stages from src (skip nothing — default ids will conflict-noop in dst).
+    let stages: Vec<(String, String, i64, Option<String>, Option<String>, String)> = src
+        .query_all(
+            "select id, label, position, color, retired_at, created_at from stages",
+            &[],
+            |r| {
+                Ok((
+                    r.get_str(0)?,
+                    r.get_str(1)?,
+                    r.get_i64(2)?,
+                    r.get_opt_str(3)?,
+                    r.get_opt_str(4)?,
+                    r.get_str(5)?,
+                ))
+            },
+        )?;
+
+    let leads: Vec<(String, String, String, Option<String>, String, String, String, Option<String>, String, String, i64)> =
+        src.query_all(
+            "select id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version from leads",
+            &[],
+            |r| {
+                Ok((
+                    r.get_str(0)?, r.get_str(1)?, r.get_str(2)?, r.get_opt_str(3)?,
+                    r.get_str(4)?, r.get_str(5)?, r.get_str(6)?, r.get_opt_str(7)?,
+                    r.get_str(8)?, r.get_str(9)?, r.get_i64(10)?,
+                ))
+            },
+        )?;
+
+    with_tx(dst, |dst| {
+        for (id, label, position, color, retired_at, created_at) in &stages {
+            dst.exec(
+                "insert into stages (id, label, position, color, retired_at, created_at, created_by, version)
+                 values (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1) on conflict (id) do nothing",
+                &[
+                    SqlParam::Text(id),
+                    SqlParam::Text(label),
+                    SqlParam::Int(*position),
+                    SqlParam::OptText(color.as_deref()),
+                    SqlParam::OptText(retired_at.as_deref()),
+                    SqlParam::Text(created_at),
+                    SqlParam::Text(actor),
+                ],
+            )?;
+        }
+
+        let mut copied = 0i64;
+        for (id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version) in &leads {
+            let n = dst.exec(
+                "insert into leads (id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version)
+                 values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) on conflict (id) do nothing",
+                &[
+                    SqlParam::Text(id),
+                    SqlParam::Text(stage),
+                    SqlParam::Text(name),
+                    SqlParam::OptText(org.as_deref()),
+                    SqlParam::Json(context.clone()),
+                    SqlParam::Json(messages.clone()),
+                    SqlParam::Json(transcripts.clone()),
+                    SqlParam::OptText(archived_at.as_deref()),
+                    SqlParam::Text(created_at),
+                    SqlParam::Text(updated_at),
+                    SqlParam::Int(*version),
+                ],
+            )?;
+            copied += n as i64;
+        }
+        Ok(copied)
+    })
+}
+
 /// A single write to the board: applied to `entity_id`'s row and recorded
 /// as an immutable row in `events`.
 pub struct Event {
@@ -1211,6 +1306,52 @@ fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), Str
     }
 
     Ok((BoardGuard { cache }, actor))
+}
+
+/// Inspect a candidate shared board before the user commits to it: how many
+/// leads it already holds vs how many are on the local board. The frontend uses
+/// this to warn ("switching to an empty shared board — your N local leads won't
+/// be there") and offer to copy the local board up. Opening the shared board
+/// here is the same slow remote connect as any open; it's a one-off on save.
+#[tauri::command]
+pub fn board_shared_preview(
+    state: tauri::State<'_, crate::AppState>,
+    url: String,
+) -> Result<serde_json::Value, String> {
+    let dir = crate::projects::active_path(&state)?;
+    let s = crate::settings::load();
+    let actor = actor_from(s.actor_name.as_deref());
+
+    let mut local = open_board(&dir, None, &actor).map_err(|e| format!("open local: {e}"))?;
+    let local_count = lead_count(&mut local).map_err(|e| format!("count local: {e}"))?;
+
+    let mut shared = open_board(&dir, Some(url.trim()), &actor)
+        .map_err(|e| format!("open shared: {e}"))?;
+    let shared_count = lead_count(&mut shared).map_err(|e| format!("count shared: {e}"))?;
+
+    Ok(serde_json::json!({
+        "localLeadCount": local_count,
+        "sharedLeadCount": shared_count,
+    }))
+}
+
+/// Copy the local board (stages + all leads) up to the shared board at `url`.
+/// Idempotent (already-present leads are skipped). Returns the number of leads
+/// copied. Used when the user enables sharing and chooses to bring their data.
+#[tauri::command]
+pub fn board_copy_local_to_shared(
+    state: tauri::State<'_, crate::AppState>,
+    url: String,
+) -> Result<i64, String> {
+    let dir = crate::projects::active_path(&state)?;
+    let s = crate::settings::load();
+    let actor = actor_from(s.actor_name.as_deref());
+
+    let mut local = open_board(&dir, None, &actor).map_err(|e| format!("open local: {e}"))?;
+    let mut shared = open_board(&dir, Some(url.trim()), &actor)
+        .map_err(|e| format!("open shared: {e}"))?;
+
+    copy_board(&mut local, &mut shared, &actor.id).map_err(|e| format!("copy board: {e}"))
 }
 
 /// Map a `BoardError` to a frontend-facing string. Stable prefixes
