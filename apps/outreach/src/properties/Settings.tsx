@@ -4,7 +4,14 @@ import { Button } from "@/components/ui/button";
 import { ArrowUp, ArrowDown, Trash2 } from "../icons";
 import { isTauri } from "../runtime";
 import type { Stage } from "../board/types";
-import { openResearchFolder, type BoardConfig, type SyncProgress } from "../board/api";
+import {
+  openResearchFolder,
+  connectionStatus,
+  ensureConnected,
+  type BoardConfig,
+  type SyncProgress,
+  type ConnectionStatus,
+} from "../board/api";
 
 interface SettingsProps {
   stages: Stage[];
@@ -28,8 +35,16 @@ const SharingField: React.FC<{
   children?: React.ReactNode;
 }> = ({ label, hint, initialValue, onSave, mask, children }) => {
   const [value, setValue] = useState(initialValue);
+  // `initialValue` arrives asynchronously (getSettings resolves after mount),
+  // so seed the field once it shows up — otherwise a saved URL never appears.
+  // Only sync while the user isn't actively editing, to avoid clobbering typing.
+  const editing = React.useRef(false);
+  React.useEffect(() => {
+    if (!editing.current) setValue(initialValue);
+  }, [initialValue]);
 
   const commit = () => {
+    editing.current = false;
     if (value !== initialValue) onSave(value);
   };
 
@@ -39,7 +54,10 @@ const SharingField: React.FC<{
       <Input
         type={mask ? "password" : "text"}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          editing.current = true;
+          setValue(e.target.value);
+        }}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit();
@@ -47,6 +65,58 @@ const SharingField: React.FC<{
       />
       {children}
       <div className="text-xs text-muted-foreground">{hint}</div>
+    </div>
+  );
+};
+
+/**
+ * Live connection indicator under the DB-URL field, so the user can tell
+ * whether the remote board is actually reachable. Polls board_connection_status
+ * (which never connects, so it can't freeze) and, while shared-but-not-yet-
+ * connected, kicks the background warm-up.
+ */
+const ConnectionBadge: React.FC = () => {
+  const [status, setStatus] = useState<ConnectionStatus | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      const s = await connectionStatus().catch(() => null);
+      if (stopped) return;
+      setStatus(s);
+      // Shared board configured but not connected yet → warm it up (off-thread).
+      if (s && s.mode === "shared" && !s.connected) {
+        void ensureConnected().catch(() => {});
+      }
+    };
+    void tick();
+    const h = setInterval(tick, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(h);
+    };
+  }, []);
+
+  if (!status || status.mode === "local") {
+    return (
+      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="inline-block size-2 rounded-full bg-muted-foreground/50" />
+        Local board (this machine only)
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1 flex items-center gap-1.5 text-xs">
+      <span
+        className={`inline-block size-2 rounded-full ${
+          status.connected ? "bg-green-500" : "animate-pulse bg-amber-500"
+        }`}
+      />
+      <span className={status.connected ? "text-muted-foreground" : "text-amber-600"}>
+        {status.connected ? "Connected to the shared board" : "Connecting to the shared board…"}
+      </span>
     </div>
   );
 };
@@ -246,6 +316,7 @@ export const Settings: React.FC<SettingsProps> = ({
           onSave={onSaveDbUrl}
           mask
         >
+          <ConnectionBadge />
           <SyncBar progress={sync} />
         </SharingField>
       </div>

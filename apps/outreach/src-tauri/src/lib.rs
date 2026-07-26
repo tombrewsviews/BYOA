@@ -137,6 +137,7 @@ pub fn run() {
             board::board_revert,
             board::board_save_shared_url,
             board::board_ensure_connected,
+            board::board_connection_status,
             board_window::board_window_open,
             board_window::board_window_close,
             board_window::board_select_lead,

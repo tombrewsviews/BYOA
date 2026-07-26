@@ -63,6 +63,13 @@ export const saveSharedUrl = (url: string) => call<number>("board_save_shared_ur
  * once connected (or rejects if the connect failed). Safe to call repeatedly.
  */
 export const ensureConnected = () => call<void>("board_ensure_connected");
+
+/** Live board connection state, reported WITHOUT connecting (never blocks). */
+export interface ConnectionStatus {
+  mode: "local" | "shared";
+  connected: boolean;
+}
+export const connectionStatus = () => call<ConnectionStatus>("board_connection_status");
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 export const openResearchFolder = () => call<void>("research_folder_open");
 export const attachFile = (leadId: string, srcPath: string) =>
