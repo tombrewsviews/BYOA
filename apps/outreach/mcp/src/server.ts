@@ -63,6 +63,26 @@ server.registerTool(
 );
 
 server.registerTool(
+  "listActors",
+  {
+    description:
+      "List everyone who has opened this board (the users you can @-mention in a note). Returns [{ id, label }].",
+    inputSchema: {},
+  },
+  async (args) => toToolResult("listActors", args),
+);
+
+server.registerTool(
+  "notifications",
+  {
+    description:
+      "List the current user's notifications (newest first) plus the unread count. Notifications are @-mentions, stage changes, notes on mentioned leads, and new leads. Each item has { seq, kind, leadId, actor, body, createdAt, read }.",
+    inputSchema: {},
+  },
+  async (args) => toToolResult("notifications", args),
+);
+
+server.registerTool(
   "addLead",
   {
     description: "Add a new lead to a stage.",
@@ -78,6 +98,35 @@ server.registerTool(
     inputSchema: { id: z.string(), toStage: z.string(), expectedVersion: z.number().int() },
   },
   async (args) => toToolResult("moveLead", args),
+);
+
+server.registerTool(
+  "archiveLead",
+  {
+    description:
+      "Archive a lead — it leaves the default board view but keeps all its history and can be restored. Reversible.",
+    inputSchema: { id: z.string() },
+  },
+  async (args) => toToolResult("archiveLead", args),
+);
+
+server.registerTool(
+  "unarchiveLead",
+  {
+    description: "Restore a previously archived lead back to the board.",
+    inputSchema: { id: z.string() },
+  },
+  async (args) => toToolResult("unarchiveLead", args),
+);
+
+server.registerTool(
+  "deleteLead",
+  {
+    description:
+      "Permanently delete a lead's card from the board. The full row is saved in the event log, so `revert` can still recreate it — but treat this as destructive and confirm with the human first.",
+    inputSchema: { id: z.string() },
+  },
+  async (args) => toToolResult("deleteLead", args),
 );
 
 server.registerTool(
@@ -166,6 +215,26 @@ server.registerTool(
     },
   },
   async (args) => toToolResult("remapStage", args),
+);
+
+server.registerTool(
+  "revert",
+  {
+    description:
+      "Undo every board change made after event `seq` (newest first), restoring each to its prior state. The event log is append-only and fully reversible — this is the board's undo. Get `seq` values from the changes you made (each write returns a `seq`). Destructive to intervening changes; confirm with the human first.",
+    inputSchema: { seq: z.number().int() },
+  },
+  async (args) => toToolResult("revert", args),
+);
+
+server.registerTool(
+  "markNotificationsRead",
+  {
+    description:
+      "Mark all of the current user's notifications as read (clears the unread count / the bell's red dot).",
+    inputSchema: {},
+  },
+  async (args) => toToolResult("markNotificationsRead", args),
 );
 
 async function main() {

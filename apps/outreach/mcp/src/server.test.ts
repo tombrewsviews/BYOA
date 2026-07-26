@@ -10,10 +10,58 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdtempSync, chmodSync } from "node:fs";
+import { writeFileSync, mkdtempSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { callBoardCli } from "../dist/board-cli.js";
+
+/**
+ * The complete set of verbs the Rust `board-cli` dispatch handles — the FULL
+ * board capability surface (reads, lead ops, stage ops, notifications, revert).
+ * The MCP server must register exactly this set so an embedded agent can do
+ * everything a human can. Keep this list in sync with `board_cli.rs`'s `match`.
+ */
+const BOARD_CLI_VERBS = [
+  "listStages",
+  "listLeads",
+  "getLead",
+  "listRules",
+  "getConfig",
+  "listActors",
+  "notifications",
+  "markNotificationsRead",
+  "revert",
+  "addLead",
+  "moveLead",
+  "archiveLead",
+  "unarchiveLead",
+  "deleteLead",
+  "appendContext",
+  "draftMessage",
+  "attachTranscript",
+  "renameStage",
+  "reorderStages",
+  "addStage",
+  "retireStage",
+  "unretireStage",
+  "remapStage",
+].sort();
+
+test("MCP registers a tool for every board-cli verb (full parity)", () => {
+  // Parse the registered tool names out of the server source (registerTool("X").
+  // The compiled test runs from dist/, so reach back to the src/ TypeScript.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, "..", "src", "server.ts"), "utf8");
+  const registered = [...src.matchAll(/registerTool\(\s*"([A-Za-z]+)"/g)]
+    .map((m) => m[1])
+    .sort();
+  assert.deepEqual(
+    registered,
+    BOARD_CLI_VERBS,
+    "MCP tools must exactly match board-cli verbs — an agent should be able to do everything a human can",
+  );
+});
 
 /** Writes an executable stub script (shebang `#!/usr/bin/env node`) that
  * echoes back a fixed JSON response regardless of the stdin request, and

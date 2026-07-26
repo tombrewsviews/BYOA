@@ -61,6 +61,25 @@ pub fn dispatch(db: &mut Db, actor: &str, verb: &str, args: &Value) -> Result<Va
             Ok(data) => json!({"ok": true, "data": data}),
             Err(e) => json!({"ok": false, "error": e}),
         }),
+        "listActors" => Ok(match board::list_actors_json(db) {
+            Ok(data) => json!({"ok": true, "data": data}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
+        "notifications" => Ok(match board::notifications_json(db, actor) {
+            Ok(data) => json!({"ok": true, "data": data}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
+        "markNotificationsRead" => Ok(match board::mark_notifications_read(db, actor) {
+            Ok(up_to) => json!({"ok": true, "data": {"upToSeq": up_to}}),
+            Err(e) => json!({"ok": false, "error": e}),
+        }),
+        "revert" => {
+            let seq = get_i64("seq")?;
+            Ok(match board::revert(db, seq) {
+                Ok(count) => json!({"ok": true, "data": {"reverted": count}}),
+                Err(e) => json!({"ok": false, "error": format!("db error: {e}")}),
+            })
+        }
         "addLead" => {
             let name = get_str("name")?;
             let org = get_opt_str("org");
@@ -336,5 +355,50 @@ mod tests {
         let resp = dispatch(&mut db, "local", "getLead", &json!({"id": "nope"})).unwrap();
         assert_eq!(resp["ok"], false);
         assert!(resp["error"].as_str().unwrap().starts_with("not-found:"));
+    }
+
+    #[test]
+    fn list_actors_returns_the_seeded_actor() {
+        let (_tmp, mut db) = seeded_db();
+        let resp = dispatch(&mut db, "local", "listActors", &json!({})).unwrap();
+        assert_eq!(resp["ok"], true);
+        let ids: Vec<&str> =
+            resp["data"].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
+        assert!(ids.contains(&"local"));
+    }
+
+    #[test]
+    fn notifications_and_mark_read_verbs_work() {
+        // The verbs dispatch end-to-end and return the expected shape. (Cross-actor
+        // notification GENERATION is covered by board.rs unit tests, which can add a
+        // second actor via the crate-internal SqlParam; here we verify the CLI seam.)
+        let (_tmp, mut db) = seeded_db();
+        let n = dispatch(&mut db, "local", "notifications", &json!({})).unwrap();
+        assert_eq!(n["ok"], true);
+        assert!(n["data"]["items"].is_array());
+        assert_eq!(n["data"]["unread"].as_i64().unwrap(), 0); // solo board: no notifications
+        let m = dispatch(&mut db, "local", "markNotificationsRead", &json!({})).unwrap();
+        assert_eq!(m["ok"], true);
+        assert!(m["data"]["upToSeq"].is_i64());
+    }
+
+    #[test]
+    fn revert_undoes_a_move() {
+        let (_tmp, mut db) = seeded_db();
+        let add = dispatch(&mut db, "local", "addLead", &json!({"name": "Y", "stage": "researching"})).unwrap();
+        let id = add["data"]["id"].as_str().unwrap().to_string();
+        // Watermark before the move (max event seq).
+        let leads = dispatch(&mut db, "local", "getLead", &json!({"id": id})).unwrap();
+        let version = leads["data"]["version"].as_i64().unwrap();
+        // Read current max seq via a move then revert past it.
+        dispatch(&mut db, "local", "moveLead", &json!({"id": id, "toStage": "warm", "expectedVersion": version})).unwrap();
+        let moved = dispatch(&mut db, "local", "getLead", &json!({"id": id})).unwrap();
+        assert_eq!(moved["data"]["stage"], "warm");
+        // Revert to seq 1 (the lead.created event) — undoes the move.
+        let rev = dispatch(&mut db, "local", "revert", &json!({"seq": 1})).unwrap();
+        assert_eq!(rev["ok"], true);
+        assert!(rev["data"]["reverted"].as_i64().unwrap() >= 1);
+        let back = dispatch(&mut db, "local", "getLead", &json!({"id": id})).unwrap();
+        assert_eq!(back["data"]["stage"], "researching");
     }
 }

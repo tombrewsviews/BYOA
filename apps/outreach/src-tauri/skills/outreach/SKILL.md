@@ -22,14 +22,38 @@ resolved**. Drafted messages are stored on the lead and **never auto-sent**.
 
 ## The MCP verbs
 
-Reads: `listStages`, `listLeads`, `getLead {id}`, `listRules`, `getConfig`.
-Leads: `addLead {name, org?, stage}`, `moveLead {id, toStage, expectedVersion}`,
+These cover **everything a human can do on the board** — you have full parity
+with the app's UI. No installation is needed; the `outreach` MCP is already
+enabled in this project.
+
+**Reads:** `listStages`, `listLeads`, `getLead {id}`, `listRules`, `getConfig`,
+`listActors` (everyone who has opened the board — the people you can @-mention),
+`notifications` (your notifications + unread count).
+
+**Leads:** `addLead {name, org?, stage}`, `moveLead {id, toStage, expectedVersion}`,
 `appendContext {id, research, expectedVersion}` (MERGES onto context.facts),
 `draftMessage {id, msg}` (appends, never sends),
-`attachTranscript {id, raw, summary}` (keeps raw + your summary).
-Stages: `renameStage {id,label}`, `reorderStages {ids}`, `addStage {label,position}`,
+`attachTranscript {id, raw, summary}` (keeps raw + your summary),
+`archiveLead {id}` / `unarchiveLead {id}` (hide from the default view / restore —
+reversible, keeps all history),
+`deleteLead {id}` (permanent removal — the card is gone from the board;
+`revert` can still undo it, but treat this as destructive — confirm first).
+
+**Stages:** `renameStage {id,label}`, `reorderStages {ids}`, `addStage {label,position}`,
 `retireStage {id}`, `unretireStage {id}`,
 `remapStage {from, to, orgFilter?, dryRun, retireSource, confirmed}` (move/merge cards between stages).
+
+**Notifications:** `notifications` (list yours, newest first, with an `unread`
+count — kinds are `mention`, `stage`, `note`, `lead_added`; each has a `leadId`
+so you can open the lead it's about), `markNotificationsRead` (clear the unread
+dot). To notify someone, `@`-mention them by their exact **label** inside an
+`appendContext` note (e.g. `{"note": "@Tom please review"}`) — the mention is
+resolved against `listActors`; `@`-mentioning **yourself** leaves a self-reminder.
+
+**Undo:** `revert {seq}` undoes every change made after event `seq`, newest
+first (the event log is append-only and fully reversible). Every write returns a
+`seq`; pass the `seq` from just before a change to undo it. This is destructive
+to intervening changes — confirm with the human before reverting.
 
 Stages have a **stable `id`** (never changes, never reused) and a mutable
 `label`. Always address stages by `id`.
@@ -122,9 +146,18 @@ keep working). Retiring or merging a stage that holds cards uses `remapStage`
 was retired shows up in an **"Unsorted"** column — surface that to the human
 rather than leaving it hidden.
 
+## Destructive ops — confirm first
+
+`deleteLead`, `retireStage`/`remapStage`, and `revert` change or remove existing
+data. They're all recoverable through the event log (`revert`), but they are not
+enrichment — **always report what will change and get an explicit human "yes"
+before calling them**, exactly like a stage move. `archiveLead` is gentler (it
+only hides the card and is trivially reversible with `unarchiveLead`), but still
+tell the human you're doing it.
+
 ## Summary
 
 Read first. Enrich additively. Summarize transcripts, keep the raw. Propose card
 moves through dryRun. Report the change set and wait for yes. Never send a
-message automatically. Never lose a lead's history. When in doubt, keep both and
-ask.
+message automatically. Never lose a lead's history. Deletes, retires, and reverts
+are destructive — confirm first. When in doubt, keep both and ask.
