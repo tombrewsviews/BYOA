@@ -12,7 +12,7 @@ import {
   deleteLead,
   ensureConnected,
 } from "./api";
-import type { PollStatus } from "./api";
+import type { PollStatus, Notification } from "./api";
 import type { Stage, Lead } from "./types";
 
 function BoardApp() {
@@ -21,6 +21,8 @@ function BoardApp() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
   const [status, setStatus] = React.useState<PollStatus>("loading");
+  const [notifItems, setNotifItems] = React.useState<Notification[]>([]);
+  const [notifUnread, setNotifUnread] = React.useState(0);
 
   // Ignore a poll result that's identical to what we already show, so the 5s
   // shared-board poll doesn't replace the arrays (new object identities) and
@@ -28,6 +30,7 @@ function BoardApp() {
   // stutter. Only genuinely-changed data updates state.
   const lastStagesJson = React.useRef("");
   const lastLeadsJson = React.useRef("");
+  const lastNotifJson = React.useRef("");
   React.useEffect(
     () =>
       poll((d) => {
@@ -41,6 +44,15 @@ function BoardApp() {
           lastLeadsJson.current = lj;
           setLeads(d.leads);
         }
+        // Notifications ride on the same snapshot — feed the bell from here
+        // instead of a second poll. De-dupe the same way to avoid needless
+        // re-renders when nothing changed.
+        const nj = JSON.stringify(d.notifications.items);
+        if (nj !== lastNotifJson.current) {
+          lastNotifJson.current = nj;
+          setNotifItems(d.notifications.items);
+        }
+        setNotifUnread(d.notifications.unread);
       }, 1500, setStatus),
     [],
   );
@@ -144,6 +156,8 @@ function BoardApp() {
         selectedId={selectedId}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
+        notifItems={notifItems}
+        notifUnread={notifUnread}
       />
     </>
   );

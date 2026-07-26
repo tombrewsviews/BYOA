@@ -26,6 +26,8 @@ const baseProps = {
   selectedId: null,
   showArchived: false,
   onToggleArchived: noop,
+  notifItems: [],
+  notifUnread: 0,
 };
 
 describe("Kanban", () => {

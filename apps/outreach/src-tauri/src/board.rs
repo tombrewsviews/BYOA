@@ -1864,29 +1864,54 @@ pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serd
     list_leads_json(&mut *db)
 }
 
-/// One-shot board read: stages + leads + config in a SINGLE command, so the
-/// poll makes one connection acquisition instead of 2–3 separate commands each
-/// re-acquiring the (shared, remote) connection. On a transatlantic Postgres
-/// board every command is a ~600ms round-trip, and two windows polling three
-/// commands each made the app feel laggy — this collapses a poll tick to one
-/// call. `mode` ("local"/"shared") lets the frontend pick its poll interval
-/// (fast for local SQLite, slow for a remote board).
+/// Run a board READ off the UI thread. A synchronous `#[tauri::command] fn` runs
+/// on the main/UI thread, so on a SHARED (Postgres) board its remote SQL
+/// (~600ms/round-trip) froze the whole app — including keystrokes — for the
+/// command's whole duration. Every poll tick did this, so typing/clicking/
+/// dragging all stuttered. This helper moves the work into `spawn_blocking`: it
+/// captures nothing from the (non-`Send`) `State`, re-acquires `AppState` inside
+/// the blocking task via the `Send` `AppHandle`, and runs `body` there. The
+/// `BoardGuard`'s `MutexGuard` never crosses an `.await` (it's created and
+/// dropped entirely inside the closure), so this is sound.
+async fn read_off_thread<F>(app: tauri::AppHandle, body: F) -> Result<serde_json::Value, String>
+where
+    F: FnOnce(&crate::AppState) -> Result<serde_json::Value, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<crate::AppState>();
+        body(&state)
+    })
+    .await
+    .map_err(|e| format!("read task: {e}"))?
+}
+
+/// One-shot board read: stages + leads + config + the caller's notifications in
+/// a SINGLE command, so a poll tick makes ONE connection acquisition (one set of
+/// remote round-trips) instead of the board poll and the bell poll each hitting
+/// the remote DB separately. `mode` ("local"/"shared") lets the frontend pick
+/// its poll interval. Runs off the UI thread (see `read_off_thread`).
 #[tauri::command]
-pub fn board_snapshot(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let is_shared = {
-        let s = crate::settings::load();
-        s.database_url.as_deref().map(str::trim).is_some_and(|u| !u.is_empty())
-    };
-    let (mut db, _actor) = db_for_active(&state)?;
-    let stages = list_stages_json(&mut *db)?;
-    let leads = list_leads_json(&mut *db)?;
-    let config = get_config_json(&mut *db)?;
-    Ok(serde_json::json!({
-        "stages": stages,
-        "leads": leads,
-        "config": config,
-        "mode": if is_shared { "shared" } else { "local" },
-    }))
+pub async fn board_snapshot(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    read_off_thread(app, |state| {
+        let is_shared = {
+            let s = crate::settings::load();
+            s.database_url.as_deref().map(str::trim).is_some_and(|u| !u.is_empty())
+        };
+        let (mut db, actor) = db_for_active(state)?;
+        let stages = list_stages_json(&mut *db)?;
+        let leads = list_leads_json(&mut *db)?;
+        let config = get_config_json(&mut *db)?;
+        let notifications = notifications_json(&mut *db, &actor.id)?;
+        Ok(serde_json::json!({
+            "stages": stages,
+            "leads": leads,
+            "config": config,
+            "notifications": notifications,
+            "mode": if is_shared { "shared" } else { "local" },
+        }))
+    })
+    .await
 }
 
 pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String> {
@@ -1935,9 +1960,12 @@ pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String>
 }
 
 #[tauri::command]
-pub fn board_get_lead(state: tauri::State<'_, crate::AppState>, id: String) -> Result<serde_json::Value, String> {
-    let (mut db, _actor) = db_for_active(&state)?;
-    get_lead_json(&mut *db, &id)
+pub async fn board_get_lead(app: tauri::AppHandle, id: String) -> Result<serde_json::Value, String> {
+    read_off_thread(app, move |state| {
+        let (mut db, _actor) = db_for_active(state)?;
+        get_lead_json(&mut *db, &id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -2106,10 +2134,13 @@ pub fn list_actors_json(db: &mut Db, me: &str) -> Result<serde_json::Value, Stri
 }
 
 #[tauri::command]
-pub fn board_list_actors(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let (mut db, actor) = db_for_active(&state)?;
-    let me = actor.id.clone();
-    list_actors_json(&mut *db, &me)
+pub async fn board_list_actors(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    read_off_thread(app, |state| {
+        let (mut db, actor) = db_for_active(state)?;
+        let me = actor.id.clone();
+        list_actors_json(&mut *db, &me)
+    })
+    .await
 }
 
 /// The signed-in user's notifications (newest first, capped) plus how many are
@@ -2159,10 +2190,13 @@ pub fn notifications_json(db: &mut Db, me: &str) -> Result<serde_json::Value, St
 }
 
 #[tauri::command]
-pub fn board_notifications(state: tauri::State<'_, crate::AppState>) -> Result<serde_json::Value, String> {
-    let (mut db, actor) = db_for_active(&state)?;
-    let me = actor.id.clone();
-    notifications_json(&mut *db, &me)
+pub async fn board_notifications(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    read_off_thread(app, |state| {
+        let (mut db, actor) = db_for_active(state)?;
+        let me = actor.id.clone();
+        notifications_json(&mut *db, &me)
+    })
+    .await
 }
 
 /// Mark all of the signed-in user's notifications read: set their read highwater

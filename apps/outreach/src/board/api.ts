@@ -71,12 +71,15 @@ export interface ConnectionStatus {
 }
 export const connectionStatus = () => call<ConnectionStatus>("board_connection_status");
 
-/** One round-trip board read (stages + leads + config + mode). Collapses a poll
- *  tick to a single command so a remote board isn't hit 2–3× per tick. */
+/** One round-trip board read (stages + leads + config + notifications + mode).
+ *  Collapses a poll tick to a single command so a remote board isn't hit 2–3×
+ *  per tick, and the notification bell rides on the SAME read instead of its own
+ *  separate poll. Runs off the UI thread on the Rust side (async command). */
 export interface Snapshot {
   stages: Stage[];
   leads: Lead[];
   config: BoardConfig;
+  notifications: Notifications;
   mode: "local" | "shared";
 }
 export const snapshot = () => call<Snapshot>("board_snapshot");
@@ -131,7 +134,12 @@ export type PollStatus = "loading" | "ok" | "error";
  * the shared board warms up). Returns a stop fn. Fetches once immediately.
  */
 export function poll(
-  onChange: (data: { stages: Stage[]; leads: Lead[]; config: BoardConfig }) => void,
+  onChange: (data: {
+    stages: Stage[];
+    leads: Lead[];
+    config: BoardConfig;
+    notifications: Notifications;
+  }) => void,
   localIntervalMs = 1500,
   onStatus?: (s: PollStatus) => void,
   sharedIntervalMs = 5000,
@@ -150,7 +158,12 @@ export function poll(
       if (!stopped) {
         everOk = true;
         onStatus?.("ok");
-        onChange({ stages: snap.stages, leads: snap.leads, config: snap.config });
+        onChange({
+          stages: snap.stages,
+          leads: snap.leads,
+          config: snap.config,
+          notifications: snap.notifications,
+        });
         nextMs = snap.mode === "shared" ? sharedIntervalMs : localIntervalMs;
       }
     } catch (e) {

@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Archive, ArchiveRestore, MoreHorizontal, Trash2 } from "../icons";
 import { NotificationBell } from "./NotificationBell";
 import type { Stage, Lead } from "./types";
+import type { Notification } from "./api";
 
 interface KanbanProps {
   stages: Stage[];
@@ -16,6 +17,8 @@ interface KanbanProps {
   selectedId: string | null;
   showArchived: boolean;
   onToggleArchived: () => void;
+  notifItems: Notification[];
+  notifUnread: number;
 }
 
 const UNSORTED_ID = "__unsorted__";
@@ -32,6 +35,8 @@ export function Kanban({
   selectedId,
   showArchived,
   onToggleArchived,
+  notifItems,
+  notifUnread,
 }: KanbanProps) {
   const columns = stages
     .filter((s) => s.retiredAt === null)
@@ -73,7 +78,7 @@ export function Kanban({
         >
           {showArchived ? "Hide archived" : `Show archived${archivedCount ? ` (${archivedCount})` : ""}`}
         </button>
-        <NotificationBell />
+        <NotificationBell items={notifItems} unread={notifUnread} />
       </div>
       <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto p-3">
         {columns.map((stage) => (

@@ -1,17 +1,16 @@
 import React from "react";
 import { Bell, CheckCheck } from "../icons";
-import { notifications, markNotificationsRead } from "./api";
+import { markNotificationsRead } from "./api";
 import type { Notification } from "./api";
 
 /**
- * The notification bell for the board window header. Polls the signed-in user's
- * notifications, shows a red dot when any are unread, and lists them (newest
- * first) in a dropdown. Clicking a notification opens its lead in the main
- * window's Inspector (via `board_select_lead`) and marks everything read.
- * "Mark all read" clears the dot without opening anything.
- *
- * Poll cadence adapts to the board mode the same way the main poll does — a
- * remote (shared) board is polled rarely so the bell doesn't hammer Neon.
+ * The notification bell for the board window header. Notifications arrive as
+ * props from the board's single snapshot poll (they ride on the SAME remote
+ * read as the board data — the bell no longer polls the DB itself, which was an
+ * extra remote read stream that stuttered the shared board). Shows a red dot on
+ * unread, lists items newest-first, clicking one opens its lead in the main
+ * window's Inspector (via `board_select_lead`), and "Mark all read" clears the
+ * dot. Marking read is optimistic locally; the next snapshot reconciles.
  */
 
 const KIND_LABEL: Record<Notification["kind"], string> = {
@@ -34,37 +33,24 @@ function ago(iso: string): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-export const NotificationBell: React.FC = () => {
-  const [items, setItems] = React.useState<Notification[]>([]);
-  const [unread, setUnread] = React.useState(0);
+export const NotificationBell: React.FC<{
+  items: Notification[];
+  unread: number;
+}> = ({ items: itemsProp, unread: unreadProp }) => {
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
-
-  // Poll notifications on a self-scheduling timer (interval fixed at 4s — the
-  // command is one round-trip and only the recipient's own rows are read).
+  // A local "marked read" overlay: mark-all-read flips the dot instantly without
+  // waiting for the next snapshot. Cleared whenever fresh props bring a higher
+  // unread count (a genuinely new notification), so the dot returns for new ones.
+  const [locallyRead, setLocallyRead] = React.useState(false);
+  const lastUnread = React.useRef(unreadProp);
   React.useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const tick = async () => {
-      if (stopped) return;
-      try {
-        const n = await notifications();
-        if (!stopped) {
-          setItems(n.items);
-          setUnread(n.unread);
-        }
-      } catch {
-        /* transient (still connecting) — retry next tick */
-      } finally {
-        if (!stopped) timer = setTimeout(tick, 4000);
-      }
-    };
-    void tick();
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
+    if (unreadProp > lastUnread.current) setLocallyRead(false);
+    lastUnread.current = unreadProp;
+  }, [unreadProp]);
+
+  const unread = locallyRead ? 0 : unreadProp;
+  const items = locallyRead ? itemsProp.map((it) => ({ ...it, read: true })) : itemsProp;
 
   // Close on outside click.
   React.useEffect(() => {
@@ -77,8 +63,7 @@ export const NotificationBell: React.FC = () => {
   }, [open]);
 
   const markRead = async () => {
-    setUnread(0);
-    setItems((prev) => prev.map((it) => ({ ...it, read: true })));
+    setLocallyRead(true);
     await markNotificationsRead().catch(() => {});
   };
 
