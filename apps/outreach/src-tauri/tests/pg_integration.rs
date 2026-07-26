@@ -28,13 +28,16 @@ fn pg_url() -> Option<String> {
     std::env::var("OUTREACH_TEST_PG").ok().filter(|s| !s.trim().is_empty())
 }
 
-/// Drop all 6 outreach tables so the next `open_board` starts fresh.
+/// Drop all outreach tables so the next `open_board` starts fresh.
 /// Uses the `Db` seam only (no new deps, no bind params needed).
 /// `cascade` handles FK order.
 fn reset_public(url: &str) {
     let mut db = Db::connect_pg(url).expect("connect for reset");
-    db.exec("drop table if exists rules, events, board_config, leads, stages, actors cascade", &[])
-        .expect("reset public");
+    db.exec(
+        "drop table if exists notification_reads, notifications, rules, events, board_config, leads, stages, actors cascade",
+        &[],
+    )
+    .expect("reset public");
 }
 
 fn local_actor() -> Actor {

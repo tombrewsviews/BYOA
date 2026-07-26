@@ -238,6 +238,22 @@ fn ensure_schema_pg(db: &mut Db) -> Result<(), DbError> {
     Ok(())
 }
 
+/// The Postgres DDL for the notifications tables — the last three entries of
+/// `PG_SCHEMA_STMTS` (the two tables + the recipient index). Run on EVERY warm
+/// open as a lightweight migration (all `if not exists`, ~3 round-trips), so a
+/// shared board that was already initialized BEFORE notifications existed still
+/// gets these tables. Without this, `board_snapshot` (which now reads
+/// notifications) errors on an old shared board — the board window showed
+/// "Can't reach the board" while Settings showed a green "Connected" dot,
+/// because `pg_board_initialized` (checks only `board_config`) made `open_board`
+/// skip the full `ensure_schema_pg`. Idempotent and cheap enough to always run.
+fn pg_ensure_notifications(db: &mut Db) -> Result<(), DbError> {
+    for stmt in &PG_SCHEMA_STMTS[6..] {
+        db.exec(stmt, &[])?;
+    }
+    Ok(())
+}
+
 /// Insert `actor` into `actors` if not already present. Runs on every
 /// `open_board` call, both backends — idempotent and cheap.
 fn upsert_actor(db: &mut Db, actor: &Actor) -> Result<(), DbError> {
@@ -359,6 +375,12 @@ pub fn open_board(
             if fresh {
                 ensure_schema_pg(&mut db)?;
                 seed_once(&mut db, actor, true)?;
+            } else {
+                // A warm (already-initialized) board skips the full schema, but
+                // additive tables added after it was created still need to exist.
+                // The notifications tables are cheap + idempotent, so always
+                // ensure them here (else `board_snapshot` fails on an old board).
+                pg_ensure_notifications(&mut db)?;
             }
             eprintln!(
                 "[outreach] shared board open: {}ms ({})",
@@ -1902,7 +1924,13 @@ pub async fn board_snapshot(app: tauri::AppHandle) -> Result<serde_json::Value, 
         let stages = list_stages_json(&mut *db)?;
         let leads = list_leads_json(&mut *db)?;
         let config = get_config_json(&mut *db)?;
-        let notifications = notifications_json(&mut *db, &actor.id)?;
+        // Notifications must NEVER blank the whole board: if their tables are
+        // missing (an old shared board mid-migration) or the query errors, fall
+        // back to an empty feed so the cards still render. The warm-open
+        // migration (`pg_ensure_notifications`) creates the tables, so this is a
+        // belt-and-suspenders guard, not the primary fix.
+        let notifications = notifications_json(&mut *db, &actor.id)
+            .unwrap_or_else(|_| serde_json::json!({ "items": [], "unread": 0 }));
         Ok(serde_json::json!({
             "stages": stages,
             "leads": leads,
@@ -2775,6 +2803,24 @@ mod tests {
         // An agent enrichment fact (no "note" key) must not notify anyone.
         append_context(&mut db, "L1", serde_json::json!({"fact": "CTO is Ana"}), 1, "local").unwrap();
         assert_eq!(q_i64(&mut db, "select count(*) from notifications"), 0);
+    }
+
+    #[test]
+    fn notifications_json_falls_back_to_empty_when_tables_missing() {
+        // Regression: an old shared board initialized before the notifications
+        // tables existed would make board_snapshot error and blank the board.
+        // Simulate the missing tables by dropping them, then assert the snapshot's
+        // fallback (empty feed) rather than a hard error.
+        let (_tmp, mut db) = seeded_db();
+        db.exec("drop table notifications", &[]).unwrap();
+        db.exec("drop table notification_reads", &[]).unwrap();
+        // The raw query errors...
+        assert!(notifications_json(&mut db, "local").is_err());
+        // ...but the snapshot uses a fallback, which the command relies on.
+        let fallback = notifications_json(&mut db, "local")
+            .unwrap_or_else(|_| serde_json::json!({ "items": [], "unread": 0 }));
+        assert_eq!(fallback["unread"], 0);
+        assert_eq!(fallback["items"].as_array().unwrap().len(), 0);
     }
 
     #[test]
