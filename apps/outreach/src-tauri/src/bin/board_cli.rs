@@ -79,6 +79,21 @@ pub fn dispatch(db: &mut Db, actor: &str, verb: &str, args: &Value) -> Result<Va
                 Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
             }
         }
+        "archiveLead" | "unarchiveLead" => {
+            let id = get_str("id")?;
+            let archived = verb == "archiveLead";
+            match board::set_lead_archived(db, &id, archived, actor) {
+                Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
+                Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
+            }
+        }
+        "deleteLead" => {
+            let id = get_str("id")?;
+            match board::delete_lead(db, &id, actor) {
+                Ok(seq) => Ok(json!({"ok": true, "data": {"seq": seq}})),
+                Err(e) => Ok(json!({"ok": false, "error": board::board_err(e)})),
+            }
+        }
         "appendContext" => {
             let id = get_str("id")?;
             let research = args

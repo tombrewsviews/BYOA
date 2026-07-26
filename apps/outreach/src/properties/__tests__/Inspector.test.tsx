@@ -15,6 +15,7 @@ const lead: LeadDetail = {
   context: { facts: ["Met at conference", { note: "warm intro" }] },
   messages: ["Hi Ada, following up…"],
   transcripts: [{ raw: "long raw text", summary: "Discussed pilot in Q3" }],
+  archivedAt: null,
   createdAt: "x", updatedAt: "y", version: 4,
 };
 
@@ -25,6 +26,8 @@ const handlers = {
   onAddNote: noop,
   onAttach: noop,
   onRevealAttachment: noop,
+  onArchive: noop,
+  onDelete: noop,
 };
 
 describe("Inspector", () => {

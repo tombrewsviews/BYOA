@@ -32,6 +32,7 @@ create table if not exists leads (
   context     text not null default '{}',
   messages    text not null default '[]',
   transcripts text not null default '[]',
+  archived_at text,
   created_at  text not null,
   updated_at  text not null,
   version     int  not null default 1
@@ -122,6 +123,7 @@ const PG_SCHEMA_STMTS: [&str; 6] = [
       context     text not null default '{}',
       messages    text not null default '[]',
       transcripts text not null default '[]',
+      archived_at text,
       created_at  text not null,
       updated_at  text not null,
       version     bigint not null default 1
@@ -152,9 +154,25 @@ const PG_SCHEMA_STMTS: [&str; 6] = [
 ];
 
 /// Run the SQLite schema (idempotent) over a `Db::Sqlite` handle via
-/// `exec_batch`, reusing the same `SCHEMA` string `init` uses.
+/// `exec_batch`, reusing the same `SCHEMA` string `init` uses. Then apply
+/// additive column migrations for boards created before a column existed.
 fn ensure_schema_sqlite(db: &mut Db) -> Result<(), DbError> {
-    db.exec_batch(SCHEMA)
+    db.exec_batch(SCHEMA)?;
+    // `leads.archived_at` was added after the first release; a board.db seeded
+    // earlier has the table without it. SQLite has no `add column if not
+    // exists`, so probe `pragma table_info` and add it only when missing.
+    let has_archived: bool = db
+        .query_opt(
+            "select count(*) from pragma_table_info('leads') where name = 'archived_at'",
+            &[],
+            |r| r.get_i64(0),
+        )?
+        .unwrap_or(0)
+        > 0;
+    if !has_archived {
+        db.exec("alter table leads add column archived_at text", &[])?;
+    }
+    Ok(())
 }
 
 /// One-round-trip probe: is this Postgres board already set up? Checks whether
@@ -179,11 +197,15 @@ fn pg_board_initialized(db: &mut Db) -> Result<bool, DbError> {
     .map(|n| n.unwrap_or(0) > 0)
 }
 
-/// Run the Postgres schema (idempotent), statement-by-statement.
+/// Run the Postgres schema (idempotent), statement-by-statement. Then apply
+/// additive column migrations for shared boards created before a column existed.
 fn ensure_schema_pg(db: &mut Db) -> Result<(), DbError> {
     for stmt in PG_SCHEMA_STMTS {
         db.exec(stmt, &[])?;
     }
+    // `leads.archived_at` was added after the first release; Postgres supports
+    // `add column if not exists`, so this is a safe no-op on an up-to-date board.
+    db.exec("alter table leads add column if not exists archived_at text", &[])?;
     Ok(())
 }
 
@@ -448,6 +470,46 @@ fn apply_state(
                 db.exec("delete from leads where id = ?1", &[SqlParam::Text(entity_id)])?;
             }
         }
+        "lead.archived" => {
+            // `after.archived_at` is a timestamp to archive, or null to restore.
+            db.exec(
+                "update leads set archived_at = ?1, updated_at = ?2, version = version + 1 where id = ?3",
+                &[
+                    SqlParam::OptText(value["archived_at"].as_str()),
+                    SqlParam::Text(&now),
+                    SqlParam::Text(entity_id),
+                ],
+            )?;
+        }
+        "lead.deleted" => {
+            // Direction-aware, like `lead.created`/`stage.created`: the forward
+            // event's `after` is null → drop the row; `revert` applies the
+            // event's `before` (the full saved row) → recreate it. This lets the
+            // event log undo a permanent delete.
+            if value.is_null() {
+                db.exec("delete from leads where id = ?1", &[SqlParam::Text(entity_id)])?;
+            } else {
+                db.exec(
+                    "insert into leads
+                       (id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version)
+                     values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                     on conflict (id) do nothing",
+                    &[
+                        SqlParam::Text(entity_id),
+                        SqlParam::OptText(value["stage"].as_str()),
+                        SqlParam::OptText(value["name"].as_str()),
+                        SqlParam::OptText(value["org"].as_str()),
+                        SqlParam::Text(&value["context"].as_str().map(str::to_string).unwrap_or_else(|| value["context"].to_string())),
+                        SqlParam::Text(&value["messages"].as_str().map(str::to_string).unwrap_or_else(|| value["messages"].to_string())),
+                        SqlParam::Text(&value["transcripts"].as_str().map(str::to_string).unwrap_or_else(|| value["transcripts"].to_string())),
+                        SqlParam::OptText(value["archived_at"].as_str()),
+                        SqlParam::OptText(value["created_at"].as_str()),
+                        SqlParam::OptText(value["updated_at"].as_str()),
+                        SqlParam::Int(value["version"].as_i64().unwrap_or(1)),
+                    ],
+                )?;
+            }
+        }
         _ => {
             // other kinds applied by their verbs in later tasks
         }
@@ -548,6 +610,82 @@ pub fn move_lead(
             before: serde_json::json!({"stage": current_stage}),
             after: serde_json::json!({"stage": to_stage}),
             verb: "moveLead".into(),
+            actor: actor.into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Archive or restore a lead. `archived = true` sets `archived_at` to now (the
+/// card leaves the default board view but keeps all history); `false` clears it
+/// (restore). Idempotent — archiving an already-archived lead just re-stamps the
+/// time. Returns the committed event's seq.
+pub fn set_lead_archived(
+    db: &mut Db,
+    id: &str,
+    archived: bool,
+    actor: &str,
+) -> Result<i64, BoardError> {
+    let current: Option<Option<String>> = db.query_opt(
+        "select archived_at from leads where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| r.get_opt_str(0),
+    )?;
+    let before_archived = current.ok_or(BoardError::NotFound)?;
+
+    let after = if archived {
+        serde_json::json!({ "archived_at": chrono::Utc::now().to_rfc3339() })
+    } else {
+        serde_json::json!({ "archived_at": serde_json::Value::Null })
+    };
+
+    let seq = commit(
+        db,
+        &Event {
+            kind: "lead.archived".into(),
+            entity_id: id.into(),
+            before: serde_json::json!({ "archived_at": before_archived }),
+            after,
+            verb: if archived { "archiveLead" } else { "unarchiveLead" }.into(),
+            actor: actor.into(),
+        },
+    )?;
+    Ok(seq)
+}
+
+/// Permanently delete a lead. The full row is saved into the event's `before`,
+/// so the event-log `revert` can still recreate it; the forward event drops the
+/// row from the board. Returns the committed event's seq.
+pub fn delete_lead(db: &mut Db, id: &str, actor: &str) -> Result<i64, BoardError> {
+    let before = db.query_opt(
+        "select stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version
+         from leads where id = ?1",
+        &[SqlParam::Text(id)],
+        |r| {
+            Ok(serde_json::json!({
+                "stage": r.get_str(0)?,
+                "name": r.get_str(1)?,
+                "org": r.get_opt_str(2)?,
+                "context": r.get_str(3)?,
+                "messages": r.get_str(4)?,
+                "transcripts": r.get_str(5)?,
+                "archived_at": r.get_opt_str(6)?,
+                "created_at": r.get_str(7)?,
+                "updated_at": r.get_str(8)?,
+                "version": r.get_i64(9)?,
+            }))
+        },
+    )?;
+    let before = before.ok_or(BoardError::NotFound)?;
+
+    let seq = commit(
+        db,
+        &Event {
+            kind: "lead.deleted".into(),
+            entity_id: id.into(),
+            before,
+            after: serde_json::Value::Null,
+            verb: "deleteLead".into(),
             actor: actor.into(),
         },
     )?;
@@ -1088,13 +1226,14 @@ pub fn board_get_config(state: tauri::State<'_, crate::AppState>) -> Result<serd
 
 pub fn list_leads_json(db: &mut Db) -> Result<serde_json::Value, String> {
     let rows = db
-        .query_all("select id,stage,name,org,version from leads", &[], |r| {
+        .query_all("select id,stage,name,org,archived_at,version from leads", &[], |r| {
             Ok(serde_json::json!({
                 "id": r.get_str(0)?,
                 "stage": r.get_str(1)?,
                 "name": r.get_str(2)?,
                 "org": r.get_opt_str(3)?,
-                "version": r.get_i64(4)?,
+                "archivedAt": r.get_opt_str(4)?,
+                "version": r.get_i64(5)?,
             }))
         })
         .map_err(|e| format!("db error: {e}"))?;
@@ -1108,9 +1247,9 @@ pub fn board_list_leads(state: tauri::State<'_, crate::AppState>) -> Result<serd
 }
 
 pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String> {
-    let row: Option<(String, String, String, Option<String>, String, String, String, String, String, i64)> = db
+    let row: Option<(String, String, String, Option<String>, String, String, String, Option<String>, String, String, i64)> = db
         .query_opt(
-            "select id,stage,name,org,context,messages,transcripts,created_at,updated_at,version from leads where id = ?1",
+            "select id,stage,name,org,context,messages,transcripts,archived_at,created_at,updated_at,version from leads where id = ?1",
             &[SqlParam::Text(id)],
             |r| {
                 Ok((
@@ -1121,15 +1260,16 @@ pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String>
                     r.get_str(4)?,
                     r.get_str(5)?,
                     r.get_str(6)?,
-                    r.get_str(7)?,
+                    r.get_opt_str(7)?,
                     r.get_str(8)?,
-                    r.get_i64(9)?,
+                    r.get_str(9)?,
+                    r.get_i64(10)?,
                 ))
             },
         )
         .map_err(|e| format!("db error: {e}"))?;
 
-    let (id, stage, name, org, context, messages, transcripts, created_at, updated_at, version) =
+    let (id, stage, name, org, context, messages, transcripts, archived_at, created_at, updated_at, version) =
         row.ok_or_else(|| board_err(BoardError::NotFound))?;
 
     let parse = |s: &str| -> Result<serde_json::Value, String> {
@@ -1144,6 +1284,7 @@ pub fn get_lead_json(db: &mut Db, id: &str) -> Result<serde_json::Value, String>
         "context": parse(&context)?,
         "messages": parse(&messages)?,
         "transcripts": parse(&transcripts)?,
+        "archivedAt": archived_at,
         "createdAt": created_at,
         "updatedAt": updated_at,
         "version": version,
@@ -1176,6 +1317,25 @@ pub fn board_move_lead(
 ) -> Result<i64, String> {
     let (mut db, actor) = db_for_active(&state)?;
     move_lead(&mut db, &id, &to_stage, expected_version, &actor.id).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_set_lead_archived(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    archived: bool,
+) -> Result<i64, String> {
+    let (mut db, actor) = db_for_active(&state)?;
+    set_lead_archived(&mut db, &id, archived, &actor.id).map_err(board_err)
+}
+
+#[tauri::command]
+pub fn board_delete_lead(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+) -> Result<i64, String> {
+    let (mut db, actor) = db_for_active(&state)?;
+    delete_lead(&mut db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
@@ -1441,6 +1601,54 @@ mod tests {
         assert_eq!(stage, "contacted"); // back to the state at `base`
         let remaining = q_i64(&mut db, "select count(*) from events");
         assert_eq!(remaining, 1);  // the base event remains
+    }
+
+    #[test]
+    fn archive_then_unarchive_sets_and_clears_archived_at() {
+        let (_tmp, mut db) = seeded_db();
+        seed_lead(&mut db, "L1", "researching");
+        assert_eq!(q_opt_str(&mut db, "select archived_at from leads where id='L1'"), None);
+
+        set_lead_archived(&mut db, "L1", true, "local").unwrap();
+        assert!(
+            q_opt_str(&mut db, "select archived_at from leads where id='L1'").is_some(),
+            "archive stamps archived_at"
+        );
+
+        set_lead_archived(&mut db, "L1", false, "local").unwrap();
+        assert_eq!(
+            q_opt_str(&mut db, "select archived_at from leads where id='L1'"),
+            None,
+            "unarchive clears archived_at"
+        );
+    }
+
+    #[test]
+    fn delete_lead_removes_row_and_revert_restores_it() {
+        let (_tmp, mut db) = seeded_db();
+        // A lead created via the real verb so it has a lead.created event before it.
+        let id = add_lead(&mut db, "Acme", Some("Acme Inc"), "researching", "local").unwrap();
+        let base = q_i64(&mut db, "select max(seq) from events");
+
+        delete_lead(&mut db, &id, "local").unwrap();
+        assert_eq!(
+            q_i64(&mut db, "select count(*) from leads"),
+            0,
+            "delete removes the row"
+        );
+
+        // The event log can undo the permanent delete: reverting past the delete
+        // recreates the row with its saved fields.
+        revert(&mut db, base).unwrap();
+        assert_eq!(q_i64(&mut db, "select count(*) from leads"), 1, "revert recreates the lead");
+        assert_eq!(q_str(&mut db, "select name from leads"), "Acme");
+        assert_eq!(q_opt_str(&mut db, "select org from leads"), Some("Acme Inc".into()));
+    }
+
+    #[test]
+    fn delete_nonexistent_lead_is_not_found() {
+        let (_tmp, mut db) = seeded_db();
+        assert!(matches!(delete_lead(&mut db, "nope", "local"), Err(BoardError::NotFound)));
     }
 
     #[test]

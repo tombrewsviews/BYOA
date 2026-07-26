@@ -15,7 +15,10 @@ import {
   renameStage,
   reorderStages,
   addStage,
+  retireStage,
   moveLead,
+  setLeadArchived,
+  deleteLead,
   appendContext,
   attachFile,
   revealFile,
@@ -152,6 +155,27 @@ const PropertiesPanel: React.FC<{
     void revealFile(path).catch(() => {});
   }, []);
 
+  const handleArchive = useCallback(
+    (archived: boolean) => {
+      if (!selectedLead) return;
+      void setLeadArchived(selectedLead.id, archived)
+        .then(reloadLead)
+        .catch(() => {});
+    },
+    [selectedLead, reloadLead],
+  );
+
+  const handleDelete = useCallback(() => {
+    if (!selectedLead) return;
+    if (!window.confirm(`Delete "${selectedLead.name}"? This removes the card from the board.`)) {
+      return;
+    }
+    const id = selectedLead.id;
+    void deleteLead(id)
+      .then(() => setSelectedLeadId(""))
+      .catch(() => {});
+  }, [selectedLead, setSelectedLeadId]);
+
   const handleSaveActor = useCallback((name: string) => {
     setActorNameState(name);
     void setActorName(name).catch(() => {});
@@ -179,6 +203,22 @@ const PropertiesPanel: React.FC<{
     })();
   }, []);
 
+  const handleRemoveStage = useCallback(
+    (id: string, label: string) => {
+      const inColumn = leads.filter((l) => l.stage === id && l.archivedAt === null).length;
+      const warning =
+        inColumn > 0
+          ? `Remove the "${label}" column? Its ${inColumn} card${inColumn === 1 ? "" : "s"} will move to an "Unsorted" column — move them first if you want to keep them sorted.`
+          : `Remove the "${label}" column?`;
+      if (!window.confirm(warning)) return;
+      void retireStage(id)
+        .then(() => listStages())
+        .then(setStages)
+        .catch(() => {});
+    },
+    [leads],
+  );
+
   return tab === "inspector" ? (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-2xl flex-col">
       <div className="flex-none p-2">
@@ -203,6 +243,8 @@ const PropertiesPanel: React.FC<{
           onAddNote={handleAddNote}
           onAttach={handleAttach}
           onRevealAttachment={handleReveal}
+          onArchive={handleArchive}
+          onDelete={handleDelete}
         />
       </div>
     </div>
@@ -214,6 +256,7 @@ const PropertiesPanel: React.FC<{
         onRename={handleRename}
         onReorder={handleReorder}
         onAddStage={handleAddStage}
+        onRemoveStage={handleRemoveStage}
         actorName={actorName}
         databaseUrl={databaseUrl}
         onSaveActor={handleSaveActor}

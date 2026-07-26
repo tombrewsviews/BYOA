@@ -117,6 +117,8 @@ pub fn run() {
             board::board_get_lead,
             board::board_add_lead,
             board::board_move_lead,
+            board::board_set_lead_archived,
+            board::board_delete_lead,
             board::board_append_context,
             board::board_draft_message,
             board::board_attach_transcript,

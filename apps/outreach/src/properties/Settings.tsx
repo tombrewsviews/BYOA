@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ArrowUp, ArrowDown } from "../icons";
+import { ArrowUp, ArrowDown, Trash2 } from "../icons";
 import type { Stage } from "../board/types";
 import { openResearchFolder, type BoardConfig } from "../board/api";
 
@@ -11,6 +11,7 @@ interface SettingsProps {
   onRename: (id: string, label: string) => void;
   onReorder: (ids: string[]) => void;
   onAddStage: (label: string) => void;
+  onRemoveStage: (id: string, label: string) => void;
   actorName?: string;
   databaseUrl?: string;
   onSaveActor: (name: string) => void;
@@ -50,9 +51,10 @@ const SharingField: React.FC<{
 const StageRow: React.FC<{
   stage: Stage;
   onRename: (id: string, label: string) => void;
+  onRemove: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
-}> = ({ stage, onRename, onMoveUp, onMoveDown }) => {
+}> = ({ stage, onRename, onRemove, onMoveUp, onMoveDown }) => {
   const [label, setLabel] = useState(stage.label);
 
   const commit = () => {
@@ -87,6 +89,9 @@ const StageRow: React.FC<{
           title="Move down"
         >
           <ArrowDown className="size-4" />
+        </Button>
+        <Button size="icon-sm" variant="ghost" onClick={onRemove} title="Remove column">
+          <Trash2 className="size-4 text-destructive" />
         </Button>
       </div>
       <div className="font-mono text-xs text-muted-foreground">{stage.id}</div>
@@ -129,6 +134,7 @@ export const Settings: React.FC<SettingsProps> = ({
   onSaveActor,
   onReorder,
   onAddStage,
+  onRemoveStage,
   onSaveDbUrl,
 }) => {
   const ordered = [...stages]
@@ -188,6 +194,7 @@ export const Settings: React.FC<SettingsProps> = ({
             key={stage.id}
             stage={stage}
             onRename={onRename}
+            onRemove={() => onRemoveStage(stage.id, stage.label)}
             onMoveUp={i > 0 ? () => move(i, -1) : undefined}
             onMoveDown={i < ordered.length - 1 ? () => move(i, 1) : undefined}
           />

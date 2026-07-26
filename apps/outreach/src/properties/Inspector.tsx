@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { LeadDetail } from "../board/api";
 import type { Stage } from "../board/types";
-import { Copy, Check, Paperclip } from "../icons";
+import { Copy, Check, Paperclip, Archive, ArchiveRestore, Trash2 } from "../icons";
 
 interface InspectorProps {
   lead: LeadDetail | null;
@@ -10,6 +10,8 @@ interface InspectorProps {
   onAddNote: (note: string) => void;
   onAttach: () => void;
   onRevealAttachment: (path: string) => void;
+  onArchive: (archived: boolean) => void;
+  onDelete: () => void;
 }
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -173,17 +175,27 @@ export const Inspector: React.FC<InspectorProps> = ({
   onAddNote,
   onAttach,
   onRevealAttachment,
+  onArchive,
+  onDelete,
 }) => {
   if (lead === null) {
     return <div className="p-4 text-sm text-muted-foreground">Select a lead to inspect it.</div>;
   }
 
   const facts = Array.isArray(lead.context?.facts) ? lead.context.facts : [];
+  const archived = lead.archivedAt !== null;
 
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
-        <div className="text-base font-semibold text-foreground">{lead.name}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-base font-semibold text-foreground">{lead.name}</div>
+          {archived ? (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              Archived
+            </span>
+          ) : null}
+        </div>
         {lead.org ? <div className="text-sm text-muted-foreground">{lead.org}</div> : null}
       </div>
 
@@ -243,6 +255,26 @@ export const Inspector: React.FC<InspectorProps> = ({
             </div>
           ))
         )}
+      </div>
+
+      <div className="mt-2 flex flex-col gap-2 border-t border-border pt-3">
+        <SectionLabel>Manage</SectionLabel>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onArchive(!archived)}
+            className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+          >
+            {archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+            {archived ? "Restore" : "Archive"}
+          </button>
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-destructive hover:bg-accent"
+          >
+            <Trash2 className="size-4" />
+            Delete…
+          </button>
+        </div>
       </div>
     </div>
   );

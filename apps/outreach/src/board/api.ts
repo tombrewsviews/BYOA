@@ -10,6 +10,7 @@ export interface LeadDetail {
   context: { facts?: unknown[] };
   messages: unknown[];
   transcripts: { raw: string; summary: string }[];
+  archivedAt: string | null;
   createdAt: string; updatedAt: string; version: number;
 }
 export interface BoardConfig { name: string; createdBy: string; version: number }
@@ -19,6 +20,9 @@ export const listStages = () => call<Stage[]>("board_list_stages");
 export const listLeads = () => call<Lead[]>("board_list_leads");
 export const moveLead = (id: string, toStage: string, expectedVersion: number) =>
   call<number>("board_move_lead", { id, toStage, expectedVersion });
+export const setLeadArchived = (id: string, archived: boolean) =>
+  call<number>("board_set_lead_archived", { id, archived });
+export const deleteLead = (id: string) => call<number>("board_delete_lead", { id });
 export const getLead = (id: string) => call<LeadDetail>("board_get_lead", { id });
 export const getConfig = () => call<BoardConfig>("board_get_config");
 export const renameStage = (id: string, label: string) =>
@@ -28,6 +32,7 @@ export const addLead = (name: string, org: string | null, stage: string) =>
 export const addStage = (label: string, position: number) =>
   call<string>("board_add_stage", { label, position });
 export const reorderStages = (ids: string[]) => call<void>("board_reorder_stages", { ids });
+export const retireStage = (id: string) => call<number>("board_retire_stage", { id });
 export const appendContext = (id: string, research: unknown, expectedVersion: number) =>
   call<number>("board_append_context", { id, research, expectedVersion });
 export const getSettings = () => call<AppSettings>("get_settings");

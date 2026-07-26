@@ -21,6 +21,14 @@ pub fn board_window_open(app: AppHandle) -> Result<(), String> {
     WebviewWindowBuilder::new(&app, "board", WebviewUrl::App("board.html".into()))
         .title("Outreach Board")
         .inner_size(1100.0, 800.0)
+        // Tauri's OS-level drag-drop handler is ON by default, and on macOS it
+        // intercepts the webview's pointer events — swallowing the HTML5
+        // `dragstart`/`drop` the kanban cards use AND, because the cards are
+        // `draggable`, the `click` that opens the Inspector. Disabling it hands
+        // pointer/DnD events back to the page so cards drag and click. The board
+        // doesn't use native file-drop, so nothing is lost. (Tauri's own docs:
+        // "required to use HTML5 drag and drop APIs on the frontend".)
+        .disable_drag_drop_handler()
         .build()
         .map_err(|e| e.to_string())?;
     tile_windows(&app);

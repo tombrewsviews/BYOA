@@ -30,4 +30,7 @@ export {
   Trash2,
   Copy,
   Paperclip,
+  Archive,
+  ArchiveRestore,
+  MoreHorizontal,
 } from "lucide-react";

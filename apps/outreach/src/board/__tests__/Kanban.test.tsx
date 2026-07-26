@@ -10,9 +10,9 @@ const stages: Stage[] = [
   { id: "old", label: "Old", position: 2, color: null, retiredAt: "2026-01-01T00:00:00Z", version: 1 },
 ];
 const leads: Lead[] = [
-  { id: "l1", stage: "researching", name: "Ada Lovelace", org: "Analytical", version: 3 },
-  { id: "l2", stage: "contacted", name: "Alan Turing", org: null, version: 1 },
-  { id: "l3", stage: "ghost_stage", name: "Orphan Lead", org: null, version: 1 }, // stage not in list → Unsorted
+  { id: "l1", stage: "researching", name: "Ada Lovelace", org: "Analytical", archivedAt: null, version: 3 },
+  { id: "l2", stage: "contacted", name: "Alan Turing", org: null, archivedAt: null, version: 1 },
+  { id: "l3", stage: "ghost_stage", name: "Orphan Lead", org: null, archivedAt: null, version: 1 }, // stage not in list → Unsorted
 ];
 
 const noop = () => {};
@@ -21,7 +21,11 @@ const baseProps = {
   onSelect: noop,
   onAddLead: noop,
   onAddColumn: noop,
+  onArchive: noop,
+  onDelete: noop,
   selectedId: null,
+  showArchived: false,
+  onToggleArchived: noop,
 };
 
 describe("Kanban", () => {

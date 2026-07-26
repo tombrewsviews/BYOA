@@ -12,5 +12,6 @@ export interface Lead {
   stage: string;
   name: string;
   org: string | null;
+  archivedAt: string | null;
   version: number;
 }

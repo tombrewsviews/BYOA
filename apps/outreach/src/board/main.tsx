@@ -2,13 +2,14 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "../index.css";
 import { Kanban } from "./Kanban";
-import { poll, moveLead, addLead, addStage, listStages } from "./api";
+import { poll, moveLead, addLead, addStage, listStages, setLeadArchived, deleteLead } from "./api";
 import type { Stage, Lead } from "./types";
 
 function BoardApp() {
   const [stages, setStages] = React.useState<Stage[]>([]);
   const [leads, setLeads] = React.useState<Lead[]>([]);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [showArchived, setShowArchived] = React.useState(false);
 
   React.useEffect(() => poll((d) => { setStages(d.stages); setLeads(d.leads); }), []);
 
@@ -38,6 +39,17 @@ function BoardApp() {
     })();
   }, []);
 
+  const onArchive = React.useCallback((id: string, archived: boolean) => {
+    void setLeadArchived(id, archived).catch(() => {});
+  }, []);
+
+  const onDelete = React.useCallback((id: string, name: string) => {
+    // Native confirm — one guard against an accidental permanent delete.
+    if (!window.confirm(`Delete "${name}"? This removes the card from the board.`)) return;
+    void deleteLead(id).catch(() => {});
+    setSelectedId((cur) => (cur === id ? null : cur));
+  }, []);
+
   return (
     <Kanban
       stages={stages}
@@ -46,7 +58,11 @@ function BoardApp() {
       onSelect={onSelect}
       onAddLead={onAddLead}
       onAddColumn={onAddColumn}
+      onArchive={onArchive}
+      onDelete={onDelete}
       selectedId={selectedId}
+      showArchived={showArchived}
+      onToggleArchived={() => setShowArchived((v) => !v)}
     />
   );
 }
