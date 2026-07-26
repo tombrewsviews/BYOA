@@ -2,7 +2,16 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "../index.css";
 import { Kanban } from "./Kanban";
-import { poll, moveLead, addLead, addStage, listStages, setLeadArchived, deleteLead } from "./api";
+import {
+  poll,
+  moveLead,
+  addLead,
+  addStage,
+  listStages,
+  setLeadArchived,
+  deleteLead,
+  ensureConnected,
+} from "./api";
 import type { PollStatus } from "./api";
 import type { Stage, Lead } from "./types";
 
@@ -17,6 +26,15 @@ function BoardApp() {
     () => poll((d) => { setStages(d.stages); setLeads(d.leads); }, 1500, setStatus),
     [],
   );
+
+  // Warm the (shared) board connection off the UI thread so the poll's board
+  // commands don't have to connect synchronously — that remote connect is what
+  // froze the whole app on open. Kick it off on mount, and re-try while we're
+  // still not connected (a failed/slow warm-up, or the URL changing after open).
+  React.useEffect(() => {
+    if (status === "ok") return;
+    void ensureConnected().catch(() => {/* poll keeps showing "Connecting…" */});
+  }, [status]);
 
   // Selecting a card in this (board) window tells the main window to open the
   // Inspector on that lead. Routed through the backend (`board_select_lead`),

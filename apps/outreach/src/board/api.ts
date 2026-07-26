@@ -54,6 +54,15 @@ export interface SyncProgress {
  * Resolves with the number of leads copied.
  */
 export const saveSharedUrl = (url: string) => call<number>("board_save_shared_url", { url });
+
+/**
+ * Warm the active board's connection off the UI thread. For a shared (Postgres)
+ * board this does the slow remote connect in the background and fills the
+ * backend cache, so the synchronous board commands (list/get/...) never connect
+ * on the UI thread and never freeze the app. No-op for a local board. Resolves
+ * once connected (or rejects if the connect failed). Safe to call repeatedly.
+ */
+export const ensureConnected = () => call<void>("board_ensure_connected");
 export const setActorName = (name: string) => call<void>("set_actor_name", { name });
 export const openResearchFolder = () => call<void>("research_folder_open");
 export const attachFile = (leadId: string, srcPath: string) =>
@@ -89,8 +98,12 @@ export function poll(
         onStatus?.("ok");
         onChange({ stages, leads });
       }
-    } catch {
-      if (!stopped && !everOk) onStatus?.("error");
+    } catch (e) {
+      // A `connecting:` error means the shared board is still warming up in the
+      // background — that's "loading", not a real failure. Anything else before
+      // the first success is an error worth surfacing.
+      const connecting = String((e as Error)?.message ?? e).includes("connecting:");
+      if (!stopped && !everOk) onStatus?.(connecting ? "loading" : "error");
       /* transient (e.g. no active project yet, or slow connect) — retry next tick */
     }
   };

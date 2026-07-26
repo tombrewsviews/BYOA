@@ -328,6 +328,9 @@ const OutreachEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     if (!isTauri()) return;
     void (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
+      // Warm the (shared) board connection off the UI thread first, so this
+      // window's Settings poll doesn't try to connect synchronously and freeze.
+      await invoke("board_ensure_connected").catch(() => {});
       await invoke("board_window_open").catch(() => {});
     })();
   }, [project.path]);

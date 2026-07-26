@@ -1288,37 +1288,122 @@ impl std::ops::DerefMut for BoardGuard<'_> {
     }
 }
 
+/// The invalidation key for the cached board connection: project dir + db url +
+/// actor id. Any change reopens. Kept in one place so the command path and the
+/// background warm-up agree on what "the same connection" means.
+fn board_key(dir: &std::path::Path, url: Option<&str>, actor: &Actor) -> String {
+    format!("{}\u{1f}{}\u{1f}{}", dir.to_string_lossy(), url.unwrap_or(""), actor.id)
+}
+
+/// Prefix marking a "not connected yet" error, so the frontend can show a
+/// "Connecting…" state instead of a real failure. The board poll treats this as
+/// transient and retries.
+pub const CONNECTING_PREFIX: &str = "connecting:";
+
 /// Open (or reuse) the board for the active project, sourcing the database URL +
 /// actor from settings. Returns a locked handle to the cached connection plus
-/// the resolved `Actor`. The connection is opened once per (project, url, actor)
-/// and reused on every later call — see `CachedBoard`.
+/// the resolved `Actor`.
+///
+/// CRITICAL: this runs on the UI thread (board commands are synchronous). It
+/// therefore NEVER performs a slow remote connect. For a **local** board a
+/// cache miss connects inline (SQLite open is instant). For a **shared**
+/// (Postgres) board a cache miss returns `CONNECTING_PREFIX` immediately — the
+/// slow connect is done off-thread by `warm_board_connection` (kicked off on
+/// project open and by `board_ensure_connected`), which fills the cache. This
+/// is what stops a set shared-DB URL from freezing the whole app on open.
 fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), String> {
     let dir = crate::projects::active_path(state)?;
     let s = crate::settings::load();
     let actor = actor_from(s.actor_name.as_deref());
-    let key = format!(
-        "{}\u{1f}{}\u{1f}{}",
-        dir.to_string_lossy(),
-        s.database_url.as_deref().unwrap_or(""),
-        actor.id,
-    );
+    let key = board_key(&dir, s.database_url.as_deref(), &actor);
 
     let mut cache = state
         .board_cache
         .lock()
         .map_err(|e| format!("board cache lock: {e}"))?;
 
-    // Reopen on a miss (first use), a key change (settings edit), or a dead
-    // cached connection (Postgres dropped) — so a network blip self-heals on the
-    // next command instead of erroring until restart.
+    // Cache hit = same (project, url, actor) and the connection is still live.
     let hit = cache.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead());
     if !hit {
-        let db = open_board(&dir, s.database_url.as_deref(), &actor)
-            .map_err(|e| format!("open board: {e}"))?;
+        // A shared (remote) connect is slow and must not block the UI thread —
+        // defer it to the background warm-up and tell the caller we're still
+        // connecting. Local SQLite is instant, so connect it inline.
+        if s.database_url.as_deref().map(str::trim).is_some_and(|u| !u.is_empty()) {
+            return Err(format!("{CONNECTING_PREFIX} connecting to the shared board…"));
+        }
+        let db = open_board(&dir, None, &actor).map_err(|e| format!("open board: {e}"))?;
         *cache = Some(CachedBoard { key, db });
     }
 
     Ok((BoardGuard { cache }, actor))
+}
+
+/// Connect to the active board (SQLite or Postgres) and store it in the shared
+/// cache, keyed by (project, url, actor). Idempotent: if the cache already holds
+/// a live connection for the same key, this is a no-op. This is the ONLY place a
+/// slow remote connect happens, and it is always called from a blocking
+/// background task (`spawn_blocking`), never the UI thread. Returns whether the
+/// cache now holds a connection (i.e. connect succeeded).
+///
+/// `dir`/`url`/`actor` are captured on the UI thread before spawning (settings
+/// and the active path aren't reachable from a background thread without the
+/// `State`, which isn't `Send`).
+fn warm_board_connection(
+    cache: &std::sync::Mutex<Option<CachedBoard>>,
+    dir: &std::path::Path,
+    url: Option<String>,
+    actor: &Actor,
+) -> Result<(), String> {
+    let key = board_key(dir, url.as_deref(), actor);
+    {
+        let guard = cache.lock().map_err(|e| format!("board cache lock: {e}"))?;
+        if guard.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead()) {
+            return Ok(()); // already warm
+        }
+    }
+    // Slow connect happens OUTSIDE the lock so a board command needing the cache
+    // (e.g. a local board on a different key) isn't blocked behind this connect.
+    let db = open_board(dir, url.as_deref(), actor).map_err(|e| format!("open board: {e}"))?;
+    let mut guard = cache.lock().map_err(|e| format!("board cache lock: {e}"))?;
+    // Re-check the key under the lock in case settings changed mid-connect.
+    if guard.as_ref().is_none_or(|c| c.key != key) {
+        *guard = Some(CachedBoard { key, db });
+    }
+    Ok(())
+}
+
+/// Warm the active board's connection off the UI thread, filling the cache so
+/// subsequent (synchronous) board commands are instant. Called by the frontend
+/// on open and whenever the poll sees a `connecting:` state. Resolves once the
+/// connection is ready (or errors if the connect failed). Safe to call
+/// repeatedly — `warm_board_connection` is idempotent.
+#[tauri::command]
+pub async fn board_ensure_connected(
+    state: tauri::State<'_, crate::AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // Capture everything the background connect needs on the UI thread (State
+    // isn't Send). `AppState` lives for the app's lifetime, so a raw pointer to
+    // the cache mutex is valid for the task; we only touch the Mutex, which is
+    // Sync. Simpler: pull what we need and pass owned values.
+    let dir = crate::projects::active_path(&state)?;
+    let s = crate::settings::load();
+    let actor = actor_from(s.actor_name.as_deref());
+    let url = s.database_url.clone();
+
+    // Fast path: local board never needs warming (instant connect on demand).
+    if url.as_deref().map(str::trim).is_none_or(str::is_empty) {
+        return Ok(());
+    }
+
+    let app_cache = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let cache = &app_cache.state::<crate::AppState>().board_cache;
+        warm_board_connection(cache, &dir, url, &actor)
+    })
+    .await
+    .map_err(|e| format!("warm task: {e}"))?
 }
 
 /// Emit one `board://sync-progress` step to the frontend so the Settings panel
