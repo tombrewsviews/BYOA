@@ -171,8 +171,12 @@ pub fn project_open(
 
     *state.active_project.lock().unwrap() =
         Some(ActiveProject { path: path_buf.clone(), _watcher: watcher });
-    // Drop any board connection cached for a previously-open project.
+    // Drop any board connection cached for a previously-open project (both the
+    // read and the write connection).
     if let Ok(mut c) = state.board_cache.lock() {
+        *c = None;
+    }
+    if let Ok(mut c) = state.board_cache_write.lock() {
         *c = None;
     }
 
@@ -196,6 +200,9 @@ pub fn project_open(
 pub fn project_close(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     *state.active_project.lock().unwrap() = None;
     if let Ok(mut c) = state.board_cache.lock() {
+        *c = None;
+    }
+    if let Ok(mut c) = state.board_cache_write.lock() {
         *c = None;
     }
     let _ = app.emit::<()>("project://closed", ());

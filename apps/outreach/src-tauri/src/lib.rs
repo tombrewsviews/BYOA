@@ -53,10 +53,16 @@ pub struct AppState {
     pub active_project: Mutex<Option<projects::ActiveProject>>,
     pub ptys: DashMap<String, pty::PtySession>,
     pub agent_chats: DashMap<String, agent_chat::AgentChatTurn>,
-    /// Cached board DB connection, reused across commands (opening a shared
-    /// Postgres board is a slow remote connect — see `board::CachedBoard`).
-    /// Keyed internally by project+url+actor; reset on project open/close.
+    /// Cached board DB connection for READS (list/snapshot/get). Reused across
+    /// commands (opening a shared Postgres board is a slow remote connect — see
+    /// `board::CachedBoard`). Keyed internally by project+url+actor; reset on
+    /// project open/close. The 5s poll's snapshot lives here.
     pub board_cache: Mutex<Option<board::CachedBoard>>,
+    /// Cached board DB connection for WRITES (move/archive/delete/add/…). A
+    /// SEPARATE connection so a user's action never has to wait behind an
+    /// in-flight read snapshot holding the read connection's mutex — that
+    /// contention made every drag/click take ~1s on a shared board.
+    pub board_cache_write: Mutex<Option<board::CachedBoard>>,
     /// Serializes the shared-board warm-up so many concurrent `board_ensure_
     /// connected` calls (two windows, poll ticks, the badge poll) don't each
     /// start their own slow Neon connect — a stampede that thrashed the app.
@@ -87,6 +93,7 @@ pub fn run() {
         ptys: DashMap::new(),
         agent_chats: DashMap::new(),
         board_cache: Mutex::new(None),
+        board_cache_write: Mutex::new(None),
         board_warm_lock: Mutex::new(()),
     };
 

@@ -1311,16 +1311,16 @@ pub const CONNECTING_PREFIX: &str = "connecting:";
 /// slow connect is done off-thread by `warm_board_connection` (kicked off on
 /// project open and by `board_ensure_connected`), which fills the cache. This
 /// is what stops a set shared-DB URL from freezing the whole app on open.
-fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), String> {
+fn db_from_cache<'a>(
+    state: &'a crate::AppState,
+    cache_field: &'a std::sync::Mutex<Option<CachedBoard>>,
+) -> Result<(BoardGuard<'a>, Actor), String> {
     let dir = crate::projects::active_path(state)?;
     let s = crate::settings::load();
     let actor = actor_from(s.actor_name.as_deref());
     let key = board_key(&dir, s.database_url.as_deref(), &actor);
 
-    let mut cache = state
-        .board_cache
-        .lock()
-        .map_err(|e| format!("board cache lock: {e}"))?;
+    let mut cache = cache_field.lock().map_err(|e| format!("board cache lock: {e}"))?;
 
     // Cache hit = same (project, url, actor) and the connection is still live.
     let hit = cache.as_ref().is_some_and(|c| c.key == key && !c.db.is_dead());
@@ -1336,6 +1336,20 @@ fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), Str
     }
 
     Ok((BoardGuard { cache }, actor))
+}
+
+/// Handle for READS (list/snapshot/get). Uses the read connection, which the 5s
+/// poll's snapshot also uses.
+fn db_for_active(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), String> {
+    db_from_cache(state, &state.board_cache)
+}
+
+/// Handle for WRITES (move/archive/delete/add/…). Uses a SEPARATE connection so
+/// a user action never blocks behind an in-flight read snapshot holding the read
+/// connection — the contention that made every drag/click take ~1s on a shared
+/// board.
+fn db_for_active_write(state: &crate::AppState) -> Result<(BoardGuard<'_>, Actor), String> {
+    db_from_cache(state, &state.board_cache_write)
 }
 
 /// Connect to the active board (SQLite or Postgres) and store it in the shared
@@ -1418,7 +1432,11 @@ pub async fn board_ensure_connected(
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
         let state = app_cache.state::<crate::AppState>();
-        warm_board_connection(&state.board_cache, &state.board_warm_lock, &dir, url, &actor)
+        // Warm BOTH the read and the write connection, so neither the poll's
+        // first snapshot nor the user's first action pays a connect. The read
+        // one first (the poll needs it soonest for the board to appear).
+        warm_board_connection(&state.board_cache, &state.board_warm_lock, &dir, url.clone(), &actor)?;
+        warm_board_connection(&state.board_cache_write, &state.board_warm_lock, &dir, url, &actor)
     })
     .await
     .map_err(|e| format!("warm task: {e}"))?
@@ -1713,7 +1731,7 @@ pub fn board_add_lead(
     org: Option<String>,
     stage: String,
 ) -> Result<String, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     add_lead(&mut *db, &name, org.as_deref(), &stage, &actor.id).map_err(board_err)
 }
 
@@ -1724,7 +1742,7 @@ pub fn board_move_lead(
     to_stage: String,
     expected_version: i64,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     move_lead(&mut *db, &id, &to_stage, expected_version, &actor.id).map_err(board_err)
 }
 
@@ -1734,7 +1752,7 @@ pub fn board_set_lead_archived(
     id: String,
     archived: bool,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     set_lead_archived(&mut *db, &id, archived, &actor.id).map_err(board_err)
 }
 
@@ -1743,7 +1761,7 @@ pub fn board_delete_lead(
     state: tauri::State<'_, crate::AppState>,
     id: String,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     delete_lead(&mut *db, &id, &actor.id).map_err(board_err)
 }
 
@@ -1754,7 +1772,7 @@ pub fn board_append_context(
     research: serde_json::Value,
     expected_version: i64,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     append_context(&mut *db, &id, research, expected_version, &actor.id).map_err(board_err)
 }
 
@@ -1764,7 +1782,7 @@ pub fn board_draft_message(
     id: String,
     msg: serde_json::Value,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     draft_message(&mut *db, &id, msg, &actor.id).map_err(board_err)
 }
 
@@ -1775,7 +1793,7 @@ pub fn board_attach_transcript(
     raw: String,
     summary: String,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     attach_transcript(&mut *db, &id, &raw, &summary, &actor.id).map_err(board_err)
 }
 
@@ -1785,13 +1803,13 @@ pub fn board_rename_stage(
     id: String,
     label: String,
 ) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     rename_stage(&mut *db, &id, &label, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_reorder_stages(state: tauri::State<'_, crate::AppState>, ids: Vec<String>) -> Result<(), String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
     reorder_stages(&mut *db, &refs, &actor.id).map_err(board_err)
 }
@@ -1802,19 +1820,19 @@ pub fn board_add_stage(
     label: String,
     position: i64,
 ) -> Result<String, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     add_stage(&mut *db, &label, position, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_retire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     retire_stage(&mut *db, &id, &actor.id).map_err(board_err)
 }
 
 #[tauri::command]
 pub fn board_unretire_stage(state: tauri::State<'_, crate::AppState>, id: String) -> Result<i64, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     unretire_stage(&mut *db, &id, &actor.id).map_err(board_err)
 }
 
@@ -1828,7 +1846,7 @@ pub fn board_remap_stage(
     retire_source: bool,
     confirmed: bool,
 ) -> Result<serde_json::Value, String> {
-    let (mut db, actor) = db_for_active(&state)?;
+    let (mut db, actor) = db_for_active_write(&state)?;
     let filter = org_filter.map(|org| LeadFilter { org: Some(org) });
     let result = remap_stage(&mut *db, &from, &to, filter, dry_run, retire_source, confirmed, &actor.id).map_err(board_err)?;
     Ok(serde_json::json!({
@@ -1860,7 +1878,7 @@ pub fn board_list_rules(state: tauri::State<'_, crate::AppState>) -> Result<serd
 
 #[tauri::command]
 pub fn board_revert(state: tauri::State<'_, crate::AppState>, seq: i64) -> Result<usize, String> {
-    let (mut db, _actor) = db_for_active(&state)?;
+    let (mut db, _actor) = db_for_active_write(&state)?;
     revert(&mut *db, seq).map_err(|e| format!("db error: {e}"))
 }
 
