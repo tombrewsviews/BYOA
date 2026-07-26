@@ -157,6 +157,28 @@ fn ensure_schema_sqlite(db: &mut Db) -> Result<(), DbError> {
     db.exec_batch(SCHEMA)
 }
 
+/// One-round-trip probe: is this Postgres board already set up? Checks whether
+/// the `board_config` table exists via `to_regclass` (returns NULL for a missing
+/// relation without erroring, so it's safe on a brand-new database). Table
+/// existence is a sufficient proxy for "initialized": `open_board` always runs
+/// schema + seed together, and the seed is idempotent — so if the schema is
+/// present, re-seeding would be a no-op anyway. Lets `open_board` skip the ~12
+/// schema+seed round-trips on every warm open.
+///
+/// The check must NOT name `board_config` in a queried FROM/subquery: Postgres
+/// resolves every relation at parse time (before `to_regclass` could
+/// short-circuit at runtime), so `select ... from board_config` errors on a DB
+/// where the table doesn't exist yet. `to_regclass('board_config')` takes the
+/// name as a text argument, so it's parse-safe.
+fn pg_board_initialized(db: &mut Db) -> Result<bool, DbError> {
+    db.query_opt(
+        "select (to_regclass('board_config') is not null)::int::bigint",
+        &[],
+        |r| r.get_i64(0),
+    )
+    .map(|n| n.unwrap_or(0) > 0)
+}
+
 /// Run the Postgres schema (idempotent), statement-by-statement.
 fn ensure_schema_pg(db: &mut Db) -> Result<(), DbError> {
     for stmt in PG_SCHEMA_STMTS {
@@ -270,9 +292,28 @@ pub fn open_board(
 ) -> Result<Db, DbError> {
     let mut db = match database_url {
         Some(url) => {
+            // A shared Postgres board opens over the network — every statement is
+            // a remote round-trip, so a slow/distant DB makes the (UI-blocking)
+            // open path slow. Log the elapsed open time so a recurrence of the
+            // "loading too long" symptom is visible in the app's stderr, keyed to
+            // the exact cause. The local SQLite path is instant and unlogged.
+            let start = std::time::Instant::now();
             let mut db = Db::connect_pg(url)?;
-            ensure_schema_pg(&mut db)?;
-            seed_once(&mut db, actor, true)?;
+            // Schema creation (7 DDL round-trips) + seed (advisory lock + count +
+            // inserts) only need to run on a *fresh* shared board. Re-running them
+            // on every open turned a Postgres board-open into ~9s of remote
+            // round-trips. Probe once: if the board is already initialized, skip
+            // both — a warm open is then just the connect + probe.
+            let fresh = !pg_board_initialized(&mut db)?;
+            if fresh {
+                ensure_schema_pg(&mut db)?;
+                seed_once(&mut db, actor, true)?;
+            }
+            eprintln!(
+                "[outreach] shared board open: {}ms ({})",
+                start.elapsed().as_millis(),
+                if fresh { "fresh: schema+seed" } else { "warm" }
+            );
             db
         }
         None => {

@@ -177,10 +177,17 @@ impl Db {
     }
 
     /// Connect to a Postgres database (Neon requires TLS, `sslmode=require`).
+    ///
+    /// A 10s connect timeout is set so an unreachable or slow database fails
+    /// with a clear error instead of hanging the caller indefinitely — the
+    /// board-open path is user-facing (the app blocks on it), so a dead DB
+    /// must never freeze the app.
     pub fn connect_pg(url: &str) -> Result<Self, DbError> {
         let connector = native_tls::TlsConnector::new()?;
         let connector = postgres_native_tls::MakeTlsConnector::new(connector);
-        let client = postgres::Client::connect(url, connector)?;
+        let mut config: postgres::Config = url.parse()?;
+        config.connect_timeout(std::time::Duration::from_secs(10));
+        let client = config.connect(connector)?;
         Ok(Db::Pg { client, tx_depth: 0 })
     }
 
