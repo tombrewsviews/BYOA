@@ -17,6 +17,7 @@ export {
   Play,
   Pause,
   Download,
+  Upload,
   Loader2,
   Folder,
   Undo2,

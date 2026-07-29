@@ -30,6 +30,11 @@ Short version:
   server, not this file. Don't treat it as the document.
 - `board-name.txt` holds this board's display name (one line), shown in the app's
   boards list. The user renames it from that list; leave it alone unless asked.
+- **The board remembers.** A reserved column at `x < -2000` holds the durable
+  context of this project — decisions, constraints, summaries of docs you were
+  given. **Read it at the start of every session** (`query_elements` with
+  `x_max: -2000`) and append to it when something durable is established. See
+  the "Context memory" section of SKILL.md for what earns an entry.
 "#;
 
 /// What Brainstorm ships as its agent skill bundle.

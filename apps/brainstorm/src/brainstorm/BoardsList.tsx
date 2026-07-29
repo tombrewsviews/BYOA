@@ -24,7 +24,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Pencil, Plus, Trash2 } from "../icons";
+import { MoreHorizontal, Pencil, Plus, Trash2, Upload } from "../icons";
+import { pickAndReadScene } from "./portable";
 
 export type ProjectMeta = { name: string; path: string; lastOpened?: string };
 
@@ -92,6 +93,54 @@ export const BoardsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({
     }
   }, [newName, open]);
 
+  /**
+   * Import a `.excalidraw` file as a NEW board — never into an existing one, so
+   * an import can't destroy work.
+   *
+   * The scene is written to the new board's board.json directly (via save_doc,
+   * after project_open makes it the active project) rather than pushed to the
+   * canvas server: the board isn't open yet, and opening it runs restoreBoard,
+   * which loads board.json into the canvas. So writing the file IS the import.
+   */
+  const importBoard = useCallback(async () => {
+    if (!isTauri()) return;
+    setError(null);
+    let scene;
+    try {
+      scene = await pickAndReadScene();
+    } catch (e) {
+      setError(`Import failed: ${(e as Error).message}`);
+      return;
+    }
+    if (!scene) return; // cancelled the file picker
+
+    setBusy(true);
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      const meta = await invoke<ProjectMeta>("projects_create", {
+        name: newName.trim() || "Imported board",
+        canvas: "brainstorm",
+      });
+      await invoke("project_open", { path: meta.path });
+      await invoke("save_doc", {
+        json: JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          source: "brainstorm-canvas",
+          elements: scene.elements,
+          files: scene.files,
+          savedAt: Date.now(),
+        }),
+      });
+      setNewName("");
+      onOpen(meta);
+    } catch (e) {
+      setError(`Import failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [newName, onOpen]);
+
   const confirmRename = useCallback(async () => {
     if (!renaming) return;
     const name = renameValue.trim();
@@ -141,6 +190,15 @@ export const BoardsList: React.FC<{ onOpen: (m: ProjectMeta) => void }> = ({
         <Button onClick={create} disabled={busy}>
           <Plus className="size-4" />
           New board
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={importBoard}
+          disabled={busy}
+          title="Import an .excalidraw file as a new board"
+        >
+          <Upload className="size-4" />
+          Import
         </Button>
       </div>
 

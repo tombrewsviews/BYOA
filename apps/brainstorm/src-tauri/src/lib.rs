@@ -6,6 +6,7 @@ mod brainstorm_canvas;
 mod doc;
 mod migrate;
 mod paths;
+mod portable;
 mod projects;
 mod prompt_mode;
 mod pty;
@@ -95,6 +96,8 @@ pub fn run() {
             projects::active_project_path,
             doc::load_doc,
             doc::save_doc,
+            portable::board_export_file,
+            portable::board_import_file,
             agent_chat::agent_chat_run_turn,
             agent_chat::agent_chat_cancel,
             agents::detect_agents,

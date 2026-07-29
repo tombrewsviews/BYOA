@@ -4,9 +4,10 @@ import { Chat, type ChatHandle } from "../agent-chat/Chat";
 import { Terminal } from "../terminal";
 import { startWatchLoop } from "./watch";
 import { restoreBoard, startAutosave } from "./persistence";
+import { exportBoardToFile, slugify } from "./portable";
 import { BoardsList, type ProjectMeta } from "./BoardsList";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Eye, MessageSquare, PanelRight } from "../icons";
+import { ChevronLeft, Download, Eye, MessageSquare, PanelRight } from "../icons";
 
 type Mode = "prompted" | "continuous";
 type ViewMode = "terminal" | "chat";
@@ -20,7 +21,11 @@ const agentLabelFor = (id: string): string =>
  * windows tiled — agent panel on the left, board filling the rest). The
  * "open board" icon button reopens/refocuses the board window if closed.
  */
-const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
+const BrainstormEditor: React.FC<{
+  project: ProjectMeta;
+  /** Lifted so the title-bar Export button can reach the live canvas. */
+  onCanvasUrl?: (url: string | null) => void;
+}> = ({ project, onCanvasUrl }) => {
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("prompted");
@@ -78,6 +83,13 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
     if (!canvasUrl || !isTauri()) return;
     return startAutosave(canvasUrl, true);
   }, [canvasUrl]);
+
+  // Publish the URL upward (and withdraw it on unmount, so a stale URL can't
+  // outlive the board it belongs to).
+  useEffect(() => {
+    onCanvasUrl?.(canvasUrl);
+    return () => onCanvasUrl?.(null);
+  }, [canvasUrl, onCanvasUrl]);
 
   const openBoard = useCallback(async () => {
     if (!isTauri() || !canvasUrl) return;
@@ -206,7 +218,11 @@ const BrainstormEditor: React.FC<{ project: ProjectMeta }> = ({ project }) => {
 };
 
 /** Title-bar second row shown while a board is open: back to the list + app name. */
-const BoardChrome: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+const BoardChrome: React.FC<{
+  onBack: () => void;
+  onExport: () => void;
+  exporting: boolean;
+}> = ({ onBack, onExport, exporting }) => (
   <div className="flex h-9 flex-none items-center gap-2 border-b border-border bg-background px-2">
     <Button variant="secondary" size="sm" onClick={onBack} title="Back to all boards">
       <ChevronLeft className="size-3.5" />
@@ -215,6 +231,17 @@ const BoardChrome: React.FC<{ onBack: () => void }> = ({ onBack }) => (
     <span className="truncate text-sm font-semibold text-foreground">
       Brainstorm Canvas
     </span>
+    <Button
+      variant="secondary"
+      size="sm"
+      onClick={onExport}
+      disabled={exporting}
+      title="Save this board as an .excalidraw file (open it on excalidraw.com to share)"
+      className="ml-auto"
+    >
+      <Download className="size-3.5" />
+      {exporting ? "Exporting…" : "Export"}
+    </Button>
   </div>
 );
 
@@ -231,6 +258,9 @@ export const BrainstormApp: React.FC<{
   ) => React.ReactElement;
 }> = ({ renderChrome }) => {
   const [project, setProject] = useState<ProjectMeta | null>(null);
+  const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportNote, setExportNote] = useState<string | null>(null);
 
   // A project opened elsewhere (the platform's project://opened event) also
   // enters the board view, keeping behaviour consistent with the other apps.
@@ -262,14 +292,42 @@ export const BrainstormApp: React.FC<{
     await invoke("project_close").catch(() => {});
   }, []);
 
+  const exportBoard = useCallback(async () => {
+    if (!canvasUrl || !project) return;
+    setExporting(true);
+    setExportNote(null);
+    try {
+      const path = await exportBoardToFile(canvasUrl, slugify(project.name));
+      // A null path means the user cancelled the save dialog — not an error.
+      if (path) setExportNote(`Saved to ${path}`);
+    } catch (e) {
+      setExportNote(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [canvasUrl, project]);
+
   const content = project ? (
-    <BrainstormEditor key={project.path} project={project} />
+    <BrainstormEditor key={project.path} project={project} onCanvasUrl={setCanvasUrl} />
   ) : (
     <BoardsList onOpen={setProject} />
   );
   // The second row is board chrome — on the boards list there's nowhere to go
   // back to, and that screen has its own heading.
-  const secondRow = project ? <BoardChrome onBack={backToBoards} /> : null;
+  const secondRow = project ? (
+    <>
+      <BoardChrome
+        onBack={backToBoards}
+        onExport={exportBoard}
+        exporting={exporting}
+      />
+      {exportNote ? (
+        <div className="flex-none border-b border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+          {exportNote}
+        </div>
+      ) : null}
+    </>
+  ) : null;
 
   return renderChrome ? renderChrome(secondRow, content) : content;
 };

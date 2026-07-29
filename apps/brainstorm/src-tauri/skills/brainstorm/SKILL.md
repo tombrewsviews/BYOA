@@ -99,6 +99,69 @@ them to you as an **editable** turn (unlike watch mode, you MAY draw here).
   instruction onto the canvas). Any text element containing `@agent` is read as
   a new instruction on the next tick — writing one would trigger yourself.
 
+## Context memory (the board remembers)
+
+The board is the project's long-term memory. A reserved column on the far left
+— **`x < -2000`**, clear of the drawing area — holds the durable context of the
+work: what was decided, what constrains it, what you were told that isn't
+written anywhere else. It outlives the chat, which is gone next session.
+
+It is also documentation. A human opening this board in six months should be
+able to read that column and understand how the work got here.
+
+### Read it first
+
+**At the start of a session, before acting, read the memory region:**
+`query_elements` with `x_max: -2000`. Do this once per session, not per turn.
+
+If it has entries, treat them as established context — the decisions there were
+already made; don't relitigate them or ask the user to repeat themselves. If
+it's empty, this is a fresh board.
+
+### Write what earns a place
+
+Append an entry when something **durable** is established:
+
+- a decision, and the reason behind it
+- a constraint discovered ("the server must stay on loopback — it has no auth")
+- the substance of a document or link the user handed you, summarised to the
+  part that matters for this work
+- an open question that got resolved, and how
+
+**Most turns produce nothing worth writing, and that's the normal case.** This
+region earns its value by being short enough to actually read. A log of
+everything that happened is worthless — it's the junk drawer failure, and it
+also clutters the user's board. When unsure, don't write. One dense entry per
+session beats ten thin ones.
+
+Never write something the board already shows. If the diagram says it, the
+memory column shouldn't repeat it.
+
+### Format
+
+A heading element `📌 Context Memory` at the top of the column, then entries
+**newest-first** below it, each its own text element:
+
+```
+2026-07-29 — Board sharing
+Decision: ship .excalidraw file export; Miro needs an OAuth token
+(no local file format yields editable Miro objects).
+Constraint: canvas server stays on 127.0.0.1 — it has no auth.
+```
+
+Lead with the date and a short topic, then the substance in a sentence or two.
+Write for the human reading it later, not for yourself.
+
+Place new entries by reading the region first and positioning above the newest
+existing entry. Keep the column narrow (~400px wide) so it stays readable.
+
+### Rules
+
+- **Never in watch mode.** Watch mode is read-only — that rule has no exception
+  for memory. Note what's worth recording and write it on the next prompted turn.
+- **Never write `@agent` into an entry** — it would re-trigger you next tick.
+- **Don't reorganise or delete the user's memory entries** unless asked. Append.
+
 ## Etiquette
 
 - Be concise. This is a side conversation while someone is thinking visually.
