@@ -99,6 +99,44 @@ them to you as an **editable** turn (unlike watch mode, you MAY draw here).
   instruction onto the canvas). Any text element containing `@agent` is read as
   a new instruction on the next tick — writing one would trigger yourself.
 
+## Size boxes to their text
+
+A shape with a label is only as good as its width. Excalidraw hard-wraps text
+that doesn't fit, so an undersized box turns `geographies` into `geographie` +
+a stranded `s` on the next line. It looks broken, and it's the single most
+common defect on these boards.
+
+**Before creating a labelled shape, compute the width from the label:**
+
+```
+width = longest_line_length × fontSize × 0.6 + 32
+```
+
+`0.6` is the per-character width of the hand-drawn font with headroom (measured
+across thousands of real labels: typical is 0.47, wide glyphs reach 0.58).
+`+32` is padding — 16px each side. Round **up** to the next 10px; a width that
+merely equals what the text needs still wraps.
+
+Worked example, the case that keeps breaking:
+`"geographies"` at `fontSize: 20` → `11 × 20 × 0.6 + 32` = **164px**. A 116px
+box wraps it; 170px doesn't.
+
+Height: `fontSize × 1.25 × lines + 24`, minimum 60px for a single line.
+
+### Rules
+
+- **Never let a one- or two-word label wrap.** If it wraps, the box is too
+  narrow — widen it, don't shrink the font.
+- **Deliberate multi-line labels are fine** — size the box to the *longest
+  line*, not the total text.
+- **The template sizes in `read_diagram_guide` (160×80, 140×70) assume short
+  labels** like "API" or "Cache". They are floors, not targets: when the label
+  is longer, the formula wins.
+- **Same-role shapes share a width** — compute for the longest label in the
+  set and apply it to all of them, so a row stays visually even.
+- **Check your work.** After creating labelled shapes, `get_canvas_screenshot`
+  and look. If any label wrapped, `update_element` the width and move on.
+
 ## Context memory (the board remembers)
 
 The board is the project's long-term memory. A reserved column on the far left
