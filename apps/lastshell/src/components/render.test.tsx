@@ -166,8 +166,6 @@ describe('the agent dock no longer shows reasoning', () => {
           confidence: 0.8,
           source: 'agent',
         }}
-        project={null}
-        log={[]}
         activeSeat={2}
         onForcePlay={() => {}}
       />,
@@ -183,13 +181,33 @@ describe('the agent dock no longer shows reasoning', () => {
       <AgentDock
         seats={seats}
         activity={{ seat: 2, name: 'UNIT-7', tier: 'steady', thoughts: [], confidence: 0, source: 'fallback' }}
-        project={null}
-        log={[]}
         activeSeat={2}
         onForcePlay={() => {}}
       />,
     );
     expect(html).toContain('LOCAL');
+  });
+});
+
+describe('the agent dock is stripped to seats and status', () => {
+  const seats = [{ seat: 2, name: 'UNIT-7', tier: 'steady' as const }];
+  const out = renderToStaticMarkup(
+    <AgentDock seats={seats} activity={null} activeSeat={null} onForcePlay={() => {}} />,
+  );
+
+  it('shows no project path', () => {
+    expect(out).not.toContain('dock-path');
+    expect(out).not.toContain('.lastshell');
+  });
+
+  it('shows no move log', () => {
+    // the terminal directly below already shows the moves in context
+    expect(out).not.toContain('dock-log');
+  });
+
+  it('still names the seat and its tier', () => {
+    expect(out).toContain('UNIT-7');
+    expect(out).toContain('STEADY');
   });
 });
 
@@ -200,7 +218,7 @@ describe('the agent dock PLAY button', () => {
   ];
   const dock = (activeSeat: number | null) =>
     renderToStaticMarkup(
-      <AgentDock seats={seats} activity={null} project={null} log={[]} activeSeat={activeSeat} onForcePlay={() => {}} />,
+      <AgentDock seats={seats} activity={null} activeSeat={activeSeat} onForcePlay={() => {}} />,
     );
 
   it('renders one PLAY button per agent seat', () => {

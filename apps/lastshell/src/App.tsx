@@ -53,7 +53,7 @@ export default function App() {
     return remove;
   }, []);
 
-  const { activity, log, forcePlay, isAgentTurn } = useAgentBridge({
+  const { activity, forcePlay, isAgentTurn } = useAgentBridge({
     state,
     dispatch,
     project,
@@ -156,8 +156,6 @@ export default function App() {
         <AgentDock
           seats={agentSeats}
           activity={activity}
-          project={project}
-          log={log}
           activeSeat={isAgentTurn ? state.activePlayerId : null}
           onForcePlay={forcePlay}
         />

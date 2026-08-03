@@ -9,7 +9,7 @@
  * Spans the full width above both panes so there's always somewhere to grab,
  * whatever the sidebar is doing.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { isTauri } from '../runtime';
 
 /** macOS traffic lights end at ~70px; 84 leaves a ~14px gap before content. */
@@ -44,10 +44,29 @@ export function TitleBar({
     onRestart?.();
   }, [confirming, onRestart]);
 
+  /**
+   * Is the DreamStore launcher installed? Drives the button's icon and tooltip,
+   * so it says where it will actually take you. Null until the check returns.
+   */
+  const [storeInstalled, setStoreInstalled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isTauri()) return;
+    void (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        setStoreInstalled(await invoke<boolean>('dreamstore_installed'));
+      } catch {
+        setStoreInstalled(false); // can't tell → offer the repo
+      }
+    })();
+  }, []);
+
   const openStore = useCallback(async () => {
     if (!isTauri()) return;
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('open_dreamstore').catch(() => {});
+    // Rust reports which it opened, so a stale check corrects itself.
+    const went = await invoke<string>('open_dreamstore').catch(() => null);
+    if (went) setStoreInstalled(went === 'app');
   }, []);
 
   return (
@@ -93,9 +112,16 @@ export function TitleBar({
             data-tauri-drag-region={false}
             className="titlebar-btn"
             onClick={openStore}
-            title="Open DreamStore"
+            title={
+              storeInstalled === false
+                ? 'DreamStore not installed — open the repo on GitHub'
+                : 'Open DreamStore'
+            }
+            aria-label={
+              storeInstalled === false ? 'Open the DreamStore repo on GitHub' : 'Open DreamStore'
+            }
           >
-            ⌘
+            {storeInstalled === false ? '↗' : '⌘'}
           </button>
         )}
       </div>

@@ -78,6 +78,25 @@ export function TableSetup({
   const setName = (i: number, v: string) => setNames((ns) => ns.map((n, j) => (j === i ? v : n)));
   const setTier = (i: number, t: Tier) => setTiers((ts) => ts.map((x, j) => (j === i ? t : x)));
 
+  /**
+   * The CLI list to offer. Before detection returns (or in browser dev, where it
+   * never runs) fall back to a single Claude Code entry rather than an empty
+   * dropdown — an empty select reads as broken.
+   */
+  const cliOptions: AgentCli[] =
+    clis.length > 0
+      ? clis
+      : [
+          {
+            id: 'claude',
+            label: 'Claude Code',
+            installed: true,
+            binary: 'claude',
+            installHint: 'npm install -g @anthropic-ai/claude-code',
+            path: null,
+          },
+        ];
+
   const agents = withAgents ? agentCount : 0;
   // one human is enough only when agents fill the table to two seats
   const minHumans = agents > 0 ? MIN_HUMANS : MIN_PLAYERS;
@@ -139,19 +158,18 @@ export function TableSetup({
           PEOPLE AT THE TABLE
           <span className="lbl-note">{`max ${maxHumansNow}`}</span>
         </p>
-        <div className="count-row wrap" role="radiogroup" aria-label="Number of people">
+        <select
+          className="setup-select"
+          aria-label="Number of people"
+          value={effectiveHumans}
+          onChange={(e) => setHumans(Number(e.target.value))}
+        >
           {humanOptions.map((n) => (
-            <button
-              key={n}
-              role="radio"
-              aria-checked={effectiveHumans === n}
-              className={`count-btn sm${effectiveHumans === n ? ' on' : ''}`}
-              onClick={() => setHumans(n)}
-            >
-              {n}
-            </button>
+            <option key={n} value={n}>
+              {n} {n === 1 ? 'person' : 'people'}
+            </option>
           ))}
-        </div>
+        </select>
 
         {withAgents && (
           <>
@@ -159,43 +177,42 @@ export function TableSetup({
               AGENTS
               <span className="lbl-note">{`max ${MAX_AGENTS}`}</span>
             </p>
-            <div className="count-row" role="radiogroup" aria-label="Number of agents">
+            <select
+              className="setup-select"
+              aria-label="Number of agents"
+              value={agents}
+              onChange={(e) => setAgentCount(Number(e.target.value))}
+            >
               {Array.from({ length: MAX_AGENTS }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  role="radio"
-                  aria-checked={agents === n}
-                  className={`count-btn sm${agents === n ? ' on' : ''}`}
-                  disabled={effectiveHumans + n > MAX_PLAYERS}
-                  onClick={() => setAgentCount(n)}
-                >
-                  {n}
-                </button>
+                <option key={n} value={n} disabled={effectiveHumans + n > MAX_PLAYERS}>
+                  {n} agent{n === 1 ? '' : 's'}
+                </option>
               ))}
-            </div>
+            </select>
 
             <p className="setup-lbl">AGENT RUNTIME</p>
-            <div className="cli-row" role="radiogroup" aria-label="Agent CLI">
-              {(clis.length > 0
-                ? clis
-                : [
-                    { id: 'claude', label: 'Claude Code', installed: true, binary: 'claude', installHint: '', path: null },
-                  ]
-              ).map((c) => (
-                <button
-                  key={c.id}
-                  role="radio"
-                  aria-checked={cli === c.id}
-                  disabled={!c.installed}
-                  title={c.installed ? `${c.binary} on $PATH` : `Not installed — ${c.installHint}`}
-                  className={`cli-btn${cli === c.id ? ' on' : ''}`}
-                  onClick={() => setCli(c.id)}
-                >
+            {/* Uninstalled CLIs stay listed but disabled, so it's clear what the
+                options are and why one can't be picked. The effect above already
+                selects the first installed one (preferring Claude Code). */}
+            <select
+              className="setup-select"
+              aria-label="Agent CLI"
+              value={cli}
+              onChange={(e) => setCli(e.target.value)}
+            >
+              {cliOptions.map((c) => (
+                <option key={c.id} value={c.id} disabled={!c.installed}>
                   {c.label}
-                  {!c.installed && <span className="cli-missing">not installed</span>}
-                </button>
+                  {c.installed ? '' : ' — not installed'}
+                </option>
               ))}
-            </div>
+            </select>
+            {!cliOptions.some((c) => c.installed) && (
+              <p className="setup-note">
+                No agent CLI found. Install one, e.g.{' '}
+                <code>{cliOptions[0]?.installHint || 'npm i -g @anthropic-ai/claude-code'}</code>
+              </p>
+            )}
 
             <div className="agent-list">
               {Array.from({ length: agents }, (_, i) => (
@@ -225,7 +242,7 @@ export function TableSetup({
           </>
         )}
 
-        <p className="setup-lbl">NAMES</p>
+        <p className="setup-lbl">PEOPLE NAMES</p>
         <div className="name-list">
           {Array.from({ length: effectiveHumans }, (_, i) => (
             <label key={i} className="name-row">

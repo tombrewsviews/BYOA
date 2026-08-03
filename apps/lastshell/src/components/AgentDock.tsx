@@ -1,7 +1,8 @@
 /**
- * Sidebar panel above the terminal: who is seated, what the agent is thinking
- * right now, and a short protocol log so a rejected move is visible rather than
- * silent.
+ * Sidebar panel above the terminal: who is seated, and whose turn it is.
+ *
+ * Deliberately minimal — the terminal below shows what the agent is actually
+ * doing, so a duplicate move log and project path here were just noise.
  */
 import type { AgentSeat } from '../agent/protocol';
 import type { AgentActivity } from '../agent/useAgentBridge';
@@ -10,15 +11,11 @@ import { TIER_LABEL } from './AgentThoughts';
 export function AgentDock({
   seats,
   activity,
-  project,
-  log,
   activeSeat,
   onForcePlay,
 }: {
   seats: AgentSeat[];
   activity: AgentActivity | null;
-  project: string | null;
-  log: string[];
   /** seat holding the gun right now, or null when it isn't an agent's turn */
   activeSeat: number | null;
   /** take this seat's turn immediately with the local brain */
@@ -70,19 +67,9 @@ export function AgentDock({
         </div>
       )}
 
-      {project && (
-        <p className="dock-path" title={project}>
-          {project.replace(/^.*\//, '')}/.lastshell
-        </p>
-      )}
-
-      {log.length > 0 && (
-        <ul className="dock-log">
-          {log.slice(-5).map((l, i) => (
-            <li key={i}>{l}</li>
-          ))}
-        </ul>
-      )}
+      {/* The project path and the move log used to sit here. Both were debug
+          output competing with the terminal directly below, which shows the same
+          moves in context. */}
     </div>
   );
 }

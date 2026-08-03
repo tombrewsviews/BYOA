@@ -37,32 +37,67 @@ fn game_watch(
     Ok(())
 }
 
-/// Jump back to the DreamStore launcher.
+/// Where to send someone who doesn't have DreamStore installed.
+const DREAMSTORE_REPO: &str = "https://github.com/tombrewsviews/BYOA";
+
+/// Jump back to the DreamStore launcher — or to the repo if it isn't installed.
+///
+/// Returns which of the two happened ("app" or "repo") so the UI can label the
+/// button honestly instead of promising a launcher that isn't there.
 #[tauri::command]
-fn open_dreamstore() -> Result<(), String> {
+fn open_dreamstore() -> Result<&'static str, String> {
+    // By bundle id first: finds the app wherever it actually lives.
     if std::process::Command::new("open")
         .args(["-b", "app.altramanera.dreamstore"])
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
     {
-        return Ok(());
+        return Ok("app");
     }
     let path = std::path::PathBuf::from("/Applications/DreamStore.app");
-    if !path.exists() {
-        return Err("DreamStore.app not found".into());
+    if path.exists()
+        && std::process::Command::new("open")
+            .arg(&path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    {
+        return Ok("app");
     }
+    // Not installed (or it refused to launch) — send them to the source.
     std::process::Command::new("open")
-        .arg(&path)
+        .arg(DREAMSTORE_REPO)
         .status()
-        .map_err(|e| format!("open DreamStore: {e}"))
+        .map_err(|e| format!("open {DREAMSTORE_REPO}: {e}"))
         .and_then(|s| {
             if s.success() {
-                Ok(())
+                Ok("repo")
             } else {
-                Err("open failed".into())
+                Err(format!("could not open {DREAMSTORE_REPO}"))
             }
         })
+}
+
+/// Whether the DreamStore launcher is installed, so the UI can pick its label
+/// up front rather than after the click.
+#[tauri::command]
+fn dreamstore_installed() -> bool {
+    if std::path::PathBuf::from("/Applications/DreamStore.app").exists() {
+        return true;
+    }
+    // Ask Launch Services, so a copy outside /Applications still counts.
+    std::process::Command::new("mdfind")
+        .args(["-count", "kMDItemCFBundleIdentifier == 'app.altramanera.dreamstore'"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u32>()
+                .unwrap_or(0)
+                > 0
+        })
+        .unwrap_or(false)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -88,7 +123,29 @@ pub fn run() {
             pty::pty_close,
             pty::pty_paste_prompt,
             open_dreamstore,
+            dreamstore_installed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LAST SHELL");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_repo_fallback_points_at_a_real_https_url() {
+        // The `⌘` button opens this when DreamStore isn't installed, so a typo
+        // here sends people nowhere.
+        assert!(DREAMSTORE_REPO.starts_with("https://github.com/"));
+        assert!(!DREAMSTORE_REPO.ends_with('/'));
+        assert!(!DREAMSTORE_REPO.contains(".git"));
+    }
+
+    #[test]
+    fn installed_check_answers_without_panicking() {
+        // Shells out to mdfind; must degrade to false rather than blow up when
+        // the tool is missing or the query returns nothing parseable.
+        let _ = dreamstore_installed();
+    }
 }

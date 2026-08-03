@@ -69,15 +69,16 @@ describe('the setup screen restores the previous table', () => {
   it('restores the human count, counting ONLY the humans', () => {
     // regression: 1 human + 3 agents used to come back as 4 humans
     const out = html(MIXED);
-    // the human count radiogroup marks its selection with aria-checked
-    // scope to the humans radiogroup so the agents one can't satisfy it
-    const group = (out.match(/aria-label="Number of people"[\s\S]*?<\/div>/) ?? [''])[0];
-    expect(group).toMatch(/aria-checked="true"[^>]*>1</);
+    // the count is a <select>; React marks the chosen option with `selected`
+    const group = (out.match(/aria-label="Number of people"[\s\S]*?<\/select>/) ?? [''])[0];
+    expect(group).toMatch(/<option selected(=""|)[^>]*value="1"|value="1" selected/);
+    expect(group).toContain('1 person');
   });
 
   it('restores the agent count', () => {
-    const group = (html(MIXED).match(/aria-label="Number of agents"[\s\S]*?<\/div>/) ?? [''])[0];
-    expect(group).toMatch(/aria-checked="true"[^>]*>3</);
+    const group = (html(MIXED).match(/aria-label="Number of agents"[\s\S]*?<\/select>/) ?? [''])[0];
+    expect(group).toMatch(/<option selected(=""|)[^>]*value="3"|value="3" selected/);
+    expect(group).toContain('3 agents');
   });
 
   it('puts only HUMAN names in the name fields', () => {
@@ -111,6 +112,55 @@ describe('the setup screen restores the previous table', () => {
     const out = html([]);
     expect(out).toMatch(/class="[^"]*mode-btn[^"]*on[^"]*"[^>]*>PEOPLE ONLY/);
     expect(out).toContain('value="Player 1"');
+  });
+
+  it('renders the counts as dropdowns, not button grids', () => {
+    // 8 people options wrapped onto two rows of buttons and read as broken
+    const out = html(MIXED);
+    expect(out).toContain('aria-label="Number of people"');
+    expect(out).toContain('aria-label="Number of agents"');
+    expect(out).toContain('<select');
+    expect(out).not.toContain('count-btn');
+  });
+
+  it('offers every legal people count in the dropdown', () => {
+    const group = (html([]).match(/aria-label="Number of people"[\s\S]*?<\/select>/) ?? [''])[0];
+    // all-human table: 2..8
+    for (const n of [2, 3, 4, 5, 6, 7, 8]) expect(group).toContain(`value="${n}"`);
+    // one person alone is not a game
+    expect(group).not.toContain('value="1"');
+  });
+
+  it('allows a single person once agents are seated', () => {
+    const group = (html(MIXED).match(/aria-label="Number of people"[\s\S]*?<\/select>/) ?? [''])[0];
+    expect(group).toContain('value="1"');
+  });
+
+  it('singularises the labels', () => {
+    const out = html(MIXED);
+    expect(out).toContain('1 person');
+    expect(out).toContain('2 people');
+    expect(out).toContain('1 agent<');
+    expect(out).toContain('3 agents');
+  });
+
+  it('renders the agent runtime as a dropdown', () => {
+    const out = html(MIXED);
+    expect(out).toContain('aria-label="Agent CLI"');
+    // the old radio-button grid is gone
+    expect(out).not.toContain('cli-btn');
+  });
+
+  it('never renders an empty runtime dropdown before detection returns', () => {
+    // browser dev never runs detect_agents; an empty select reads as broken
+    const group = (html(MIXED).match(/aria-label="Agent CLI"[\s\S]*?<\/select>/) ?? [''])[0];
+    expect(group).toContain('<option');
+    expect(group).toContain('Claude Code');
+  });
+
+  it('labels the name fields PEOPLE NAMES', () => {
+    expect(html(MIXED)).toContain('PEOPLE NAMES');
+    expect(html(MIXED)).not.toMatch(/>NAMES</);
   });
 
   it('shows the total seat count including agents', () => {
