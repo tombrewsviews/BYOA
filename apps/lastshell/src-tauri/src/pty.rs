@@ -15,6 +15,7 @@ use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
+use crate::agents::AgentKind;
 use crate::AppState;
 
 pub struct PtySession {
@@ -28,6 +29,8 @@ pub fn pty_open(
     cols: u16,
     rows: u16,
     project: String,
+    agent: Option<String>,
+    kickoff: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<String, String> {
@@ -59,20 +62,37 @@ pub fn pty_open(
     cmd.env("LASTSHELL_PROJECT", &project_str);
     cmd.env("LASTSHELL_TABLE", "1");
 
-    // Launch the agent CLI directly, then drop to an interactive shell so
-    // Ctrl-C, scrollback and copy/paste keep working and the prompt is waiting
-    // when the agent exits. `claude` picks up the project CLAUDE.md and the
-    // .claude/skills/lastshell bundle that skill::write installed, so it knows
-    // how to play without any extra prompting.
+    // Launch the chosen agent CLI, then drop to an interactive shell so Ctrl-C,
+    // scrollback and copy/paste keep working and the prompt is waiting when the
+    // agent exits. The CLI picks up the project CLAUDE.md and the
+    // .claude/skills/lastshell bundle skill::write installed, so it knows how to
+    // play without any extra prompting.
     //
-    // Permissions are skipped: the agent's whole job here is to read
-    // game-state.json and write moves.json every turn, and a y/n prompt per
+    // `kickoff` is passed as the CLI's initial prompt so the agent starts
+    // playing the moment the table opens — the user should never have to type
+    // "play". Permissions are skipped: the agent's whole job is reading
+    // game-state.json and writing moves.json every turn, and a y/n prompt per
     // file write would make the table unplayable.
     let shell_name = std::path::Path::new(&shell)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let agent_launch = "claude --dangerously-skip-permissions ; ";
+    let kind = agent
+        .as_deref()
+        .and_then(AgentKind::from_id)
+        .unwrap_or(AgentKind::Claude);
+    let mut launch = kind.binary().to_string();
+    if let Some(flag) = kind.skip_permissions_flag() {
+        launch.push(' ');
+        launch.push_str(flag);
+    }
+    if let Some(prompt) = kickoff.as_deref().filter(|p| !p.trim().is_empty()) {
+        // single-quote for the shell, escaping any embedded quotes
+        launch.push_str(" '");
+        launch.push_str(&prompt.replace('\'', "'\\''"));
+        launch.push('\'');
+    }
+    let agent_launch = format!("{launch} ; ");
     if shell_name == "zsh" {
         cmd.arg("-c");
         cmd.arg(format!("{agent_launch}exec zsh -i"));

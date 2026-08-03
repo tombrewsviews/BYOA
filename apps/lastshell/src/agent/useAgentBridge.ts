@@ -74,6 +74,13 @@ export function useAgentBridge({
     !!active &&
     agentSeats.some((s) => s.seat === active.id);
 
+  /**
+   * Everything mid-turn that changes what the agent should do next. An item use
+   * keeps the gun, so these must trigger a republish or the agent is left
+   * waiting on a tick that never advances.
+   */
+  const agentStateKey = `${active?.items.length ?? 0}:${active?.lives ?? 0}:${state.sawActive}:${state.peekedShell ?? '-'}:${state.round}`;
+
   /** Take the turn with the local heuristic. */
   const playFallback = useCallback(
     (reason: string) => {
@@ -155,9 +162,13 @@ export function useAgentBridge({
       cancelled = true;
       clearTimeout(timeout);
     };
+    // Republish on EVERY change the agent could act on — not just a fired shell.
+    // Using an item does not end the turn, so item count / saw / peek must be in
+    // here: without them the tick never advances after a USE_ITEM and an agent
+    // watching turn.txt waits forever for a signal that never comes.
     // `log` is intentionally omitted: it changes as a result of this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAgentTurn, state.activePlayerId, state.spentShells.length, project]);
+  }, [isAgentTurn, state.activePlayerId, state.spentShells.length, agentStateKey, project]);
 
   // React to the agent writing moves.json.
   useEffect(() => {

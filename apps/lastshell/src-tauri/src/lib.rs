@@ -7,6 +7,7 @@
 //!     and the frontend validates + applies the move (game.rs moves the bytes)
 //!   - skill.rs installs the operating manual the agent reads
 
+mod agents;
 mod game;
 mod paths;
 mod pty;
@@ -79,6 +80,7 @@ pub fn run() {
             game::game_read_moves,
             game::game_clear_moves,
             skill::skill_install,
+            agents::detect_agents,
             game_watch,
             pty::pty_open,
             pty::pty_write,

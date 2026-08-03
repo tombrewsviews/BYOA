@@ -2015,3 +2015,47 @@ button {
 .shell-main .setup {
   padding-top: 44px;
 }
+
+/* ── agent runtime picker ───────────────────────────────────────────── */
+
+.cli-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.cli-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 7px 9px;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--ink-dim);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1.5px solid var(--card-edge);
+  border-radius: 8px;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.cli-btn.on {
+  color: var(--felt-lo);
+  background: linear-gradient(180deg, var(--brass-hi), var(--brass));
+  border-color: var(--brass-lo);
+}
+
+.cli-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cli-missing {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: none;
+  opacity: 0.8;
+}

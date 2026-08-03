@@ -14,6 +14,7 @@ import { TableSetup } from './components/TableSetup';
 import { Terminal } from './terminal';
 import { AgentDock } from './components/AgentDock';
 import { useAgentBridge } from './agent/useAgentBridge';
+import { kickoffPrompt } from './agent/kickoff';
 import type { AgentSeat } from './agent/protocol';
 import { isTauri } from './runtime';
 
@@ -22,8 +23,18 @@ const AGENT_NAMES = ['UNIT-7', 'DEALER', 'GHOST'];
 export default function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [muted, setMutedState] = useState(isMuted);
-  const [project, setProject] = useState<string | null>(null);
   const [agentSeats, setAgentSeats] = useState<AgentSeat[]>([]);
+  /**
+   * The terminal session's inputs, kept in ONE state object. The PTY effect keys
+   * off this, so a spawn happens exactly once per table — two separate useStates
+   * could tear across renders and respawn the agent process.
+   */
+  const [session, setSession] = useState<{
+    project: string | null;
+    cli: string;
+    kickoff: string | null;
+  }>({ project: null, cli: 'claude', kickoff: null });
+  const project = session.project;
   const [termOpen, setTermOpen] = useState(true);
 
   // Mobile/desktop autoplay policy: unlock audio on the first real gesture.
@@ -49,7 +60,7 @@ export default function App() {
     enabled: agentSeats.length > 0,
   });
 
-  const start = useCallback(async (seats: SeatConfig[]) => {
+  const start = useCallback(async (seats: SeatConfig[], cli: string) => {
     const agents: AgentSeat[] = seats
       .map((s, i) => ({ seat: i + 1, cfg: s }))
       .filter(({ cfg }) => cfg.kind === 'agent')
@@ -71,10 +82,12 @@ export default function App() {
         });
         await invoke('skill_install', { project: path });
         await invoke('game_watch', { project: path });
-        setProject(path);
+        // One atomic update: project + cli + the opening instruction that makes
+        // the table start playing itself.
+        setSession({ project: path, cli, kickoff: kickoffPrompt(agents) });
       } catch {
         // Fall through: without a project the bridge uses the heuristic.
-        setProject(null);
+        setSession({ project: null, cli, kickoff: null });
       }
     }
     dispatch({ type: 'START_GAME', seats });
@@ -125,7 +138,7 @@ export default function App() {
         </header>
         <AgentDock seats={agentSeats} activity={activity} project={project} log={log} />
         <div className="side-term">
-          <Terminal project={project} />
+          <Terminal project={session.project} agent={session.cli} kickoff={session.kickoff} />
         </div>
       </aside>
     </div>

@@ -59,7 +59,17 @@ const THEME = {
 let activeTerm: XTerm | null = null;
 export const focusActiveTerminal = (): void => activeTerm?.focus();
 
-export function Terminal({ project }: { project: string | null }) {
+export function Terminal({
+  project,
+  agent,
+  kickoff,
+}: {
+  project: string | null;
+  /** which CLI to launch (id from detect_agents) */
+  agent?: string;
+  /** opening prompt, so the agent starts playing without being asked */
+  kickoff?: string | null;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -107,6 +117,8 @@ export function Terminal({ project }: { project: string | null }) {
             cols: term.cols,
             rows: term.rows,
             project,
+            agent: agent ?? 'claude',
+            kickoff: kickoff ?? null,
           });
         } catch (e) {
           term.writeln(`\r\n\x1b[31m[pty_open failed: ${(e as Error).message ?? e}]\x1b[0m`);
@@ -148,7 +160,7 @@ export function Terminal({ project }: { project: string | null }) {
       if (activeTerm === term) activeTerm = null;
       term.dispose();
     };
-  }, [project]);
+  }, [project, agent, kickoff]);
 
   return <div className="term-host" data-terminal-root ref={hostRef} />;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   MAX_PLAYERS,
   MIN_PLAYERS,
@@ -8,6 +8,8 @@ import {
 } from '../engine/reducer';
 import type { SeatConfig, Tier } from '../engine/types';
 import { TIER_LABEL } from './AgentThoughts';
+import type { AgentCli } from '../agent/kickoff';
+import { isTauri } from '../runtime';
 
 const DEFAULT_NAMES = Array.from({ length: MAX_HUMANS }, (_, i) => `Player ${i + 1}`);
 const AGENT_NAMES = ['UNIT-7', 'DEALER', 'GHOST'];
@@ -24,8 +26,10 @@ export function TableSetup({
   onStart,
 }: {
   prevNames: string[];
-  onStart: (seats: SeatConfig[]) => void;
+  onStart: (seats: SeatConfig[], agentCli: string) => void;
 }) {
+  const [clis, setClis] = useState<AgentCli[]>([]);
+  const [cli, setCli] = useState('claude');
   const [withAgents, setWithAgents] = useState(false);
   const [humans, setHumans] = useState(() =>
     Math.min(Math.max(prevNames.length || 2, MIN_PLAYERS), MAX_HUMANS),
@@ -35,6 +39,23 @@ export function TableSetup({
   const [names, setNames] = useState<string[]>(() =>
     DEFAULT_NAMES.map((d, i) => prevNames[i] ?? d),
   );
+
+  // Which agent CLIs are on $PATH — the picker greys out the rest.
+  useEffect(() => {
+    if (!isTauri()) return;
+    void (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const found = await invoke<AgentCli[]>('detect_agents');
+        setClis(found);
+        // default to the first installed one, preferring Claude Code
+        const best = found.find((c) => c.id === 'claude' && c.installed) ?? found.find((c) => c.installed);
+        if (best) setCli(best.id);
+      } catch {
+        /* browser dev or detection failed — the picker just stays empty */
+      }
+    })();
+  }, []);
 
   const setName = (i: number, v: string) => setNames((ns) => ns.map((n, j) => (j === i ? v : n)));
   const setTier = (i: number, t: Tier) => setTiers((ts) => ts.map((x, j) => (j === i ? t : x)));
@@ -64,7 +85,7 @@ export function TableSetup({
         tier: tiers[i],
       })),
     ];
-    onStart(seats);
+    onStart(seats, cli);
   };
 
   return (
@@ -130,6 +151,29 @@ export function TableSetup({
                   onClick={() => setAgentCount(n)}
                 >
                   {n}
+                </button>
+              ))}
+            </div>
+
+            <p className="setup-lbl">AGENT RUNTIME</p>
+            <div className="cli-row" role="radiogroup" aria-label="Agent CLI">
+              {(clis.length > 0
+                ? clis
+                : [
+                    { id: 'claude', label: 'Claude Code', installed: true, binary: 'claude', installHint: '', path: null },
+                  ]
+              ).map((c) => (
+                <button
+                  key={c.id}
+                  role="radio"
+                  aria-checked={cli === c.id}
+                  disabled={!c.installed}
+                  title={c.installed ? `${c.binary} on $PATH` : `Not installed — ${c.installHint}`}
+                  className={`cli-btn${cli === c.id ? ' on' : ''}`}
+                  onClick={() => setCli(c.id)}
+                >
+                  {c.label}
+                  {!c.installed && <span className="cli-missing">not installed</span>}
                 </button>
               ))}
             </div>

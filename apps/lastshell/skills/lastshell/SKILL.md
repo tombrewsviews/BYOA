@@ -22,22 +22,28 @@ you   → .lastshell/moves.json        the move you make   (WRITE)
 that a new turn started. The app publishes a tick file every time it republishes
 state; you block on it.
 
-Once seated, run this loop and keep running it until the game ends:
+Once seated, keep repeating this until the game ends.
+
+**Wait for your turn with ONE short command, then return.** Never run a long
+blocking loop — a 100-iteration `sleep` makes you unresponsive and you will miss
+your own turn. Use a bounded wait of a few seconds that exits the moment the
+tick changes:
 
 ```bash
-# 1. wait for the app to signal a new turn (blocks; no polling, no spinning)
-#    turn.txt is written LAST, after game-state.json is fully on disk
-cat .lastshell/turn.txt                      # see the current tick
-# then, to wait for the NEXT one:
-while :; do
+# Bounded wait: exits as soon as turn.txt differs, gives up after ~8s.
+# turn.txt is written LAST, after game-state.json is fully on disk.
+cd "$LASTSHELL_PROJECT" && last='turn 2 seat 2 UNIT-7' && \
+for i in $(seq 1 8); do
   new=$(cat .lastshell/turn.txt 2>/dev/null)
-  [ "$new" != "$last" ] && break
+  [ "$new" != "$last" ] && { echo "TICK: $new"; exit 0; }
   sleep 1
-done
+done; echo "still: $(cat .lastshell/turn.txt)"
 ```
 
-In practice: **read `turn.txt`, and if it hasn't changed since your last move,
-sleep a second and read it again.** Loop until it changes. Then:
+If it prints `still:`, just run the same command again. Several short waits are
+correct; one long one is not. `$LASTSHELL_PROJECT` is already set in your shell.
+
+When the tick changes:
 
 1. Read `.lastshell/game-state.json`.
 2. If `awaitingSeat` is `null`, it is a human's turn — **do nothing but go back
