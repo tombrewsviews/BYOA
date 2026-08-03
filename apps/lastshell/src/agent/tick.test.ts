@@ -6,7 +6,7 @@ import type { GameState, Player, Shell } from '../engine/types';
 const SEATS: AgentSeat[] = [{ seat: 2, name: 'UNIT-7', tier: 'steady' }];
 
 function p(id: number, over: Partial<Player> = {}): Player {
-  return { id, name: `P${id}`, lives: 3, items: [], alive: true, cuffedBy: null, kind: 'human', ...over };
+  return { id, name: `P${id}`, lives: 3, items: [], alive: true, cuffedBy: null, blankSelfShots: 0, kind: 'human', ...over };
 }
 
 /**

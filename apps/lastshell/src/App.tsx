@@ -53,7 +53,7 @@ export default function App() {
     return remove;
   }, []);
 
-  const { activity, log } = useAgentBridge({
+  const { activity, log, forcePlay, isAgentTurn } = useAgentBridge({
     state,
     dispatch,
     project,
@@ -94,6 +94,16 @@ export default function App() {
     dispatch({ type: 'START_GAME', seats });
   }, []);
 
+  /**
+   * Back to the setup screen, names kept. Agent seats are cleared with it —
+   * leaving them would keep the file bridge publishing turns for a table that no
+   * longer exists. The PTY stays up so the agent CLI survives into the next game.
+   */
+  const restart = useCallback(() => {
+    setAgentSeats([]);
+    dispatch({ type: 'RESTART' });
+  }, []);
+
   const toggleMute = () => {
     const m = !muted;
     setMuted(m);
@@ -111,6 +121,7 @@ export default function App() {
         round={state.phase === 'setup' ? null : state.round}
         muted={muted}
         onToggleMute={toggleMute}
+        onRestart={state.phase === 'setup' ? undefined : restart}
       />
       <div className="shell">
       <main className="shell-main">
@@ -135,7 +146,14 @@ export default function App() {
             {termOpen ? '▸' : '◂'}
           </button>
         </header>
-        <AgentDock seats={agentSeats} activity={activity} project={project} log={log} />
+        <AgentDock
+          seats={agentSeats}
+          activity={activity}
+          project={project}
+          log={log}
+          activeSeat={isAgentTurn ? state.activePlayerId : null}
+          onForcePlay={forcePlay}
+        />
         <div className="side-term">
           <Terminal project={session.project} agent={session.cli} kickoff={session.kickoff} />
         </div>

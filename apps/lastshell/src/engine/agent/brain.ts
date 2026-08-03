@@ -1,5 +1,5 @@
 import { random, randInt, pick } from '../rng';
-import { MAX_ITEMS, START_LIVES } from '../reducer';
+import { GOLDEN_DAMAGE, MAX_ITEMS, START_LIVES } from '../reducer';
 import type { Action, Item } from '../types';
 import { liveRemaining, pLive, type AgentOpponent, type AgentView } from './view';
 
@@ -37,10 +37,59 @@ function has(view: AgentView, item: Item): boolean {
 }
 
 /**
+ * Once a split shell is armed the ONLY legal move is a two-target shot, so this
+ * runs ahead of the tiers — every tier branch below emits single-target shots,
+ * which the reducer would reject outright.
+ *
+ * Target choice still respects tier: reckless picks at random, the others take
+ * the two biggest threats (killing two at once is the whole point of the item).
+ */
+function decideSplit(view: AgentView): AgentDecision {
+  const alive = view.opponents.filter((o) => o.alive);
+  const ordered = view.self.tier === 'reckless' ? alive.slice() : byThreat(view);
+  // Fewer than two opponents can't happen — USE_ITEM guards against arming it —
+  // but if it somehow does, pair with self rather than emitting an illegal move.
+  const a = ordered[0];
+  const b = ordered[1];
+  if (!a) {
+    return {
+      action: { type: 'FIRE', targetId: view.self.id },
+      thoughts: ['Split shell armed with nobody to aim at.'],
+      confidence: 0.3,
+      rule: 'split-no-target',
+    };
+  }
+  if (!b) {
+    return {
+      action: { type: 'FIRE', targetId: a.id, targetId2: view.self.id },
+      thoughts: [`Only ${a.name} left — the split has to include me.`],
+      confidence: 0.3,
+      rule: 'split-one-target',
+    };
+  }
+  const p = pLive(view);
+  return {
+    action: { type: 'FIRE', targetId: a.id, targetId2: b.id },
+    thoughts:
+      view.self.tier === 'reckless'
+        ? [`Split shell. ${a.name} and ${b.name}, both of you.`]
+        : [
+            `Split shell armed — one shell, two hits.`,
+            `Live chance: ${pct(p)}.`,
+            `${a.name} (${a.lives}) and ${b.name} (${b.lives}) take it together.`,
+          ],
+    confidence: p,
+    rule: 'split-fire',
+  };
+}
+
+/**
  * Tier: reckless barely reads the table, steady plays the odds, sharp also
  * times its items and protects its last life.
  */
 export function decide(view: AgentView): AgentDecision {
+  // A split shell overrides tier play: nothing else is legal.
+  if (view.splitActive) return decideSplit(view);
   switch (view.self.tier) {
     case 'reckless':
       return decideReckless(view);
@@ -90,6 +139,17 @@ function decideSteady(view: AgentView): AgentDecision {
   const live = liveRemaining(view);
   const counted = `${view.shellsRemaining} left — ${live} live, ${view.shellsRemaining - live} blank.`;
   const odds = `Chance the chamber is live: ${pct(p)}.`;
+
+  // Golden bullet whenever it kills anyone — steady doesn't plan ahead, it just
+  // takes the damage. Two lives off everyone is plainly the best value on offer.
+  if (has(view, 'golden') && view.opponents.some((o) => o.alive && o.lives <= GOLDEN_DAMAGE)) {
+    return {
+      action: { type: 'USE_ITEM', item: 'golden' },
+      thoughts: ['Golden bullet — 2 lives off everyone at the table.'],
+      confidence: 1,
+      rule: 'golden',
+    };
+  }
 
   if (p === 0) {
     return {
@@ -161,6 +221,29 @@ function decideSharp(view: AgentView): AgentDecision {
   const threats = byThreat(view);
   const target = threats[0];
 
+  // 0. The golden bullet takes 2 lives from EVERYONE. Fire it as soon as it
+  // kills anyone.
+  //
+  // Holding it for a bigger multi-kill measurably LOSES: tested against steady
+  // (which fires on any kill), a hold-for-two rule dropped sharp to 199/400 from
+  // 229/400. Waiting gives opponents turns to heal or to kill you first, and the
+  // bullet's value does not grow faster than that risk.
+  if (has(view, 'golden')) {
+    const wouldKill = view.opponents.filter((o) => o.alive && o.lives <= GOLDEN_DAMAGE);
+    // Sharp reads one thing steady cannot: the bullet hits everyone, so firing it
+    // while ON a last life is how you lose a won position — the survivors all get
+    // a turn on you. Heal first if you can; otherwise still take a guaranteed kill.
+    const safeToSwing = view.self.lives > 1 || wouldKill.length >= view.opponents.filter((o) => o.alive).length;
+    if (wouldKill.length > 0 && safeToSwing) {
+      return {
+        action: { type: 'USE_ITEM', item: 'golden' },
+        thoughts: [`Golden bullet ends ${wouldKill.map((o) => o.name).join(' and ')}.`],
+        confidence: 1,
+        rule: 'golden-kill',
+      };
+    }
+  }
+
   // 1. A certain kill is worth more than any other line of play.
   if (p === 1) {
     const kill = easiestKill(view, damage);
@@ -212,7 +295,23 @@ function decideSharp(view: AgentView): AgentDecision {
     };
   }
 
-  // 5. Cuff the biggest threat before handing the gun over.
+  // 5. A split shell on a certain-live chamber hits two people at once — the
+  // strongest single play in the game. Only worth it with two live opponents.
+  if (
+    has(view, 'split') &&
+    !view.splitActive &&
+    p === 1 &&
+    view.opponents.filter((o) => o.alive).length >= 2
+  ) {
+    return {
+      action: { type: 'USE_ITEM', item: 'split' },
+      thoughts: [counted, 'Chamber is certainly live.', 'Splitting it — one shell, two casualties.'],
+      confidence: 1,
+      rule: 'split-certain-live',
+    };
+  }
+
+  // 6. Cuff the biggest threat before handing the gun over.
   if (has(view, 'cuffs') && target && target.cuffedBy === null && threats.length > 1) {
     return {
       action: { type: 'USE_ITEM', item: 'cuffs', targetId: target.id },
@@ -225,7 +324,7 @@ function decideSharp(view: AgentView): AgentDecision {
     };
   }
 
-  // 6. On a last life, never gamble on a self-shot.
+  // 7. On a last life, never gamble on a self-shot.
   if (view.self.lives === 1 && p > 0.2) {
     if (target) {
       return {
@@ -237,7 +336,7 @@ function decideSharp(view: AgentView): AgentDecision {
     }
   }
 
-  // 7. Otherwise play the odds; self-shot buys an item when blanks dominate.
+  // 8. Otherwise play the odds; self-shot buys an item when blanks dominate.
   if (p < 0.5) {
     const room = view.self.items.length < MAX_ITEMS;
     return {

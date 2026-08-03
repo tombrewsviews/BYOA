@@ -40,7 +40,8 @@ export function GameScreen({
   dispatch: Dispatch<Action>;
   agentActivity?: AgentActivityView | null;
 }) {
-  const [targetId, setTargetId] = useState<number | null>(null);
+  /** Aimed seats. One normally; two while a split shell is armed. */
+  const [targetIds, setTargetIds] = useState<number[]>([]);
   const [peekOpen, setPeekOpen] = useState(false);
   const [cuffMode, setCuffMode] = useState(false);
   const [healFx, setHealFx] = useState<Fx | null>(null);
@@ -60,7 +61,7 @@ export function GameScreen({
 
   // Clear local selection whenever the turn moves on or a shot starts
   useEffect(() => {
-    setTargetId(null);
+    setTargetIds([]);
     setPeekOpen(false);
     setCuffMode(false);
   }, [state.activePlayerId, state.phase === 'turn']);
@@ -88,6 +89,13 @@ export function GameScreen({
       pushStamp('⛓️', 'CUFFED — TURN SKIPPED');
     }
   }, [state.lastShot]);
+
+  // A golden bullet resolves inside USE_ITEM, not through the shot pipeline, so
+  // its eliminations need their own sting and flash.
+  useEffect(() => {
+    if (!state.lastGolden) return;
+    if (state.lastGolden.eliminatedIds.length > 0) sfx.elimination();
+  }, [state.lastGolden]);
 
   useEffect(() => {
     if (state.phase === 'gameOver') sfx.victory();
@@ -119,20 +127,31 @@ export function GameScreen({
       setCuffMode(false);
       return;
     }
-    setTargetId((cur) => (cur === id ? null : id));
+    // With a split armed, aim at up to TWO seats: tap to add, tap again to drop.
+    // A third tap replaces the second so the pair stays adjustable without a
+    // clear button.
+    if (state.splitActive) {
+      setTargetIds((cur) => {
+        if (cur.includes(id)) return cur.filter((x) => x !== id);
+        if (cur.length < 2) return [...cur, id];
+        return [cur[0], id];
+      });
+      return;
+    }
+    setTargetIds((cur) => (cur[0] === id ? [] : [id]));
   };
 
   const fire = () => {
-    if (targetId == null || !isTurn) return;
-    dispatch({ type: 'FIRE', targetId });
-    setTargetId(null);
+    if (targetIds.length === 0 || !isTurn) return;
+    dispatch({ type: 'FIRE', targetId: targetIds[0], targetId2: targetIds[1] });
+    setTargetIds([]);
   };
 
   const useItem = (item: Item) => {
     if (!isTurn) return;
     if (item === 'cuffs') {
       setCuffMode(true);
-      setTargetId(null);
+      setTargetIds([]);
       return;
     }
     if (item === 'glass') {
@@ -141,6 +160,13 @@ export function GameScreen({
     } else if (item === 'saw') {
       sfx.saw();
       pushStamp('🪚', 'SAWED OFF — 2 DMG');
+    } else if (item === 'split') {
+      sfx.saw();
+      pushStamp('🔀', 'SPLIT SHELL — PICK TWO');
+      setTargetIds([]); // the old single aim no longer applies
+    } else if (item === 'golden') {
+      sfx.shot();
+      pushStamp('🥇', 'GOLDEN BULLET — ALL LOSE 2');
     } else {
       sfx.heal();
       pushStamp('❤️', '+1 LIFE');
@@ -163,23 +189,37 @@ export function GameScreen({
   const mid = rest.slice(cut1, cut2);
   const bottom = [state.players[0], ...rest.slice(cut2)];
 
-  const targetName =
-    targetId != null ? state.players.find((p) => p.id === targetId)?.name : undefined;
+  const nameOf = (id: number) => state.players.find((p) => p.id === id)?.name;
+  /** "YOURSELF" / "MARA" / "MARA + KADE" — whatever is currently aimed at. */
+  const targetLabel = targetIds
+    .map((id) => (id === state.activePlayerId ? 'YOURSELF' : (nameOf(id) ?? '').toUpperCase()))
+    .join(' + ');
 
   const cuffTargetAvailable = state.players.some(
     (p) => p.alive && p.id !== state.activePlayerId && p.cuffedBy === null,
   );
+
+  /** This seat's share of the most recent golden bullet, for its damage float. */
+  const goldenHitFor = (id: number) => {
+    const g = state.lastGolden;
+    if (!g) return null;
+    const h = g.hit.find((x) => x.id === id);
+    return h ? { livesLost: h.livesLost, k: g.k } : null;
+  };
 
   const renderCard = (p: (typeof state.players)[number]) => (
     <PlayerCard
       key={p.id}
       player={p}
       isActive={p.id === state.activePlayerId && state.phase !== 'gameOver'}
-      isTarget={targetId === p.id}
+      isTarget={targetIds.includes(p.id)}
       // an agent's turn is not interactive — the table watches it play
       canTarget={isTurn && !activeIsAgent && p.alive}
       cuffMode={cuffMode}
       cuffTargetAvailable={cuffTargetAvailable}
+      splitActive={state.splitActive}
+      liveOpponents={state.players.filter((x) => x.alive && x.id !== state.activePlayerId).length}
+      goldenHit={goldenHitFor(p.id)}
       canUseItems={isTurn && !activeIsAgent && p.id === state.activePlayerId}
       sawActive={state.sawActive}
       lastShot={state.lastShot}
@@ -209,6 +249,9 @@ export function GameScreen({
       )}
       {state.lastShot?.eliminatedId != null && (
         <div key={`d${state.spentShells.length}`} className="death-pulse" aria-hidden="true" />
+      )}
+      {state.lastGolden && (
+        <div key={`gf${state.lastGolden.k}`} className="golden-flash" aria-hidden="true" />
       )}
       {stamp && (
         <div key={stamp.k} className="stamp" aria-hidden="true">
@@ -262,14 +305,24 @@ export function GameScreen({
                   CANCEL
                 </button>
               </div>
-            ) : isTurn && targetId != null ? (
-              <button className="fire-btn" onClick={fire}>
-                FIRE AT {targetId === state.activePlayerId ? 'YOURSELF' : targetName?.toUpperCase()}
-              </button>
+            ) : isTurn && targetIds.length > 0 ? (
+              <div className="fire-stack">
+                <button className="fire-btn" onClick={fire}>
+                  {state.splitActive && targetIds.length === 2 ? 'SPLIT FIRE AT ' : 'FIRE AT '}
+                  {targetLabel}
+                </button>
+                {/* Firing one target with a split armed is legal but wastes it —
+                    say so rather than letting the shell vanish silently. */}
+                {state.splitActive && targetIds.length === 1 && (
+                  <p className="fire-hint sub">🔀 tap a second player, or fire now and waste the split</p>
+                )}
+              </div>
             ) : (
               <p className="fire-hint">
                 {isTurn
-                  ? `${active?.name}: tap a player to aim — including yourself`
+                  ? state.splitActive
+                    ? `🔀 ${active?.name}: split shell loaded — tap TWO players`
+                    : `${active?.name}: tap a player to aim — including yourself`
                   : state.phase === 'resolving'
                     ? '…'
                     : ''}

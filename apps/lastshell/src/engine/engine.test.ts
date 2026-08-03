@@ -23,6 +23,7 @@ function player(id: number, over: Partial<Player> = {}): Player {
     items: [],
     alive: true,
     cuffedBy: null,
+    blankSelfShots: 0,
     kind: 'human',
     ...over,
   };
@@ -94,14 +95,14 @@ describe('shell generation (§4)', () => {
     }
   });
 
-  it('self-shot item grants produce all four item types over many shots', () => {
+  it('self-shot item grants produce all five item types over many shots', () => {
     seed(5);
     const seen = new Set<Item>();
     for (let i = 0; i < 300; i++) {
       const s = shoot(turnState({ shellQueue: ['blank', 'live'] }), 1);
       s.players[0].items.forEach((it) => seen.add(it));
     }
-    expect(seen).toEqual(new Set(['glass', 'saw', 'life', 'cuffs']));
+    expect(seen).toEqual(new Set(['glass', 'saw', 'life', 'cuffs', 'split']));
   });
 
   it('is deterministic under a seed', () => {

@@ -75,6 +75,27 @@ impl AgentKind {
         }
     }
 
+    /// Flag selecting this CLI's FASTEST model, so a seat answers in about the
+    /// time a human takes to aim. A table is unplayable when every turn is a
+    /// slow reasoning round-trip, and the game needs quick tactical calls rather
+    /// than deep thought — the odds are simple arithmetic.
+    ///
+    /// None where the CLI has no stable model flag we can rely on; those launch
+    /// with their own default rather than a guessed alias.
+    pub fn fast_model_flag(self) -> Option<&'static str> {
+        match self {
+            // 'fable' is the speed tier and one of the aliases `claude --help`
+            // documents; verified accepted against the installed CLI.
+            AgentKind::Claude => Some("--model fable"),
+            // NOT verified locally — neither CLI is installed here. Both flags
+            // follow each tool's documented form; if one is wrong the CLI errors
+            // on launch and the terminal shows it, rather than failing silently.
+            AgentKind::Codex => Some("-m gpt-5-codex-mini"),
+            AgentKind::Gemini => Some("-m gemini-2.5-flash"),
+            AgentKind::Opencode => None,
+        }
+    }
+
     pub fn from_id(id: &str) -> Option<AgentKind> {
         AgentKind::ALL.into_iter().find(|a| a.id() == id)
     }
@@ -174,6 +195,18 @@ mod tests {
         assert!(dirs.contains(&home.join(".local/bin")), "~/.local/bin must be searched");
         assert!(dirs.iter().any(|d| d.ends_with("homebrew/bin")));
         assert!(dirs.iter().any(|d| d.ends_with("Library/pnpm")));
+    }
+
+    #[test]
+    fn every_supported_cli_launches_on_its_fast_model() {
+        // A table where each turn is a slow reasoning round-trip is unplayable,
+        // so the CLIs that expose a model flag must default to their fast tier.
+        assert_eq!(AgentKind::Claude.fast_model_flag(), Some("--model fable"));
+        for k in [AgentKind::Codex, AgentKind::Gemini] {
+            assert!(k.fast_model_flag().is_some(), "{} needs a fast model", k.id());
+        }
+        // opencode has no stable flag we rely on — better absent than invented
+        assert_eq!(AgentKind::Opencode.fast_model_flag(), None);
     }
 
     #[test]

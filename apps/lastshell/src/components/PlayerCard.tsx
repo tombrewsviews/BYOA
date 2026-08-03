@@ -14,6 +14,12 @@ interface Props {
   canTarget: boolean;
   cuffMode: boolean;
   cuffTargetAvailable: boolean;
+  /** a split shell is already loaded — it does not stack */
+  splitActive: boolean;
+  /** live players other than this one, for the split's minimum-target rule */
+  liveOpponents: number;
+  /** this player's share of the last golden bullet, if it hit them */
+  goldenHit: { livesLost: number; k: number } | null;
   canUseItems: boolean;
   sawActive: boolean;
   lastShot: ShotResult | null;
@@ -31,6 +37,9 @@ export function PlayerCard({
   canTarget,
   cuffMode,
   cuffTargetAvailable,
+  splitActive,
+  liveOpponents,
+  goldenHit,
   canUseItems,
   sawActive,
   lastShot,
@@ -57,12 +66,19 @@ export function PlayerCard({
   const itemDisabled = (item: Item): boolean =>
     (item === 'saw' && sawActive) ||
     (item === 'life' && p.lives >= START_LIVES) ||
-    (item === 'cuffs' && !cuffTargetAvailable);
+    (item === 'cuffs' && !cuffTargetAvailable) ||
+    // mirrors the reducer: no stacking, and two other live players to split between
+    (item === 'split' && (splitActive || liveOpponents < 2));
 
   const itemLabel = (item: Item): string => {
-    if (!itemDisabled(item)) return `Use ${ITEM_NAMES[item]}`;
+    if (!itemDisabled(item)) {
+      if (item === 'golden') return `Use golden bullet — 2 lives off everyone else`;
+      if (item === 'split') return 'Use split shell — next shot hits two players';
+      return `Use ${ITEM_NAMES[item]}`;
+    }
     if (item === 'saw') return 'Saw already active';
     if (item === 'life') return 'Lives already full';
+    if (item === 'split') return splitActive ? 'Split shell already loaded' : 'Needs two other players';
     return 'No one to cuff';
   };
 
@@ -145,9 +161,24 @@ export function PlayerCard({
         })}
       </div>
 
-      {lastShot && lastShot.targetId === p.id && lastShot.damage > 0 && (
-        <span key={shotKey} className="dmg-float" aria-hidden="true">
-          −{lastShot.damage}
+      {/* Both split targets take the hit, so check targetId2 too — otherwise the
+          second victim loses a life with no feedback at all. */}
+      {lastShot &&
+        (lastShot.targetId === p.id || lastShot.targetId2 === p.id) &&
+        lastShot.damage > 0 && (
+          <span key={shotKey} className="dmg-float" aria-hidden="true">
+            −{lastShot.damage}
+          </span>
+        )}
+      {/* A golden bullet is not a shot, so it carries its own float. */}
+      {goldenHit && goldenHit.livesLost > 0 && (
+        <span key={`gb${goldenHit.k}`} className="dmg-float golden" aria-hidden="true">
+          −{goldenHit.livesLost}
+        </span>
+      )}
+      {lastShot?.goldenEarned && lastShot.shooterId === p.id && (
+        <span key={`ge${shotKey}`} className="full-chip golden" aria-hidden="true">
+          🥇 GOLDEN BULLET
         </span>
       )}
       {lastShot && lastShot.shooterId === p.id && lastShot.itemGained && (

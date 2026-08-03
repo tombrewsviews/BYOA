@@ -1,5 +1,6 @@
 import { pick } from './rng';
 import { generateRound } from './shells';
+import { GOLDEN_BLANKS_REQUIRED } from './types';
 import type { Action, GameState, Item, Player, SeatConfig, ShotResult } from './types';
 
 export const MAX_ITEMS = 4;
@@ -10,7 +11,14 @@ export const MAX_HUMANS = 8;
 export const MAX_AGENTS = 3;
 export const MIN_HUMANS = 1;
 
-const ITEMS: readonly Item[] = ['glass', 'saw', 'life', 'cuffs'];
+/**
+ * The random self-shot drop pool. `golden` is deliberately NOT here — a golden
+ * bullet is only ever earned by surviving three blank self-shots, never by luck.
+ */
+const ITEMS: readonly Item[] = ['glass', 'saw', 'life', 'cuffs', 'split'];
+
+/** Lives a golden bullet takes from every other player. */
+export const GOLDEN_DAMAGE = 2;
 
 export function initialState(): GameState {
   return {
@@ -21,11 +29,13 @@ export function initialState(): GameState {
     spentShells: [],
     roundComposition: { live: 0, blank: 0 },
     sawActive: false,
+    splitActive: false,
     peekedShell: null,
     winnerId: null,
     round: 0,
     pendingShot: null,
     lastShot: null,
+    lastGolden: null,
   };
 }
 
@@ -60,6 +70,7 @@ export function reducer(state: GameState, action: Action): GameState {
         items: [],
         alive: true,
         cuffedBy: null,
+        blankSelfShots: 0,
         kind: seat.kind,
         ...(seat.kind === 'agent' ? { tier: seat.tier ?? 'steady' } : {}),
       }));
@@ -89,6 +100,11 @@ export function reducer(state: GameState, action: Action): GameState {
       const idx = active.items.indexOf(action.item);
       if (idx === -1) return state;
       if (action.item === 'saw' && state.sawActive) return state; // §7: saw does not stack
+      if (action.item === 'split') {
+        if (state.splitActive) return state; // does not stack, same as the saw
+        // Needs two other live players to aim at, or there is nothing to split.
+        if (state.players.filter((p) => p.alive && p.id !== active.id).length < 2) return state;
+      }
       if (action.item === 'life' && active.lives >= START_LIVES) return state; // lives cap at 3
       if (action.item === 'cuffs') {
         const target = state.players.find((p) => p.id === action.targetId);
@@ -114,9 +130,51 @@ export function reducer(state: GameState, action: Action): GameState {
         );
         return { ...state, players };
       }
+      if (action.item === 'golden') {
+        // Takes GOLDEN_DAMAGE lives from EVERY other player at once. It fires no
+        // shell, so it neither consumes the chamber nor ends the turn — but it
+        // can end the game, which no other item can, so the win check that
+        // normally lives in RESOLVE_SHOT has to run here too.
+        const hit: NonNullable<GameState['lastGolden']>['hit'] = [];
+        const eliminatedIds: number[] = [];
+        const players = state.players.map((p) => {
+          if (p.id === active.id) return { ...p, items };
+          if (!p.alive) return p;
+          const lives = Math.max(0, p.lives - GOLDEN_DAMAGE);
+          hit.push({ id: p.id, livesLost: p.lives - lives, livesLeft: lives });
+          if (lives === 0) {
+            eliminatedIds.push(p.id);
+            return { ...p, lives, alive: false, items: [], cuffedBy: null };
+          }
+          return { ...p, lives };
+        });
+
+        const lastGolden = {
+          userId: active.id,
+          hit,
+          eliminatedIds,
+          k: (state.lastGolden?.k ?? 0) + 1,
+        };
+        const alive = players.filter((p) => p.alive);
+        if (alive.length <= 1) {
+          return {
+            ...state,
+            players,
+            lastGolden,
+            phase: 'gameOver',
+            winnerId: alive[0]?.id ?? null,
+            activePlayerId: alive[0]?.id ?? state.activePlayerId,
+          };
+        }
+        return { ...state, players, lastGolden };
+      }
+
       const players = state.players.map((p) => (p.id === active.id ? { ...p, items } : p));
       if (action.item === 'glass') {
         return { ...state, players, peekedShell: state.shellQueue[0] ?? null };
+      }
+      if (action.item === 'split') {
+        return { ...state, players, splitActive: true };
       }
       return { ...state, players, sawActive: true };
     }
@@ -125,30 +183,62 @@ export function reducer(state: GameState, action: Action): GameState {
       if (state.phase !== 'turn') return state;
       const target = state.players.find((p) => p.id === action.targetId);
       if (!target || !target.alive || state.shellQueue.length === 0) return state;
+
+      // A split shell widens the shot; like the saw it never constrains who you
+      // may aim at. A second target is honoured only when one is armed AND the
+      // target is a distinct live player — otherwise it is ignored and the shot
+      // proceeds against one target, spending the split.
+      //
+      // It must NOT reject: a caller that arms a split and then fires a single
+      // target would deadlock the game outright, since splitActive persists and
+      // every subsequent FIRE would be a no-op.
+      let target2: Player | undefined;
+      if (state.splitActive && action.targetId2 !== undefined && action.targetId2 !== action.targetId) {
+        const t2 = state.players.find((p) => p.id === action.targetId2);
+        if (t2?.alive) target2 = t2;
+      }
+
       const [shell, ...rest] = state.shellQueue;
       return {
         ...state,
         phase: 'resolving',
+        // A shot supersedes the last golden bullet: clearing it here stops its
+        // flash and damage floats replaying over every later turn.
+        lastGolden: null,
         shellQueue: rest,
-        pendingShot: { targetId: target.id, shell, peeked: state.peekedShell !== null },
+        pendingShot: {
+          targetId: target.id,
+          targetId2: target2?.id,
+          shell,
+          peeked: state.peekedShell !== null,
+          split: state.splitActive,
+        },
         peekedShell: null,
       };
     }
 
     case 'RESOLVE_SHOT': {
       if (state.phase !== 'resolving' || !state.pendingShot) return state;
-      const { targetId, shell, peeked } = state.pendingShot;
+      const { targetId, targetId2, shell, peeked, split } = state.pendingShot;
       const shooterId = state.activePlayerId;
       const isSelf = targetId === shooterId;
       const sawed = state.sawActive;
       const damage = shell === 'live' ? (sawed ? 2 : 1) : 0;
 
+      // One shell, both barrels: a split shot applies the SAME shell to both
+      // targets at full damage. A blank harms neither, so the public odds stay
+      // meaningful — the split doubles the payoff, not the shell count.
+      const hitIds = split && targetId2 !== undefined ? [targetId, targetId2] : [targetId];
+
       let eliminatedId: number | null = null;
+      let eliminatedId2: number | null = null;
       let players = state.players.map((p) => {
-        if (p.id !== targetId || damage === 0) return p;
+        if (!hitIds.includes(p.id) || damage === 0) return p;
         const lives = Math.max(0, p.lives - damage);
         if (lives === 0) {
-          eliminatedId = p.id;
+          // first/second recorded separately so the UI can animate both
+          if (p.id === targetId) eliminatedId = p.id;
+          else eliminatedId2 = p.id;
           // §5: eliminated → items discarded, any cuffs on them are moot
           return { ...p, lives, alive: false, items: [], cuffedBy: null };
         }
@@ -160,6 +250,7 @@ export function reducer(state: GameState, action: Action): GameState {
       let itemGained: Item | null = null;
       let itemDiscarded = false;
       let itemSuppressed = false;
+      let goldenEarned = false;
       if (isSelf) {
         const shooter = players.find((p) => p.id === shooterId)!;
         if (shooter.alive) {
@@ -176,11 +267,37 @@ export function reducer(state: GameState, action: Action): GameState {
               itemDiscarded = true;
             }
           }
+
+          // A golden bullet is EARNED, never dropped: three blank self-shots.
+          // A peeked chamber does not count — the whole price of the golden
+          // bullet is the risk, and a peek removes the risk.
+          if (shell === 'blank' && !peeked) {
+            const tally = shooter.blankSelfShots + 1;
+            // The 4-item cap is an invariant the whole game relies on, so the
+            // golden bullet obeys it too. If there is no room the tally HOLDS at
+            // the threshold rather than resetting, so the reward is still waiting
+            // as soon as a slot frees up — earning it is never wasted.
+            const holder = players.find((p) => p.id === shooterId)!;
+            if (tally >= GOLDEN_BLANKS_REQUIRED && holder.items.length < MAX_ITEMS) {
+              goldenEarned = true;
+              players = players.map((p) =>
+                p.id === shooterId
+                  ? { ...p, blankSelfShots: 0, items: [...p.items, 'golden' as Item] }
+                  : p,
+              );
+            } else {
+              players = players.map((p) =>
+                p.id === shooterId ? { ...p, blankSelfShots: tally } : p,
+              );
+            }
+          }
         }
       }
 
       // Turn passing per the resolution table. Any self-shot ends the turn —
       // blank or live — so the gun always moves on from the shooter's seat.
+      // A split shot passes on its PRIMARY target; the second is collateral and
+      // does not claim the gun, otherwise two seats would have a claim on it.
       let nextActive: number;
       if (isSelf) {
         nextActive = nextAliveFrom(players, shooterId);
@@ -208,14 +325,18 @@ export function reducer(state: GameState, action: Action): GameState {
       const lastShot: ShotResult = {
         shooterId,
         targetId,
+        targetId2,
         shell,
         damage,
         sawed,
+        split,
         itemGained,
         itemDiscarded,
         itemSuppressed,
         eliminatedId,
+        eliminatedId2,
         cuffSkippedIds,
+        goldenEarned,
       };
 
       const base: GameState = {
@@ -224,6 +345,7 @@ export function reducer(state: GameState, action: Action): GameState {
         activePlayerId: nextActive,
         spentShells: [...state.spentShells, shell],
         sawActive: false, // consumed whether blank or live (§7)
+        splitActive: false, // likewise consumed by the shot, hit or miss
         peekedShell: null,
         pendingShot: null,
         lastShot,
@@ -267,6 +389,7 @@ export function reducer(state: GameState, action: Action): GameState {
           items: [],
           alive: true,
           cuffedBy: null,
+          blankSelfShots: 0,
         })),
       };
     }

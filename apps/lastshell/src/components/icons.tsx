@@ -52,6 +52,8 @@ export const ITEM_ICONS: Record<Item, string> = {
   saw: '🪚',
   life: '❤️',
   cuffs: '⛓️',
+  split: '🔀',
+  golden: '🥇',
 };
 
 export const ITEM_NAMES: Record<Item, string> = {
@@ -59,4 +61,6 @@ export const ITEM_NAMES: Record<Item, string> = {
   saw: 'Saw',
   life: 'Extra life',
   cuffs: 'Handcuffs',
+  split: 'Split shell',
+  golden: 'Golden bullet',
 };

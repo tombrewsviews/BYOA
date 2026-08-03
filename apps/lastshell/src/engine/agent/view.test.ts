@@ -11,6 +11,7 @@ function p(id: number, over: Partial<Player> = {}): Player {
     items: [],
     alive: true,
     cuffedBy: null,
+    blankSelfShots: 0,
     kind: 'human',
     ...over,
   };

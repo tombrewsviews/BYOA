@@ -48,8 +48,8 @@ When the tick changes:
 1. Read `.lastshell/game-state.json`.
 2. If `awaitingSeat` is `null`, it is a human's turn — **do nothing but go back
    to waiting**. Do not write a move. Do not nudge the human.
-3. If `awaitingSeat` is a number, that is **your** seat this turn. Adopt the
-   persona in `awaitingPersona` and pick one of the `legalActions`.
+3. If `awaitingSeat` is a number, that is **your** seat this turn. Pick one of
+   the `legalActions` in the style of `awaitingPersona.tier`.
 4. Write `moves.json`, then **immediately go back to step 1**. Do not stop to
    report. Do not ask whether to continue. Do not say "tell me when the state
    updates" — watching `turn.txt` is how you find out.
@@ -64,7 +64,7 @@ state file. Judge only by `phase`:
 |---|---|---|---|
 | `"turn"` | your seat | your move | write `moves.json` |
 | `"turn"` | `null` | a human's move | wait for the next tick |
-| `"gameOver"` | `null` | the game is finished | report the winner, then wait for a rematch |
+| `"gameOver"` | `null` | the game is finished | name the winner in one line, then wait for a rematch |
 
 The tick line names it too, so a single `cat` is enough to tell them apart:
 
@@ -75,8 +75,8 @@ turn 10 gameOver winner 2 UNIT-7   ← finished
 ```
 
 When `phase` is `"gameOver"`, read `outcome` for the result — `winnerSeat`,
-`winnerName`, `agentWon`, and the full `standings`. Say who won and why it went
-that way, in the persona you played.
+`winnerName`, `agentWon`, and the full `standings`. State the winner in one short
+line. No post-game analysis.
 
 **Then keep watching.** Finishing a game is not finishing your session — the
 humans may start another table straight away. Go back to the bounded wait. When a
@@ -105,14 +105,24 @@ app's.
   "seat": 9,
   "action": "FIRE",
   "target": 1,
-  "thoughts": [
-    "4 left — 1 live, 3 blank.",
-    "25% live. Comfortable.",
-    "Taking it myself for the item."
-  ],
   "confidence": 0.75
 }
 ```
+
+**Play FAST. Do not explain yourself.** Speed is the point: the table is waiting
+on you every turn. Read the state, pick a move, write the file, go back to
+waiting. Specifically:
+
+- **Do not write `thoughts`.** Nothing renders them any more, so composing them
+  costs the table time for no benefit.
+- **Do not narrate in the terminal.** No "let me check the odds", no summary of
+  what you did, no commentary between turns. Write the file and move on.
+- **Do not deliberate.** `legalActions` is exhaustive and `odds.pLive` is already
+  computed — you do not need to re-derive anything. One glance, one choice.
+- **Do not read other files** or explore the project. Everything you need is in
+  `game-state.json`.
+
+A turn should be: one read, one write. Nothing else.
 
 - `turn` — copy it from `game-state.json` verbatim. A mismatched turn is
   rejected as stale (it means the table moved on without you).
@@ -120,10 +130,11 @@ app's.
   not yours**, least of all a human's. The app rejects it.
 - `action` — `"FIRE"` (with `target`) or `"USE_ITEM"` (with `item`, plus
   `target` for cuffs).
-- `thoughts` — 1–4 short lines, shown on screen to the whole table. This is the
-  point of the feature: humans read these to understand and argue with you. Say
-  what actually drove the choice. Do not narrate flavour you didn't act on.
-- `confidence` — 0–1, drives the on-screen conviction meter.
+- `target2` — second seat, **required** when `view.splitActive` is true (a split
+  shell is loaded). Must differ from `target`. The first target receives the gun.
+- `confidence` — 0–1, drives the on-screen conviction meter. Optional.
+- `thoughts` — **omit this.** It is ignored and nothing displays it; writing it
+  only slows your turn down.
 
 Only ever choose from `legalActions`. It is pre-computed and exhaustive.
 
@@ -136,6 +147,8 @@ Only ever choose from `legalActions`. It is pre-computed and exhaustive.
 - `view.spentShells` — what has been fired so far, in order, revealed.
 - `view.self` / `view.opponents` — lives, items, cuffs. All public.
 - `view.peekedShell` — set **only** if your seat spent a magnifying glass.
+- `view.splitActive` — a split shell is loaded; your next shot needs `target2`.
+- `view.self.blankSelfShots` — progress toward a golden bullet (3 earns one).
 - `odds` — `{ liveRemaining, pLive }`, pre-computed from the above.
 - `outcome` — `null` while the game runs; the winner and final standings once
   `phase` is `"gameOver"`.
@@ -168,53 +181,71 @@ Two consequences worth internalising:
   shoot yourself, you get no item. Information and reward are mutually
   exclusive.
 
-**Items** (max 4, earned only from self-shots):
+**Items** (max 4). Four of them drop at random from a self-shot:
 
 - 🔍 **glass** — reveals the next shell to you alone.
 - 🪚 **saw** — next shot deals 2. Consumed either way. Does not stack.
 - ❤️ **life** — +1 life, capped at 3.
 - ⛓️ **cuffs** — target skips their next turn; the gun bounces back to you.
+- 🔀 **split** — the next shot hits **two** players instead of one. **One shell,
+  full damage to each** — so a live round costs two people a life (or two each
+  with a saw), and a blank harms neither. Needs two other live players. Does not
+  stack. See below for how to fire it.
+
+And one is **earned, never dropped**:
+
+- 🥇 **golden** — takes **2 lives from every other player at once**. It fires no
+  shell, so it does not touch the chamber, the odds, or your turn — but it *can*
+  end the game outright. Earned by surviving **three blank self-shots**
+  (`view.self.blankSelfShots` counts them). A **peeked** blank does not count —
+  the risk is the price. The tally holds if your hands are full, so it is never
+  wasted.
+
+### Firing a split shell
+
+When `view.splitActive` is true, add `target2` to your move:
+
+```json
+{ "turn": 14, "seat": 3, "action": "FIRE", "target": 1, "target2": 4 }
+```
+
+- `target` and `target2` must be **different live seats**.
+- **`target` receives the gun** afterwards; `target2` is collateral and does not.
+- A single-target shot is still legal while a split is armed — it just **wastes**
+  the split. `legalActions` lists both, so pick a `SPLIT FIRE` entry unless you
+  genuinely want to throw the item away.
 
 ## The three personas
 
-`awaitingPersona.tier` tells you who to be. Play them as genuinely different
-players, not three voices on one strategy. Keep each one's `thoughts` in its own
-register.
+`awaitingPersona.tier` tells you who to be. It shapes **which move you pick** —
+not how you describe it, since you no longer describe anything. Play them as
+genuinely different players, not three flavours of the same strategy.
 
 ### `reckless` — plays on instinct
-Barely counts. Trusts feel over arithmetic. Will self-shoot on bad odds because
-it wants the item now. Burns items early for no strong reason. Its reasoning
-cites vibes, grudges, and momentum — not percentages.
-
-> "Two of these are live and I don't care. Pointing it at Mara."
+Ignores `pLive`. Picks a target more or less at random and self-shoots on bad
+odds because it wants the item now. Burns items early for no strong reason.
 
 ### `steady` — plays the odds
-Counts shells every turn and does the arithmetic out loud. `pLive < 0.5` → shoot
-self for the item; otherwise shoot the biggest threat. Heals when hurt, saws a
-certain-live chamber. Rarely clever, rarely wrong. Its reasoning is arithmetic.
-
-> "5 left — 2 live, 3 blank. 40% live. Favourable enough; taking it myself."
+`pLive < 0.5` → shoot yourself for the item; otherwise shoot the biggest threat
+(fewest lives, then most items). Heal when hurt. Saw a certain-live chamber.
 
 ### `sharp` — plays the table
 Everything `steady` does, plus:
-- takes a **certain kill** over any other line
-- spends the **glass at maximum uncertainty** (`pLive` near 0.5), never when the
+- take a **certain kill** over any other line
+- spend the **glass at maximum uncertainty** (`pLive` near 0.5), never when the
   odds are already lopsided
-- **cuffs the biggest threat** before handing the gun on
-- on its **last life, never gambles** a self-shot
-- reads who is dangerous by lives *and* item count, not just lives
-
-Its reasoning names opponents and their holdings, and it plans a turn ahead.
-
-> "Kade is on 1 life holding a saw. Certain live round. Ending them now."
+- **split a certain-live chamber** when two opponents are alive — two hits, one shell
+- **golden bullet** when two or more opponents would drop to 0
+- **cuff the biggest threat** before handing the gun on
+- on your **last life, never gamble** a self-shot
 
 ## Etiquette at a shared table
 
 - **One move per turn.** Write the file once, then wait for new state.
 - **Never move for a human.** Their seats are theirs.
 - **Do not stall.** If it is your turn, move. The table is waiting on you.
-- **Stay in character but stay honest** — the persona shapes *how* you explain a
-  move and *which* move you favour, never whether you tell the truth about it.
+- **Stay in character** — the tier decides *which* move you favour. It never
+  licenses cheating or writing a move for a seat that isn't yours.
 - If the app reports your move was rejected, read the reason in `log`, fix it,
   and write again. Common causes: stale `turn`, wrong `seat`, an action absent
   from `legalActions`.

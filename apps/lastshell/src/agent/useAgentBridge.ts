@@ -281,5 +281,20 @@ export function useAgentBridge({
     return () => unlisten?.();
   }, [enabled, project, agentSeats, dispatch, note]);
 
-  return { activity, log };
+  /**
+   * Play the active agent seat NOW with the local brain, instead of waiting for
+   * the CLI. Manual escape hatch for a slow or wedged agent — same path the
+   * timeout takes, just triggered by a button.
+   */
+  const forcePlay = useCallback(
+    (seat: number) => {
+      const cur = stateRef.current;
+      if (cur.phase !== 'turn' || cur.activePlayerId !== seat) return;
+      if (busyRef.current) return; // a move is already committed for this turn
+      playFallback('forced by user');
+    },
+    [playFallback],
+  );
+
+  return { activity, log, forcePlay, isAgentTurn };
 }

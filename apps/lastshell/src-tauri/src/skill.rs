@@ -138,6 +138,22 @@ mod tests {
     }
 
     #[test]
+    fn skill_md_documents_the_split_shell_and_golden_bullet() {
+        // Both are useless to an agent that doesn't know the protocol for them:
+        // the split needs target2, the golden bullet is earned not dropped.
+        assert!(SKILL_ROUTING.contains("target2"));
+        assert!(SKILL_ROUTING.contains("splitActive"));
+        assert!(SKILL_ROUTING.contains("blankSelfShots"));
+        assert!(SKILL_ROUTING.contains("golden"));
+    }
+
+    #[test]
+    fn skill_md_tells_the_agent_to_play_fast_without_narrating() {
+        assert!(SKILL_ROUTING.contains("Do not write `thoughts`"));
+        assert!(SKILL_ROUTING.contains("Do not narrate"));
+    }
+
+    #[test]
     fn claude_md_warns_against_moving_for_humans() {
         assert!(CLAUDE_MD.contains("never") || CLAUDE_MD.contains("Never"));
         assert!(CLAUDE_MD.contains("awaitingSeat"));

@@ -12,11 +12,17 @@ export function AgentDock({
   activity,
   project,
   log,
+  activeSeat,
+  onForcePlay,
 }: {
   seats: AgentSeat[];
   activity: AgentActivity | null;
   project: string | null;
   log: string[];
+  /** seat holding the gun right now, or null when it isn't an agent's turn */
+  activeSeat: number | null;
+  /** take this seat's turn immediately with the local brain */
+  onForcePlay: (seat: number) => void;
 }) {
   if (seats.length === 0) {
     return (
@@ -36,26 +42,31 @@ export function AgentDock({
             <span className="agent-dot" aria-hidden="true" />
             <span className="dock-name">{s.name}</span>
             <span className={`tier-chip t-${s.tier}`}>{TIER_LABEL[s.tier]}</span>
+            {/* Force the turn when the CLI is slow or wedged, instead of waiting
+                out the timeout. Only live on the seat that holds the gun. */}
+            <button
+              className="dock-play"
+              onClick={() => onForcePlay(s.seat)}
+              disabled={activeSeat !== s.seat}
+              title={
+                activeSeat === s.seat
+                  ? `Play ${s.name}'s turn now`
+                  : `${s.name} does not hold the gun`
+              }
+            >
+              PLAY
+            </button>
           </li>
         ))}
       </ul>
 
+      {/* Reasoning is deliberately not rendered — agents play fast and write no
+          thoughts. A single status line is all the table needs. */}
       {activity && (
         <div className="dock-think">
           <p className="dock-think-head">
-            {activity.name} · {activity.source === 'fallback' ? 'LOCAL' : 'THINKING'}
+            {activity.name} · {activity.source === 'fallback' ? 'LOCAL' : 'PLAYING'}
           </p>
-          {activity.thoughts.length === 0 ? (
-            <p className="dock-wait">waiting for the agent…</p>
-          ) : (
-            <ul className="thoughts-list">
-              {activity.thoughts.map((t, i) => (
-                <li key={i} style={{ animationDelay: `${i * 160}ms` }}>
-                  {t}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
 

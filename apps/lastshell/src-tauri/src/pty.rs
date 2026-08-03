@@ -99,6 +99,13 @@ pub fn pty_open(
         launch.push(' ');
         launch.push_str(flag);
     }
+    // Fastest model by default: a table where every turn is a slow reasoning
+    // round-trip is not playable, and the decisions here are quick tactical
+    // calls, not deep thought.
+    if let Some(flag) = kind.fast_model_flag() {
+        launch.push(' ');
+        launch.push_str(flag);
+    }
     if let Some(prompt) = kickoff.as_deref().filter(|p| !p.trim().is_empty()) {
         launch.push(' ');
         launch.push_str(&shell_quote(prompt));

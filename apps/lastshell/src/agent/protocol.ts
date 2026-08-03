@@ -72,6 +72,8 @@ export interface GameOutcome {
 export interface LegalAction {
   action: 'FIRE' | 'USE_ITEM';
   target?: number;
+  /** second target — only present for split-shell shots */
+  target2?: number;
   item?: Item;
   label: string;
 }
@@ -82,6 +84,8 @@ export interface MovePayload {
   seat: number;
   action: 'FIRE' | 'USE_ITEM';
   target?: number;
+  /** second target — required when a split shell is armed */
+  target2?: number;
   item?: Item;
   thoughts?: string[];
   confidence?: number;
@@ -103,12 +107,47 @@ export function legalActionsFor(state: GameState, seatId: number): LegalAction[]
     });
   }
 
+  if (state.splitActive) {
+    // With a split armed, every ordered pair of distinct live seats is also
+    // legal. The FIRST of the pair receives the gun (the second is collateral),
+    // so (a,b) and (b,a) are genuinely different moves and both are listed.
+    // Single-target shots above stay legal — the split is simply wasted.
+    const alive = state.players.filter((p) => p.alive);
+    for (const a of alive) {
+      for (const b of alive) {
+        if (a.id === b.id) continue;
+        out.push({
+          action: 'FIRE',
+          target: a.id,
+          target2: b.id,
+          label: `SPLIT FIRE at seat ${a.id} (${a.name}) + seat ${b.id} (${b.name})`,
+        });
+      }
+    }
+  }
+
   const seen = new Set<Item>();
   for (const item of me.items) {
     if (seen.has(item)) continue;
     seen.add(item);
     if (item === 'saw' && state.sawActive) continue;
     if (item === 'life' && me.lives >= 3) continue;
+    if (item === 'split') {
+      // matches the reducer's guards: no stacking, and two other live targets
+      if (state.splitActive) continue;
+      if (state.players.filter((p) => p.alive && p.id !== seatId).length < 2) continue;
+    }
+    if (item === 'golden') {
+      // Always usable when held. Spell out the effect so the agent doesn't have
+      // to infer it from the item name.
+      const hits = state.players.filter((p) => p.alive && p.id !== seatId).length;
+      out.push({
+        action: 'USE_ITEM',
+        item: 'golden',
+        label: `USE golden bullet — 2 lives off all ${hits} other player${hits === 1 ? '' : 's'}`,
+      });
+      continue;
+    }
     if (item === 'cuffs') {
       for (const p of state.players) {
         if (!p.alive || p.id === seatId || p.cuffedBy !== null) continue;
@@ -242,7 +281,7 @@ export function validateMove(
 
   const action: Action =
     m.action === 'FIRE'
-      ? { type: 'FIRE', targetId: m.target ?? m.seat }
+      ? { type: 'FIRE', targetId: m.target ?? m.seat, targetId2: m.target2 }
       : { type: 'USE_ITEM', item: m.item as Item, targetId: m.target };
 
   if (m.action === 'USE_ITEM' && !m.item) {

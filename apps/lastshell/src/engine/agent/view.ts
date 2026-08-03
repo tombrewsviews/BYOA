@@ -24,6 +24,8 @@ export interface AgentOpponent {
 
 export interface AgentSelf extends AgentOpponent {
   tier: Tier;
+  /** blank self-shots so far; GOLDEN_BLANKS_REQUIRED of them earn a golden bullet */
+  blankSelfShots: number;
 }
 
 export interface AgentView {
@@ -34,6 +36,8 @@ export interface AgentView {
   spentShells: Shell[]; // revealed in fired order
   peekedShell: Shell | null; // only if THIS agent peeked the current chamber
   sawActive: boolean;
+  /** a split shell is armed: the next shot hits two targets */
+  splitActive: boolean;
   round: number;
 }
 
@@ -57,7 +61,7 @@ export function toAgentView(state: GameState, agentId: number): AgentView {
   const me = state.players.find((p) => p.id === agentId);
   if (!me) throw new Error(`toAgentView: no such player ${agentId}`);
   return {
-    self: { ...toOpponent(me), tier: me.tier ?? 'steady' },
+    self: { ...toOpponent(me), tier: me.tier ?? 'steady', blankSelfShots: me.blankSelfShots },
     opponents: state.players.filter((p) => p.id !== agentId).map(toOpponent),
     shellsRemaining: state.shellQueue.length,
     composition: { ...state.roundComposition },
@@ -65,6 +69,7 @@ export function toAgentView(state: GameState, agentId: number): AgentView {
     // the peek belongs to whoever is holding the gun; only surface it to them
     peekedShell: state.activePlayerId === agentId ? state.peekedShell : null,
     sawActive: state.sawActive,
+    splitActive: state.splitActive,
     round: state.round,
   };
 }
