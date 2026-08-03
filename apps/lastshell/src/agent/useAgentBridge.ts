@@ -16,6 +16,7 @@ import { toAgentView } from '../engine/agent/view';
 import { isTauri } from '../runtime';
 import {
   buildStatePayload,
+  tickLine,
   validateMove,
   type AgentSeat,
   type MovePayload,
@@ -75,6 +76,13 @@ export function useAgentBridge({
     agentSeats.some((s) => s.seat === active.id);
 
   /**
+   * A game identity that changes when a NEW game starts. `round` restarts at 1
+   * and phase returns to 'turn', so neither alone distinguishes "new table" from
+   * "next round" — the seat roster does.
+   */
+  const gameKey = `${state.players.length}:${state.players.map((p) => p.name).join(',')}`;
+
+  /**
    * Everything mid-turn that changes what the agent should do next. An item use
    * keeps the gun, so these must trigger a republish or the agent is left
    * waiting on a tick that never advances.
@@ -109,10 +117,59 @@ export function useAgentBridge({
     [agentSeats, dispatch, note],
   );
 
+  /**
+   * Publish a terminal/idle state so a watching agent learns the table moved on.
+   *
+   * Without this the files froze on the last agent turn: `phase` stayed `"turn"`
+   * and the tick stayed `turn N seat M` forever, so an agent polling turn.txt
+   * correctly concluded it was still its move and waited on a signal the app had
+   * stopped sending. A game ending is every bit as much news as a turn starting.
+   */
+  const publishIdle = useCallback(
+    () => {
+      if (!isTauri() || !project) return;
+      const cur = stateRef.current;
+      const turn = ++turnRef.current;
+      const payload = buildStatePayload(cur, agentSeats, turn, log);
+      void (async () => {
+        const { invoke } = await import('@tauri-apps/api/core');
+        // Retract any move for the turn that just ended so a late write can't be
+        // mistaken for a fresh one when the next game starts.
+        await invoke('game_clear_moves', { project }).catch(() => {});
+        await invoke('game_write_state', {
+          project,
+          json: JSON.stringify(payload, null, 2),
+          tick: `${tickLine(payload)}\n`,
+        }).catch((e) => note(`write state failed: ${e}`));
+      })();
+    },
+    // `log` is read as a snapshot; it changes as a result of publishing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, agentSeats, note],
+  );
+
+  // Announce game over exactly once per finished game, whoever won and whether
+  // or not an agent held the gun at the end.
+  useEffect(() => {
+    if (!enabled || state.phase !== 'gameOver') return;
+    const winner = state.players.find((p) => p.id === state.winnerId);
+    publishIdle();
+    note(`game over — ${winner ? `${winner.name} wins` : 'no winner'}`);
+    setActivity(null);
+    // Keyed on the finished game's identity so a rematch re-announces.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, state.phase, state.winnerId, gameKey]);
+
   // Publish state + arm the timeout whenever an agent seat gets the gun.
   useEffect(() => {
     if (!isAgentTurn || !active) {
-      if (!isAgentTurn) setActivity(null);
+      // Clear the panel, and if the game is still live tell the agent it is now
+      // a human's turn (awaitingSeat: null) rather than leaving a stale tick.
+      // gameOver is handled by its own effect, which also names the winner.
+      if (!isAgentTurn) {
+        setActivity(null);
+        if (enabled && state.phase === 'turn') publishIdle();
+      }
       return;
     }
     let cancelled = false;
@@ -136,12 +193,12 @@ export function useAgentBridge({
         // clear any stale move before advertising the new turn
         await invoke('game_clear_moves', { project }).catch(() => {});
         // The tick line is what a watching agent blocks on; keep it terse and
-        // greppable. Written after the state file (see game.rs).
-        const tick = `turn ${turn} seat ${payload.awaitingSeat} ${payload.awaitingPersona?.name ?? ''}\n`;
+        // greppable. Derived from the payload so the two can't disagree. Written
+        // after the state file (see game.rs).
         await invoke('game_write_state', {
           project,
           json: JSON.stringify(payload, null, 2),
-          tick,
+          tick: `${tickLine(payload)}\n`,
         }).catch((e) => note(`write state failed: ${e}`));
       })();
     } else {
@@ -167,8 +224,18 @@ export function useAgentBridge({
     // here: without them the tick never advances after a USE_ITEM and an agent
     // watching turn.txt waits forever for a signal that never comes.
     // `log` is intentionally omitted: it changes as a result of this effect.
+    // gameKey is in here so a rematch republishes even if the new game happens to
+    // open on the same seat and turn number as the last one ended on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAgentTurn, state.activePlayerId, state.spentShells.length, agentStateKey, project]);
+  }, [
+    isAgentTurn,
+    state.phase,
+    state.activePlayerId,
+    state.spentShells.length,
+    agentStateKey,
+    gameKey,
+    project,
+  ]);
 
   // React to the agent writing moves.json.
   useEffect(() => {

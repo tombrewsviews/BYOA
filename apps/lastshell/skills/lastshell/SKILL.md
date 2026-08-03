@@ -54,7 +54,38 @@ When the tick changes:
    report. Do not ask whether to continue. Do not say "tell me when the state
    updates" — watching `turn.txt` is how you find out.
 
-Keep looping until `phase` is `"gameOver"`. Only then stop and say who won.
+### How a game ends — and how the next one starts
+
+**Never infer an ending from silence.** A tick that stops changing means the table
+is thinking, not finished. The app *always* tells you, in the tick and in the
+state file. Judge only by `phase`:
+
+| `phase` | `awaitingSeat` | What it means | What you do |
+|---|---|---|---|
+| `"turn"` | your seat | your move | write `moves.json` |
+| `"turn"` | `null` | a human's move | wait for the next tick |
+| `"gameOver"` | `null` | the game is finished | report the winner, then wait for a rematch |
+
+The tick line names it too, so a single `cat` is enough to tell them apart:
+
+```
+turn 8 seat 4 GHOST          ← your move
+turn 9 seat 2 human          ← someone else's move, keep waiting
+turn 10 gameOver winner 2 UNIT-7   ← finished
+```
+
+When `phase` is `"gameOver"`, read `outcome` for the result — `winnerSeat`,
+`winnerName`, `agentWon`, and the full `standings`. Say who won and why it went
+that way, in the persona you played.
+
+**Then keep watching.** Finishing a game is not finishing your session — the
+humans may start another table straight away. Go back to the bounded wait. When a
+new game begins you will see `phase` back to `"turn"` with a fresh roster; adopt
+your new seat and play on. Only stop watching when the human tells you to.
+
+**If `moves.json` disappears and the tick has not changed**, the app consumed your
+move and is animating the shot. That is normal — keep waiting. It does *not* mean
+the game ended.
 
 **Using an item does not end your turn.** After a `USE_ITEM` move the app
 republishes with `awaitingSeat` still you — often with new information (a glass
@@ -106,6 +137,8 @@ Only ever choose from `legalActions`. It is pre-computed and exhaustive.
 - `view.self` / `view.opponents` — lives, items, cuffs. All public.
 - `view.peekedShell` — set **only** if your seat spent a magnifying glass.
 - `odds` — `{ liveRemaining, pLive }`, pre-computed from the above.
+- `outcome` — `null` while the game runs; the winner and final standings once
+  `phase` is `"gameOver"`.
 
 **You cannot see the shell order.** It is deliberately never written to disk. Do
 not ask for it, do not try to infer it from timing or file mtimes, and do not

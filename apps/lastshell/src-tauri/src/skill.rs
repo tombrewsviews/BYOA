@@ -126,6 +126,18 @@ mod tests {
     }
 
     #[test]
+    fn skill_md_teaches_the_agent_how_a_game_ends() {
+        // Regression: the agent kept waiting after the game was over because it
+        // had no documented way to tell "finished" from "still my turn".
+        assert!(SKILL_ROUTING.contains("gameOver"));
+        assert!(SKILL_ROUTING.contains("outcome"));
+        // it must be told to keep watching for the next table, not exit
+        assert!(SKILL_ROUTING.contains("rematch"));
+        // and that a vanished moves.json is not an ending
+        assert!(SKILL_ROUTING.contains("moves.json` disappears"));
+    }
+
+    #[test]
     fn claude_md_warns_against_moving_for_humans() {
         assert!(CLAUDE_MD.contains("never") || CLAUDE_MD.contains("Never"));
         assert!(CLAUDE_MD.contains("awaitingSeat"));

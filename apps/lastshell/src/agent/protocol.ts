@@ -34,6 +34,12 @@ export interface StatePayload {
   round: number;
   /** whose move the app is waiting for; null when it's a human's turn */
   awaitingSeat: number | null;
+  /**
+   * The seat holding the gun, agent or human. Unlike `awaitingSeat` this is set
+   * on a human's turn too, so the agent can see the table is progressing rather
+   * than guess from an unchanging tick.
+   */
+  activeSeat: number | null;
   /** the persona this seat should play as */
   awaitingPersona: AgentSeat | null;
   /** every agent seat, so the skill knows who it speaks for */
@@ -44,6 +50,22 @@ export interface StatePayload {
   legalActions: LegalAction[];
   /** append-only log of what has happened, newest last */
   log: string[];
+  /**
+   * Set only when `phase` is `"gameOver"`. Present so the agent learns the
+   * outcome from the same file it plays through, rather than inferring an ending
+   * from a tick that stopped changing.
+   */
+  outcome: GameOutcome | null;
+}
+
+/** Who won, once the table is finished. */
+export interface GameOutcome {
+  winnerSeat: number | null;
+  winnerName: string | null;
+  /** true when the winning seat is one the agent was playing */
+  agentWon: boolean;
+  /** every seat's final standing, in seat order */
+  standings: { seat: number; name: string; lives: number; alive: boolean }[];
 }
 
 /** A move the agent is allowed to make, spelled out so it needn't guess. */
@@ -116,18 +138,53 @@ export function buildStatePayload(
     state.phase === 'turn' && !!active && agentSeats.some((s) => s.seat === active.id);
   const awaitingSeat = isAgentTurn ? active!.id : null;
   const view = awaitingSeat !== null ? toAgentView(state, awaitingSeat) : null;
+  const winner = state.players.find((p) => p.id === state.winnerId) ?? null;
   return {
     turn,
     phase: state.phase,
     round: state.round,
     awaitingSeat,
+    activeSeat: state.phase === 'gameOver' ? null : (active?.id ?? null),
     awaitingPersona: agentSeats.find((s) => s.seat === awaitingSeat) ?? null,
     agentSeats,
     view,
     odds: view ? { liveRemaining: liveRemaining(view), pLive: pLive(view) } : null,
     legalActions: awaitingSeat !== null ? legalActionsFor(state, awaitingSeat) : [],
     log: log.slice(-40),
+    outcome:
+      state.phase === 'gameOver'
+        ? {
+            winnerSeat: state.winnerId,
+            winnerName: winner?.name ?? null,
+            agentWon: agentSeats.some((s) => s.seat === state.winnerId),
+            standings: state.players.map((p) => ({
+              seat: p.id,
+              name: p.name,
+              lives: p.lives,
+              alive: p.alive,
+            })),
+          }
+        : null,
   };
+}
+
+/**
+ * The one line the agent blocks on. It must differ whenever the agent's correct
+ * next action differs, and must never advertise a turn that isn't happening.
+ *
+ * Derived from the payload rather than passed in, so the tick and the state file
+ * cannot disagree — they used to, which is how a finished game kept announcing
+ * `seat 4` and the agent kept waiting for a move it already made.
+ */
+export function tickLine(payload: StatePayload): string {
+  if (payload.phase === 'gameOver') {
+    const o = payload.outcome;
+    return `turn ${payload.turn} gameOver winner ${o?.winnerSeat ?? 'none'} ${o?.winnerName ?? ''}`.trimEnd();
+  }
+  if (payload.awaitingSeat === null) {
+    return `turn ${payload.turn} seat ${payload.activeSeat ?? '-'} human`;
+  }
+  return `turn ${payload.turn} seat ${payload.awaitingSeat} ${payload.awaitingPersona?.name ?? ''}`.trimEnd();
 }
 
 export type MoveRejection =
