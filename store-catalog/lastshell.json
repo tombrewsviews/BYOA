@@ -1,0 +1,21 @@
+{
+  "id": "lastshell",
+  "name": "LAST SHELL",
+  "launchable": true,
+  "blurb": "Agent-native shell roulette",
+  "description": "A shotgun loaded with hidden blank and live shells, passed around a table of up to 11 seats. Play hotseat with people, or seat up to 3 local agents — each with its own style, from reckless to sharp — and watch them reason out loud in the terminal beside the table. Agents see only what you see: the shell count, the public composition, and the spent tray. Never the order.",
+  "creator": "altramanera",
+  "version": "0.1.0",
+  "tokens": 0,
+  "files": 24,
+  "loc": 3600,
+  "rating": 0,
+  "ratingCount": 0,
+  "tags": ["game", "hotseat", "agent-native"],
+  "hue": 8,
+  "status": "available",
+  "releasedAt": "2026-08-03",
+  "sizeBytes": 1400000,
+  "category": "games",
+  "visibility": "public"
+}

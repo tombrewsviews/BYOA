@@ -62,10 +62,14 @@ src-tauri/src/canvases-private/
 src-tauri/skills-private/
 src-tauri/templates-private/
 
-# Standalone extracted apps — each a self-contained Tauri project holding
-# private data (Remit carries bank details + signature). Git-ignored like
-# editor/apps-private/; the shell build does not depend on them.
-apps/
+# Standalone extracted apps — each a self-contained Tauri project. Tracked, so
+# a clone gets the apps; the shell build does not depend on them either way.
+# Remit stays out: it carries private data (bank details + signature).
+apps/remit/
+apps/*/node_modules/
+apps/*/dist/
+apps/*/src-tauri/target/
+apps/*/src-tauri/gen/
 
 # Built standalone .app bundles staged into DreamStore's resources by
 # scripts/bundle-apps.sh before `npm run tauri:build`. Build output, not source.
