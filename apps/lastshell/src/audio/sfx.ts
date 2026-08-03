@@ -229,6 +229,32 @@ export const sfx = {
     });
   },
 
+  /**
+   * Selecting a powerup: a "charging up" sound — something spooling to ready.
+   *
+   * Built as a steady rise rather than a one-shot hit: a low bed sliding up an
+   * octave, a stepped arpeggio climbing over it (the "spooling" tick), a filtered
+   * noise swell, and a soft chime at the top to mark completion. Same shape as a
+   * progress bar filling, which is what a powerup arming should feel like.
+   */
+  powerup(): void {
+    withCtx((ac, t) => {
+      // low bed rising an octave — the load itself
+      tone(ac, t, 130, 0.5, { type: 'triangle', gain: 0.16, slideTo: 260 });
+      tone(ac, t, 196, 0.5, { type: 'sine', gain: 0.08, slideTo: 392 });
+      // stepped climb: six rungs, each a little louder — the spool ticking up
+      const steps = [330, 392, 440, 523, 587, 659];
+      steps.forEach((f, i) => {
+        tone(ac, t, f, 0.1, { type: 'square', gain: 0.05 + i * 0.012, at: i * 0.065 });
+      });
+      // air swelling behind it
+      noise(ac, t, 0.42, { filter: 'bandpass', freq: 1800, gain: 0.07 });
+      // ready chime at the top
+      tone(ac, t, 880, 0.28, { type: 'sine', gain: 0.13, at: 0.42 });
+      tone(ac, t, 1318.5, 0.22, { type: 'sine', gain: 0.07, at: 0.45 });
+    });
+  },
+
   /** Handcuffs: two heavy clanks and a ratchet zip. */
   cuff(): void {
     withCtx((ac, t) => {

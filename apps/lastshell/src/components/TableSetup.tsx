@@ -22,22 +22,40 @@ const TIER_BLURB: Record<Tier, string> = {
 };
 
 export function TableSetup({
-  prevNames,
+  prevSeats,
   onStart,
 }: {
-  prevNames: string[];
+  /**
+   * The seats from the game just played, so a restart comes back to the same
+   * table. Carries `kind` and `tier` — passing bare names would restore every
+   * agent as a human, which is exactly the bug this replaced.
+   */
+  prevSeats: SeatConfig[];
   onStart: (seats: SeatConfig[], agentCli: string) => void;
 }) {
+  const prevHumans = prevSeats.filter((s) => s.kind === 'human');
+  const prevAgents = prevSeats.filter((s) => s.kind === 'agent');
+
   const [clis, setClis] = useState<AgentCli[]>([]);
   const [cli, setCli] = useState('claude');
-  const [withAgents, setWithAgents] = useState(false);
-  const [humans, setHumans] = useState(() =>
-    Math.min(Math.max(prevNames.length || 2, MIN_PLAYERS), MAX_HUMANS),
+  const [withAgents, setWithAgents] = useState(prevAgents.length > 0);
+  const [humans, setHumans] = useState(() => {
+    // A single human is legal when agents fill the table, so don't floor at
+    // MIN_PLAYERS here — that turned a restored 1-human/3-agent table into 5
+    // seats. The `minHumans` clamp below applies the real rule.
+    const floor = prevAgents.length > 0 ? MIN_HUMANS : MIN_PLAYERS;
+    return Math.min(Math.max(prevHumans.length || floor, floor), MAX_HUMANS);
+  });
+  const [agentCount, setAgentCount] = useState(() =>
+    Math.min(Math.max(prevAgents.length, 1), MAX_AGENTS),
   );
-  const [agentCount, setAgentCount] = useState(1);
-  const [tiers, setTiers] = useState<Tier[]>(['steady', 'steady', 'sharp']);
+  const [tiers, setTiers] = useState<Tier[]>(() =>
+    // keep each returning agent's tier; pad with the defaults beyond that
+    ['steady', 'steady', 'sharp'].map((d, i) => prevAgents[i]?.tier ?? (d as Tier)),
+  );
+  // Only the HUMAN names go in these fields — agent names are fixed per seat.
   const [names, setNames] = useState<string[]>(() =>
-    DEFAULT_NAMES.map((d, i) => prevNames[i] ?? d),
+    DEFAULT_NAMES.map((d, i) => prevHumans[i]?.name ?? d),
   );
 
   // Which agent CLIs are on $PATH — the picker greys out the rest.
@@ -80,7 +98,8 @@ export function TableSetup({
         kind: 'human' as const,
       })),
       ...Array.from({ length: agents }, (_, i) => ({
-        name: AGENT_NAMES[i] ?? `AGENT ${i + 1}`,
+        // a returning agent keeps the name it played under
+        name: prevAgents[i]?.name ?? AGENT_NAMES[i] ?? `AGENT ${i + 1}`,
         kind: 'agent' as const,
         tier: tiers[i],
       })),

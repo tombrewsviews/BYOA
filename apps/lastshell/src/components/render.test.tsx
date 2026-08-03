@@ -248,6 +248,15 @@ describe('the title bar restart button', () => {
   });
 });
 
+describe('the powerup sound is one shared "charging" cue', () => {
+  it('exposes a powerup() sfx', async () => {
+    const { sfx } = await import('../audio/sfx');
+    expect(typeof sfx.powerup).toBe('function');
+    // safe to call with no AudioContext (jsdom-less env) — withCtx no-ops
+    expect(() => sfx.powerup()).not.toThrow();
+  });
+});
+
 describe('every item renders an icon and a name', () => {
   it('covers all five items, so none appears as a blank slot', () => {
     const all: Item[] = ['glass', 'saw', 'life', 'cuffs', 'split'];

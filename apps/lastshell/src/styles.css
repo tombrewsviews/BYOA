@@ -283,7 +283,10 @@ button {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  /* Centre the seats as a GROUP. `space-between` pushed the top row to the
+     ceiling and dumped all the slack into one gap, so on a tall window the
+     table sat high with a large dead band underneath. */
+  justify-content: center;
   gap: 10px;
   width: min(560px, 100%);
   margin: 0 auto;
@@ -812,6 +815,19 @@ button {
 .fire-btn {
   width: 100%;
   min-height: 58px;
+  /* Always the dock's full width, whatever the label says. A long target pair
+     truncates with an ellipsis rather than widening or wrapping the button.
+     min-width:0 is required — a flex item won't shrink past its content
+     otherwise, so text-overflow would never engage. */
+  min-width: 0;
+  /* border-box so the horizontal padding stays INSIDE the 100% width — without
+     it the padding is added on and the button overflows its dock by 32px, or
+     falls short once a flex parent shrinks it. */
+  box-sizing: border-box;
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-display);
   font-size: clamp(18px, 5.4vw, 24px);
   letter-spacing: 2px;
@@ -1918,12 +1934,11 @@ button {
 }
 
 /* the table fills the left pane rather than the viewport */
+/* Both screens fill the pane so their own `justify-content: center` has slack to
+   work with. `min-height: auto` collapsed them to content height, which left the
+   content pinned to the top of a tall window with dead space underneath. */
 .shell-main .game,
 .shell-main .setup {
-  min-height: auto;
-}
-
-.shell-main .game {
   min-height: 100%;
 }
 
@@ -1937,7 +1952,9 @@ button {
    horizontally and stop it stretching rows to fill 820px of height. */
 .shell-main .table {
   width: min(720px, 100%);
-  justify-content: flex-start;
+  /* Centre the seats in the pane. This used to be flex-start, which pinned the
+     table to the top of a tall window and left a large dead band beneath it. */
+  justify-content: center;
   gap: 18px;
   padding-top: 10px;
 }
@@ -2151,18 +2168,24 @@ button {
 
 /* ── Split shell ─────────────────────────────────────────────────────────── */
 
-/* The fire button plus its "pick a second target" hint, stacked. */
+/* The fire button plus its "pick a second target" hint, stacked.
+   `align-items: stretch` (not center) so the button keeps the dock's full width
+   — centring made it shrink-wrap its label, so a long "SPLIT FIRE AT A + B"
+   rendered as a narrow pill while a short "FIRE AT ME" was narrower still. */
 .fire-stack {
+  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 6px;
+  min-width: 0; /* let the button shrink below its text width so ellipsis works */
 }
 
 .fire-hint.sub {
   font-size: 11px;
   opacity: 0.75;
   margin: 0;
+  text-align: center;
 }
 
 /* ── Golden bullet ───────────────────────────────────────────────────────── */

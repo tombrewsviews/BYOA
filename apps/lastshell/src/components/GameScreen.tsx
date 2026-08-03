@@ -149,26 +149,24 @@ export function GameScreen({
 
   const useItem = (item: Item) => {
     if (!isTurn) return;
+    // Every powerup selection shares one "charging up" cue — the item's own
+    // character comes from the stamp and the visuals, not a separate sound.
+    sfx.powerup();
     if (item === 'cuffs') {
       setCuffMode(true);
       setTargetIds([]);
       return;
     }
     if (item === 'glass') {
-      sfx.peek();
       setPeekOpen(true);
     } else if (item === 'saw') {
-      sfx.saw();
       pushStamp('🪚', 'SAWED OFF — 2 DMG');
     } else if (item === 'split') {
-      sfx.saw();
       pushStamp('🔀', 'SPLIT SHELL — PICK TWO');
       setTargetIds([]); // the old single aim no longer applies
     } else if (item === 'golden') {
-      sfx.shot();
       pushStamp('🥇', 'GOLDEN BULLET — ALL LOSE 2');
     } else {
-      sfx.heal();
       pushStamp('❤️', '+1 LIFE');
       setHealFx((f) => ({ id: state.activePlayerId, k: (f?.k ?? 0) + 1 }));
     }
@@ -194,6 +192,7 @@ export function GameScreen({
   const targetLabel = targetIds
     .map((id) => (id === state.activePlayerId ? 'YOURSELF' : (nameOf(id) ?? '').toUpperCase()))
     .join(' + ');
+  const fireLabel = `${state.splitActive && targetIds.length === 2 ? 'SPLIT FIRE AT' : 'FIRE AT'} ${targetLabel}`;
 
   const cuffTargetAvailable = state.players.some(
     (p) => p.alive && p.id !== state.activePlayerId && p.cuffedBy === null,
@@ -307,9 +306,11 @@ export function GameScreen({
               </div>
             ) : isTurn && targetIds.length > 0 ? (
               <div className="fire-stack">
-                <button className="fire-btn" onClick={fire}>
-                  {state.splitActive && targetIds.length === 2 ? 'SPLIT FIRE AT ' : 'FIRE AT '}
-                  {targetLabel}
+                {/* One string, not two text nodes — the label has to be a single
+                    inline flow for text-overflow: ellipsis to engage. `title`
+                    carries the full text for whatever gets truncated. */}
+                <button className="fire-btn" onClick={fire} title={fireLabel}>
+                  {fireLabel}
                 </button>
                 {/* Firing one target with a split armed is legal but wastes it —
                     say so rather than letting the shell vanish silently. */}

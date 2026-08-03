@@ -126,7 +126,14 @@ export default function App() {
       <div className="shell">
       <main className="shell-main">
         {state.phase === 'setup' ? (
-          <TableSetup prevNames={state.players.map((p) => p.name)} onStart={start} />
+          <TableSetup
+            prevSeats={state.players.map((p) => ({
+              name: p.name,
+              kind: p.kind,
+              tier: p.tier,
+            }))}
+            onStart={start}
+          />
         ) : (
           <GameScreen state={state} dispatch={dispatch} agentActivity={activity} />
         )}
