@@ -91,12 +91,51 @@ pub struct AgentInfo {
     pub path: Option<String>,
 }
 
+/// Where CLIs land when installed by the usual means. A GUI app launched from
+/// Finder inherits almost no `$PATH` (`/usr/bin:/bin` and little else), so
+/// walking only `$PATH` reports every agent as missing even when they are all
+/// installed — which is exactly what happened. These are searched in addition.
+fn extra_search_dirs() -> Vec<std::path::PathBuf> {
+    let home = dirs::home_dir();
+    let mut dirs_out: Vec<std::path::PathBuf> = vec![
+        "/opt/homebrew/bin".into(),
+        "/usr/local/bin".into(),
+        "/opt/local/bin".into(),
+    ];
+    if let Some(h) = home {
+        for rel in [
+            ".local/bin",           // claude's own installer, pipx, uv
+            ".bun/bin",             // bun global
+            ".cargo/bin",           // cargo install
+            ".deno/bin",            // deno
+            ".volta/bin",           // volta
+            "Library/pnpm",         // pnpm global
+            ".npm-global/bin",      // npm prefix override
+            ".yarn/bin",            // yarn global
+            ".nvm/current/bin",     // nvm's stable symlink, when present
+        ] {
+            dirs_out.push(h.join(rel));
+        }
+    }
+    dirs_out
+}
+
+/// Absolute path to an agent's binary, if we can find one.
+pub fn resolve_binary(kind: AgentKind) -> Option<String> {
+    which(kind.binary())
+}
+
 fn which(binary: &str) -> Option<String> {
-    // PATH lookup. We don't shell out to `which` to avoid spawning a
-    // process per check; just walk $PATH and stat candidates.
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
+    // PATH lookup. We don't shell out to `which` to avoid spawning a process
+    // per check; just walk $PATH and stat candidates, then the well-known
+    // install dirs a Finder-launched app cannot see via $PATH.
+    let from_path = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for dir in from_path.into_iter().chain(extra_search_dirs()) {
         let candidate = dir.join(binary);
+        // is_file() follows symlinks, which is what we want: most of these are
+        // symlinks into a version-managed store.
         if candidate.is_file() {
             return Some(candidate.to_string_lossy().into_owned());
         }
@@ -120,4 +159,45 @@ pub fn detect_agents() -> Vec<AgentInfo> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn searches_beyond_path_so_a_finder_launch_still_finds_clis() {
+        // A GUI app launched from Finder gets a bare PATH; regression for the
+        // picker showing every agent as "not installed" while they were present.
+        let dirs = extra_search_dirs();
+        let home = dirs::home_dir().expect("home");
+        assert!(dirs.contains(&home.join(".local/bin")), "~/.local/bin must be searched");
+        assert!(dirs.iter().any(|d| d.ends_with("homebrew/bin")));
+        assert!(dirs.iter().any(|d| d.ends_with("Library/pnpm")));
+    }
+
+    #[test]
+    fn ids_round_trip_through_from_id() {
+        for k in AgentKind::ALL {
+            assert_eq!(AgentKind::from_id(k.id()).map(|x| x.id()), Some(k.id()));
+        }
+        assert!(AgentKind::from_id("nope").is_none());
+    }
+
+    #[test]
+    fn detect_returns_all_four_in_a_stable_order() {
+        let found = detect_agents();
+        assert_eq!(found.len(), 4);
+        assert_eq!(
+            found.iter().map(|a| a.id).collect::<Vec<_>>(),
+            vec!["claude", "codex", "gemini", "opencode"]
+        );
+        // every entry claiming installed must carry a resolvable path
+        for a in &found {
+            assert_eq!(a.installed, a.path.is_some());
+            if let Some(p) = &a.path {
+                assert!(std::path::Path::new(p).is_file(), "{p} should exist");
+            }
+        }
+    }
 }

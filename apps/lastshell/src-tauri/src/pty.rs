@@ -18,6 +18,13 @@ use uuid::Uuid;
 use crate::agents::AgentKind;
 use crate::AppState;
 
+/// Wrap a value in single quotes for /bin/sh, escaping embedded quotes. Used
+/// for both the binary path and the kickoff prompt so spaces and apostrophes
+/// survive as a single argument.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 pub struct PtySession {
     pub master: Mutex<Box<dyn MasterPty + Send>>,
     pub writer: Mutex<Box<dyn Write + Send>>,
@@ -81,16 +88,20 @@ pub fn pty_open(
         .as_deref()
         .and_then(AgentKind::from_id)
         .unwrap_or(AgentKind::Claude);
-    let mut launch = kind.binary().to_string();
+    // Launch by ABSOLUTE path when we can resolve one. A Finder-launched app
+    // inherits a bare $PATH, so a login shell might not find the binary by name
+    // even though it is installed (e.g. ~/.local/bin/claude). Fall back to the
+    // bare name so a $PATH-only install still works.
+    let mut launch = crate::agents::resolve_binary(kind)
+        .map(|p| shell_quote(&p))
+        .unwrap_or_else(|| kind.binary().to_string());
     if let Some(flag) = kind.skip_permissions_flag() {
         launch.push(' ');
         launch.push_str(flag);
     }
     if let Some(prompt) = kickoff.as_deref().filter(|p| !p.trim().is_empty()) {
-        // single-quote for the shell, escaping any embedded quotes
-        launch.push_str(" '");
-        launch.push_str(&prompt.replace('\'', "'\\''"));
-        launch.push('\'');
+        launch.push(' ');
+        launch.push_str(&shell_quote(prompt));
     }
     let agent_launch = format!("{launch} ; ");
     if shell_name == "zsh" {
