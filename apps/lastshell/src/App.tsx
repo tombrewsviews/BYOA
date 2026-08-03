@@ -13,6 +13,7 @@ import { GameScreen } from './components/GameScreen';
 import { TableSetup } from './components/TableSetup';
 import { Terminal } from './terminal';
 import { AgentDock } from './components/AgentDock';
+import { TitleBar } from './components/TitleBar';
 import { useAgentBridge } from './agent/useAgentBridge';
 import { kickoffPrompt } from './agent/kickoff';
 import type { AgentSeat } from './agent/protocol';
@@ -105,16 +106,14 @@ export default function App() {
   );
 
   return (
-    <div className={`shell${termOpen ? '' : ' term-collapsed'}`}>
+    <div className={`app-frame${termOpen ? '' : ' term-collapsed'}`}>
+      <TitleBar
+        round={state.phase === 'setup' ? null : state.round}
+        muted={muted}
+        onToggleMute={toggleMute}
+      />
+      <div className="shell">
       <main className="shell-main">
-        <button
-          className="mute-btn"
-          onClick={toggleMute}
-          aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-          aria-pressed={muted}
-        >
-          {muted ? '🔇' : '🔊'}
-        </button>
         {state.phase === 'setup' ? (
           <TableSetup prevNames={state.players.map((p) => p.name)} onStart={start} />
         ) : (
@@ -141,6 +140,7 @@ export default function App() {
           <Terminal project={session.project} agent={session.cli} kickoff={session.kickoff} />
         </div>
       </aside>
+      </div>
     </div>
   );
 }

@@ -2059,3 +2059,92 @@ button {
   text-transform: none;
   opacity: 0.8;
 }
+
+/* ── draggable title bar ────────────────────────────────────────────── */
+
+/* The window has no native title bar (overlay + hiddenTitle), so this strip is
+   the only way to move it. `data-tauri-drag-region` on the element does the
+   work; it must not be covered by anything that swallows pointer events. */
+.app-frame {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  background: #0a1712;
+  border-bottom: 1px solid var(--card-edge);
+}
+
+.titlebar-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--brass);
+}
+
+.titlebar-round {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--ink-dim);
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.titlebar-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--ink-dim);
+  border: 1px solid var(--card-edge);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.titlebar-btn:hover {
+  color: var(--ink);
+  border-color: var(--brass-lo);
+}
+
+/* The frame owns the height now; the panes fill what's left of it. */
+.app-frame .shell {
+  height: 100%;
+  min-height: 0;
+}
+
+.app-frame .shell-side {
+  height: 100%;
+}
+
+/* The title bar carries the app name and round, so the in-game HUD would just
+   repeat them — and its old padding was reserving space for traffic lights that
+   no longer overlap the content. */
+.app-frame .hud {
+  display: none;
+}
+
+/* nothing overlaps the traffic lights any more, so drop the reserved gutter */
+.app-frame .shell-main .setup {
+  padding-top: 28px;
+}
+
+/* the old floating mute button is replaced by the one in the title bar */
+.app-frame .mute-btn {
+  display: none;
+}
