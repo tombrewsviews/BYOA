@@ -30,6 +30,38 @@ If you want the long-form pitch, read the blog post:
 
 ---
 
+## See it running — Brainstorm Canvas
+
+**[⬇ Download for Mac](https://github.com/tombrewsviews/BYOA/releases/latest/download/BrainstormCanvas.dmg)** · Apple silicon · 91 MB · macOS 11+
+
+![Brainstorm Canvas — the agent panel on the left, the live Excalidraw board on the right](./docs/images/brainstorm-canvas.png)
+
+Brainstorm Canvas is a second reference app, and the quickest way to
+see the pattern rather than read about it. A live Excalidraw board
+sits in one window; your agent runs in the panel beside it. The agent
+*sees* what you draw (`describe_scene`, `get_canvas_screenshot`) and
+draws back (`create_element`, `update_element`) through an MCP server
+the app ships and configures.
+
+All four pillars are visible in the screenshot:
+
+- **Observe** — the agent reads the live scene, not a file on disk.
+- **Act** — it creates and edits elements as typed verbs.
+- **State** — one canonical board the app and agent both write to.
+- **Identity** — the terminal runs *your* Claude Code, with your
+  subscription. The app ships no key.
+
+Two modes: **Prompted**, where it acts when you ask, and
+**Continuous**, where it watches you draw and chimes in like a
+collaborator in the room. Write `@agent …` on the canvas and the note
+itself becomes the instruction.
+
+The source is in [`apps/brainstorm`](./apps/brainstorm). The build is
+unsigned, so on first launch macOS will warn — right-click the app and
+choose *Open* to get the "open anyway" prompt.
+
+---
+
 ## The pattern in 30 seconds
 
 A BYOA app is a desktop app with four properties:

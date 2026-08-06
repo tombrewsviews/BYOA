@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brainstorm Canvas</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    /* No scroll: the page is exactly one viewport, always. */
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(20px, 4vh, 44px);
+    padding: clamp(20px, 4vh, 48px);
+    background: #0a0a0a;
+    color: #fafafa;
+    font: 15px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    text-align: center;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(22px, 3.4vh, 32px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    margin: 8px 0 0;
+    max-width: 46ch;
+    font-size: clamp(13px, 1.9vh, 15px);
+    color: #a1a1aa;
+  }
+
+  /* The screenshot is the hero: it takes whatever height is left after the
+     heading and button, and never forces the page to scroll. */
+  .shot {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .shot img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 12px;
+    border: 1px solid #27272a;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  }
+
+  .download {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 30px;
+    border-radius: 10px;
+    background: #fafafa;
+    color: #0a0a0a;
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+  }
+
+  .download:hover { transform: translateY(-1px); opacity: 0.9; }
+  .download:active { transform: translateY(0); }
+
+  .meta {
+    margin: 0;
+    font-size: 12px;
+    color: #71717a;
+  }
+
+  footer { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+</style>
+</head>
+<body>
+
+  <header>
+    <h1>Brainstorm Canvas</h1>
+    <p>A live Excalidraw board with an AI collaborator that sees what you draw.</p>
+  </header>
+
+  <div class="shot">
+    <img src="screenshot.png" alt="Brainstorm Canvas — a board with the agent panel alongside it">
+  </div>
+
+  <footer>
+    <!--
+      Served from GitHub Releases so this page stays a few KB and the 91 MB
+      binary isn't in git. To test locally against a real build, drop one at
+      brainstorm-site/BrainstormCanvas.dmg and change the href to that name.
+    -->
+    <a class="download"
+       href="https://github.com/tombrewsviews/BYOA/releases/latest/download/BrainstormCanvas.dmg"
+       download>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download for Mac
+    </a>
+    <p class="meta">Apple silicon · 91 MB · macOS 11+</p>
+  </footer>
+
+</body>
+</html>

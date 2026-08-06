@@ -1,0 +1,4 @@
+# The DMG is served from GitHub Releases, not tracked here (91 MB).
+# Drop a build in locally to test the download button:
+#   cp .../bundle/dmg/*.dmg brainstorm-site/BrainstormCanvas.dmg
+*.dmg
