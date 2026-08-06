@@ -37,8 +37,10 @@
 
   p {
     margin: 8px 0 0;
-    max-width: 46ch;
-    font-size: clamp(13px, 1.9vh, 15px);
+    /* One line: no width cap, and don't let it break. On very narrow
+       viewports the font scales down rather than wrapping. */
+    white-space: nowrap;
+    font-size: clamp(11px, min(1.9vh, 2.6vw), 15px);
     color: #a1a1aa;
   }
 
