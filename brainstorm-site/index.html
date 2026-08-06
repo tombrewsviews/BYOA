@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Brainstorm Canvas</title>
+<link rel="icon" type="image/png" href="icon.png">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -26,6 +27,16 @@
     font: 15px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     text-align: center;
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* The app icon already carries its own rounded corners and transparent
+     margin (it's the macOS tile), so it needs no extra styling — just a size
+     that scales with the viewport like everything else. */
+  .appicon {
+    display: block;
+    margin: 0 auto 14px;
+    width: clamp(48px, 7vh, 72px);
+    height: auto;
   }
 
   h1 {
@@ -95,6 +106,7 @@
 <body>
 
   <header>
+    <img class="appicon" src="icon.png" alt="" width="72" height="72">
     <h1>Brainstorm Canvas</h1>
     <p>A live Excalidraw board with an AI collaborator that sees what you draw.</p>
   </header>
