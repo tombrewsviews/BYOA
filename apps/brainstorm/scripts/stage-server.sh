@@ -21,4 +21,10 @@ mkdir -p "$dest"
 cp -R "$src_pkg/dist" "$dest/dist"
 cp "$src_pkg/package.json" "$dest/package.json"
 (cd "$dest" && npm install --omit=dev --no-package-lock --silent)
+
+# Patch the frontend bundle so dropped images are uploaded to the server (and
+# so survive a board reopen). MUST run here: dist/ is re-copied from
+# node_modules above, which would revert any hand-edit.
+node "$app_root/scripts/patch-canvas-frontend.mjs" "$dest/dist/frontend/assets"
+
 echo "staged canvas-server -> $dest"
