@@ -57,6 +57,60 @@ pub struct SpawnArgs {
     pub cwd: String,
 }
 
+/// The PATH a login shell would give us, falling back to ours.
+///
+/// Asks the user's `$SHELL` for its interactive PATH (`-lic 'echo $PATH'`), so
+/// whatever they've set up in ~/.zshrc — nvm, mise, asdf, a custom prefix —
+/// is honoured rather than guessed at. The common install locations are
+/// appended as a safety net for a shell that fails or is unusually minimal.
+fn login_path() -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    if let Ok(out) = Command::new(&shell).args(["-lic", "echo $PATH"]).output() {
+        if out.status.success() {
+            if let Ok(p) = String::from_utf8(out.stdout) {
+                parts.extend(p.trim().split(':').filter(|s| !s.is_empty()).map(String::from));
+            }
+        }
+    }
+
+    parts.extend(std::env::var("PATH").unwrap_or_default().split(':').filter(|s| !s.is_empty()).map(String::from));
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = home.to_string_lossy().to_string();
+        parts.push(format!("{}/.local/bin", home));
+        parts.push(format!("{}/.claude/local", home));
+        parts.push(format!("{}/.bun/bin", home));
+    }
+    for p in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+        parts.push(p.to_string());
+    }
+
+    // Preserve order, drop duplicates.
+    let mut seen = std::collections::HashSet::new();
+    parts.retain(|p| seen.insert(p.clone()));
+    parts.join(":")
+}
+
+/// Turn a bare program name into an absolute path, searching `login_path()`.
+///
+/// Left untouched if it already contains a separator (an explicit path the
+/// user configured) or if nothing matches — in the latter case the spawn still
+/// fails, but with the original name in the error, which is clearer.
+fn resolve_program(cmd: &str) -> String {
+    if cmd.contains('/') {
+        return cmd.to_string();
+    }
+    for dir in login_path().split(':') {
+        let candidate = std::path::Path::new(dir).join(cmd);
+        if candidate.is_file() {
+            return candidate.to_string_lossy().to_string();
+        }
+    }
+    cmd.to_string()
+}
+
 /// Pump bytes from a single stream into a named Tauri event channel,
 /// coalescing within a tight window so floods don't drown the bus.
 /// `closed_event` is emitted when the stream ends — pass `None` for
@@ -131,7 +185,16 @@ pub fn agent_chat_run_turn(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<String, String> {
-    let mut cmd = Command::new(&spawn.cmd);
+    // Resolve the binary against the user's LOGIN shell PATH, not ours.
+    //
+    // A GUI-launched .app inherits a bare PATH from launchd
+    // (/usr/bin:/bin:/usr/sbin:/sbin) — it never sources ~/.zshrc. Agent CLIs
+    // are installed outside that set (claude lives in ~/.local/bin, homebrew in
+    // /opt/homebrew/bin), so a bare `Command::new("claude")` fails with
+    // "No such file or directory (os error 2)" even though it runs fine in the
+    // embedded Terminal, which spawns $SHELL and thus gets the full profile.
+    let resolved = resolve_program(&spawn.cmd);
+    let mut cmd = Command::new(&resolved);
     cmd.args(&spawn.args);
     cmd.current_dir(&spawn.cwd);
 
@@ -139,6 +202,9 @@ pub fn agent_chat_run_turn(
     for (k, v) in std::env::vars() {
         cmd.env(k, v);
     }
+    // Give the child the enriched PATH too, so anything IT shells out to
+    // (node, git, ripgrep) is findable for the same reason.
+    cmd.env("PATH", login_path());
     for (k, v) in &spawn.env {
         cmd.env(k, v);
     }
@@ -230,3 +296,50 @@ pub fn agent_chat_cancel(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_path_includes_common_install_dirs() {
+        let p = login_path();
+        // The fallbacks must always be present, even if the shell probe fails.
+        assert!(p.contains("/usr/bin"), "missing /usr/bin in: {}", p);
+        if std::env::var_os("HOME").is_some() {
+            assert!(p.contains(".local/bin"), "missing ~/.local/bin in: {}", p);
+        }
+    }
+
+    #[test]
+    fn login_path_has_no_duplicates() {
+        let p = login_path();
+        let parts: Vec<&str> = p.split(':').collect();
+        let mut seen = std::collections::HashSet::new();
+        for part in &parts {
+            assert!(seen.insert(*part), "duplicate PATH entry {:?} in: {}", part, p);
+        }
+    }
+
+    #[test]
+    fn resolve_program_leaves_explicit_paths_alone() {
+        assert_eq!(resolve_program("/usr/bin/env"), "/usr/bin/env");
+        assert_eq!(resolve_program("./local-agent"), "./local-agent");
+    }
+
+    #[test]
+    fn resolve_program_finds_a_real_binary() {
+        // `env` exists in /usr/bin on every unix; it must resolve absolutely.
+        let got = resolve_program("env");
+        assert!(got.starts_with('/'), "expected an absolute path, got {}", got);
+        assert!(got.ends_with("/env"), "expected .../env, got {}", got);
+    }
+
+    #[test]
+    fn resolve_program_returns_the_name_when_not_found() {
+        // Falling back to the bare name keeps the spawn error readable.
+        let name = "definitely-not-a-real-binary-xyz123";
+        assert_eq!(resolve_program(name), name);
+    }
+}
+
