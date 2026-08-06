@@ -1,0 +1,3 @@
+# The DMG is served from GitHub Releases — never upload the 91 MB binary here.
+# (.gitignore does NOT apply to Vercel deploys; this file is what excludes it.)
+*.dmg

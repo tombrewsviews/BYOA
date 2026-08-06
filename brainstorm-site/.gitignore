@@ -2,3 +2,5 @@
 # Drop a build in locally to test the download button:
 #   cp .../bundle/dmg/*.dmg brainstorm-site/BrainstormCanvas.dmg
 *.dmg
+.vercel
+.vercel
