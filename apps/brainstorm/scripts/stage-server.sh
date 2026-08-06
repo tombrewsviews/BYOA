@@ -21,8 +21,16 @@ mkdir -p "$dest"
 cp -R "$src_pkg/dist" "$dest/dist"
 cp "$src_pkg/package.json" "$dest/package.json"
 (cd "$dest" && npm install --omit=dev --no-package-lock --silent)
+
+# Both patches MUST run after every stage: dist/ is re-copied from node_modules
+# above, so anything applied by hand would silently disappear.
+
 # Upstream has no notion of the user's current selection, which the embedded
-# agent needs. Re-apply our selection patches to the freshly-copied dist —
-# this MUST run after every stage or the feature silently disappears.
+# agent needs.
 node "$app_root/scripts/patch-canvas-server.mjs" "$dest"
+
+# Upstream never POSTs dropped images to the server, so they were lost on
+# reopen (the element kept its fileId; the bytes were never saved).
+node "$app_root/scripts/patch-canvas-frontend.mjs" "$dest/dist/frontend/assets"
+
 echo "staged canvas-server -> $dest"
